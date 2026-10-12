@@ -5,6 +5,8 @@ rest of the application never touches ``yt_dlp`` directly.
 """
 from __future__ import annotations
 
+import re
+import shutil
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -51,6 +53,27 @@ def _pick_thumbnail(info: dict) -> Optional[str]:
         if t and 160 <= (t.get("width") or 0) <= 480:
             return t.get("url")
     return thumbs[-1].get("url") if thumbs[-1] else info.get("thumbnail")
+
+
+def _check_free_space(path: Path) -> None:
+    """Reject a download when the target filesystem is nearly full.
+
+    This is a coarse safety floor rather than a size estimate: we cannot know
+    the final download size up front. ``shutil.disk_usage`` failures are
+    ignored so an unusual filesystem never blocks a download.
+    """
+    minimum = settings.min_free_disk_mb * 1024 * 1024
+    probe = path if path.exists() else path.parent
+    try:
+        free = shutil.disk_usage(probe).free
+    except OSError:
+        return
+    if free < minimum:
+        raise DownloadError(
+            "Not enough disk space to start the download: "
+            f"{free // (1024 * 1024)} MB free, at least "
+            f"{settings.min_free_disk_mb} MB required. Free up space and retry."
+        )
 
 
 def _percent(d: dict) -> float:
@@ -176,6 +199,10 @@ def download_video(
 
     Returns a dict with ``id``, ``title``, ``filepath``, ``thumbnail``, ``ext``.
     """
+    if cancel and cancel():
+        raise DownloadCancelled()
+    _check_free_space(workdir)
+
     opts = _base_opts()
     opts["outtmpl"] = str(workdir / "%(id)s.%(ext)s")
     opts["format"] = _format_spec(fmt)
@@ -250,25 +277,92 @@ def get_playlist_entries(url: str) -> list[dict]:
     return [e for e in (info.get("entries") or []) if e]
 
 
+# Sensitive material that must never reach logs or API responses: URL
+# userinfo, HTTP auth/cookie headers, and credential-bearing query parameters.
+_URL_USERINFO_RE = re.compile(r"(https?://)[^/@\s]+@")
+_AUTH_HEADER_RE = re.compile(
+    r"(?i)\b(cookie|set-cookie|authorization|proxy-authorization)\s*:\s*[^\r\n]+"
+)
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)\b(cookie|authorization|auth|token|access_token|api_key|apikey|"
+    r"signature|sig|password|passwd|secret|session|key)[=:]([^&\s\"']+)"
+)
+
+_NETWORK_ERROR_PHRASES = (
+    "failed to resolve",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "getaddrinfo",
+    "connection refused",
+    "connection reset",
+    "connection aborted",
+    "network is unreachable",
+    "no route to host",
+    "timed out",
+    "timeout",
+    "ssl:",
+    "tls handshake",
+    "certificate_verify_failed",
+    "certificate verify failed",
+)
+
+
+def redact_sensitive(text: str) -> str:
+    """Strip credentials/cookies from a message before it is surfaced or logged."""
+    if not text:
+        return text
+    text = _URL_USERINFO_RE.sub(r"\1", text)
+    text = _AUTH_HEADER_RE.sub(lambda m: f"{m.group(1)}: ***", text)
+    return _SENSITIVE_QUERY_RE.sub(lambda m: f"{m.group(1)}=***", text)
+
+
 def friendly_error(exc: Exception) -> str:
+    """Translate a raw yt-dlp error into an actionable, human-readable message.
+
+    Matching is deliberately specific: a previous version tested for the bare
+    substring ``"age"`` (which also matches "language", "storage", "package"…)
+    and for a bare ``"403"`` (which also matches larger numbers), producing
+    misleading messages. We now match HTTP statuses on word boundaries and
+    age-restriction on explicit phrasing. Every returned message is passed
+    through :func:`redact_sensitive` so secrets never leak into logs.
+    """
     msg = str(exc)
     low = msg.lower()
-    if "403" in msg or "http error 403" in low:
+    if re.search(r"\b403\b", msg) or "forbidden" in low:
         return (
             "YouTube returned HTTP 403 (access denied). This is usually caused "
             "by bot detection, rate limiting, or missing authentication. See "
             "the README troubleshooting section for steps to resolve it."
         )
-    if "429" in msg or "http error 429" in low:
+    if re.search(r"\b429\b", msg):
         return "Rate limited (HTTP 429). Wait a while and try again."
+    if "no space left" in low or "enospc" in low or "disk quota exceeded" in low:
+        return (
+            "Not enough disk space to complete the download. "
+            "Free up space and try again."
+        )
     if "unsupported url" in low:
         return "Unsupported or invalid URL."
     if "ffmpeg" in low or "ffprobe" in low:
         return "FFmpeg is required for this operation but is unavailable."
+    if any(phrase in low for phrase in _NETWORK_ERROR_PHRASES):
+        return (
+            "Network error while contacting the site. Check your connection "
+            "and try again."
+        )
     if "video unavailable" in low or "this video is unavailable" in low:
         return "The video is unavailable (private, region-locked, or removed)."
-    if "sign in to confirm" in low or "age" in low:
+    if any(
+        phrase in low
+        for phrase in (
+            "sign in to confirm",
+            "confirm your age",
+            "age-restricted",
+            "age restricted",
+            "inappropriate for some users",
+        )
+    ):
         return "This video requires sign-in or age confirmation, which is not supported."
     if "login" in low and "cookie" in low:
         return "This content requires authentication; cookies are not configured."
-    return (msg or "Download failed.")[:500]
+    return redact_sensitive(msg or "Download failed.")[:500]
