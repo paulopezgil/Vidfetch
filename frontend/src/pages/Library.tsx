@@ -14,14 +14,13 @@ import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 
-type Tab = "all" | "files" | "playlists" | "video" | "audio";
+type Tab = "all" | "videos" | "audio" | "playlists";
 
 const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "Tot" },
-  { value: "files", label: "Fitxers" },
-  { value: "playlists", label: "Llistes" },
-  { value: "video", label: "Vídeo" },
+  { value: "videos", label: "Vídeos" },
   { value: "audio", label: "Àudio" },
+  { value: "playlists", label: "Llistes" },
 ];
 
 export default function Library() {
@@ -71,17 +70,21 @@ export default function Library() {
   const files = data?.files ?? [];
   const playlists = data?.playlists ?? [];
 
-  const visibleFiles = files.filter((f) => {
-    if (tab === "video") return f.media_type === "video";
-    if (tab === "audio") return f.media_type === "audio";
-    return tab === "all" || tab === "files";
-  });
-  const visiblePlaylists = playlists.filter(
-    () => tab === "all" || tab === "playlists",
-  );
+  // Files downloaded on their own (not part of a playlist). Playlist items are
+  // reachable through the playlists section / playlist detail view instead.
+  const individualFiles = files.filter((f) => !f.playlist_id);
+  const videoFiles = individualFiles.filter((f) => f.media_type === "video");
+  const audioFiles = individualFiles.filter((f) => f.media_type === "audio");
 
-  const showFiles = tab !== "playlists";
-  const showPlaylists = tab !== "files" && tab !== "video" && tab !== "audio";
+  const visibleVideos = tab === "all" || tab === "videos" ? videoFiles : [];
+  const visibleAudio = tab === "all" || tab === "audio" ? audioFiles : [];
+  const visiblePlaylists =
+    tab === "all" || tab === "playlists" ? playlists : [];
+
+  const isEmpty =
+    visibleVideos.length === 0 &&
+    visibleAudio.length === 0 &&
+    visiblePlaylists.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -104,7 +107,7 @@ export default function Library() {
             ))}
           </div>
 
-          {showPlaylists && visiblePlaylists.length > 0 ? (
+          {visiblePlaylists.length > 0 ? (
             <section className="space-y-2">
               {tab === "all" ? (
                 <h2 className="px-1 text-title-medium text-on-surface">
@@ -132,18 +135,18 @@ export default function Library() {
             </section>
           ) : null}
 
-          {showFiles && visibleFiles.length > 0 ? (
+          {visibleVideos.length > 0 ? (
             <section className="space-y-2">
               {tab === "all" ? (
                 <h2 className="px-1 text-title-medium text-on-surface">
-                  Fitxers
+                  Vídeos
                 </h2>
               ) : null}
               <Card
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visibleFiles.map((f) => (
+                {visibleVideos.map((f) => (
                   <FileRow
                     key={f.filename}
                     file={f}
@@ -160,9 +163,35 @@ export default function Library() {
             </section>
           ) : null}
 
-          {!error &&
-          visibleFiles.length === 0 &&
-          visiblePlaylists.length === 0 ? (
+          {visibleAudio.length > 0 ? (
+            <section className="space-y-2">
+              {tab === "all" ? (
+                <h2 className="px-1 text-title-medium text-on-surface">
+                  Àudio
+                </h2>
+              ) : null}
+              <Card
+                variant="outlined"
+                className="divide-y divide-outline-variant overflow-hidden"
+              >
+                {visibleAudio.map((f) => (
+                  <FileRow
+                    key={f.filename}
+                    file={f}
+                    onDelete={() =>
+                      setPendingDelete({
+                        kind: "file",
+                        id: f.filename,
+                        label: f.title,
+                      })
+                    }
+                  />
+                ))}
+              </Card>
+            </section>
+          ) : null}
+
+          {!error && isEmpty ? (
             <EmptyState
               icon="folder_open"
               title={tab === "all" ? "La biblioteca és buida" : "Aquí no hi ha res"}
