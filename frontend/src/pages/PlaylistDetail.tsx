@@ -214,32 +214,38 @@ export default function PlaylistDetail() {
             </div>
 
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              <Button
-                onClick={() =>
-                  startTask(
-                    {
-                      url: detail.url,
-                      operation_type: "playlist",
-                      format,
-                      embed_subs: embedSubs && format !== "mp3",
-                      playlist_id: detail.playlist_id,
-                    },
-                    null,
-                  )
-                }
-              >
-                <Icon name="download" className="text-[18px]" /> Descarrega la
-                llista de reproducció
-              </Button>
               {detail.downloaded_count > 0 ? (
+                // The playlist's downloads are packaged into a ZIP built on
+                // demand by the backend, so this single action downloads the
+                // whole playlist (including any items retried since last time).
                 <a
                   href={zipUrl(id)}
-                  className="inline-flex h-10 items-center gap-2 rounded-full bg-secondary-container px-6 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
+                  className="inline-flex h-10 select-none items-center justify-center gap-2 whitespace-nowrap rounded-full bg-primary px-6 text-label-large font-medium text-on-primary transition-[background-color,box-shadow] duration-200 hover:shadow-elevation-1 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                 >
-                  <Icon name="folder_zip" className="text-[18px]" /> Descarrega el
-                  ZIP
+                  <Icon name="download" className="text-[18px]" /> Descarrega la
+                  llista de reproducció
                 </a>
-              ) : null}
+              ) : (
+                // Nothing is downloaded yet, so there is no archive to build:
+                // start the playlist download instead.
+                <Button
+                  onClick={() =>
+                    startTask(
+                      {
+                        url: detail.url,
+                        operation_type: "playlist",
+                        format,
+                        embed_subs: embedSubs && format !== "mp3",
+                        playlist_id: detail.playlist_id,
+                      },
+                      null,
+                    )
+                  }
+                >
+                  <Icon name="download" className="text-[18px]" /> Descarrega la
+                  llista de reproducció
+                </Button>
+              )}
             </div>
           </div>
         </div>
