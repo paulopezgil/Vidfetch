@@ -46,10 +46,6 @@ class DownloadRequest(BaseModel):
         return validate_url(v)
 
 
-class RebuildZipRequest(BaseModel):
-    force: bool = False
-
-
 class TaskOut(BaseModel):
     task_id: str
     url: str
@@ -117,7 +113,7 @@ class PlaylistOut(BaseModel):
     thumbnail_url: Optional[str] = None
     item_count: int = 0
     total_size: int = 0
-    zip_path: str = ""
+    downloaded_count: int = 0
     status: str
     created_at: str
     updated_at: str
@@ -125,7 +121,6 @@ class PlaylistOut(BaseModel):
 
 class PlaylistDetailOut(PlaylistOut):
     items: list[PlaylistItemOut] = []
-    downloaded_count: int = 0
     failed_count: int = 0
 
 

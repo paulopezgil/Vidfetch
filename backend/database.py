@@ -361,8 +361,7 @@ def mark_interrupted_tasks() -> None:
             error = 'Interrupted by server restart.',
             completed_at = ?, updated_at = ?
         WHERE status IN (
-            'queued', 'fetching information', 'downloading', 'processing',
-            'packaging zip'
+            'queued', 'fetching information', 'downloading', 'processing'
         )
         """,
         (now, now),

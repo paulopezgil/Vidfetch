@@ -37,7 +37,7 @@ async def get_thumbnail(name: str) -> FileResponse:
 
 @router.get("/api/file/{filename}")
 async def download_file(filename: str) -> FileResponse:
-    """Stream a permitted output file as a download."""
+    """Stream a permitted output file as an attachment download."""
     path = library.resolve_file(filename)
     if path is None:
         raise HTTPException(status_code=404, detail="File not found.")
@@ -47,6 +47,25 @@ async def download_file(filename: str) -> FileResponse:
         media_type=media_type,
         filename=path.name,
         content_disposition_type="attachment",
+    )
+
+
+@router.get("/api/media/{filename}")
+async def serve_media(filename: str) -> FileResponse:
+    """Serve a permitted output file inline (e.g. for in-browser preview).
+
+    Uses the same traversal-safe resolution as ``/api/file`` and relies on
+    Starlette's ``FileResponse`` for HTTP Range support (206 responses).
+    """
+    path = library.resolve_file(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    media_type = _guess_type(path)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        content_disposition_type="inline",
     )
 
 
