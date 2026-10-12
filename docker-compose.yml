@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    container_name: yt-dlp-frontend
+    ports:
+      - "8000:8000"
+    environment:
+      # Persistent storage locations inside the container.
+      DOWNLOAD_DIR: /app/downloads
+      DATA_DIR: /app/data
+      # Resource limits and CORS (comma-separated origins, or "*").
+      MAX_CONCURRENT_DOWNLOADS: "2"
+      CORS_ORIGINS: "*"
+    volumes:
+      # Media files, ZIP archives, and thumbnails.
+      - ./downloads:/app/downloads
+      # SQLite database (task history + playlist metadata).
+      - ./data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 30s
