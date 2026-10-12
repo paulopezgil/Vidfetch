@@ -10,9 +10,7 @@ export default function NavigationDrawer() {
       className="hidden w-72 shrink-0 flex-col gap-1 border-r border-outline-variant bg-surface py-4 lg:flex"
     >
       <div className="mb-4 flex items-center gap-3 px-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-on-primary">
-          <Icon name="smart_display" filled className="text-[22px]" />
-        </div>
+        <img src="/favicon.svg" alt="" className="h-10 w-10" />
         <span className="text-title-large text-on-surface">Vidfetch</span>
       </div>
 

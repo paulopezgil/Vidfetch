@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Red Gradient -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF3B30"/>
+      <stop offset="50%" stop-color="#E02424"/>
+      <stop offset="100%" stop-color="#9B1C1C"/>
+    </linearGradient>
+
+    <!-- Symbol White/Silver Gradient -->
+    <linearGradient id="symbolGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F3F4F6"/>
+    </linearGradient>
+
+    <!-- Soft Drop Shadow -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- App Icon Base (Squircle) -->
+  <rect x="32" y="32" width="448" height="448" rx="105" fill="url(#bgGradient)"/>
+
+  <!-- Subtle Inner Lighting Overlay -->
+  <rect x="32" y="32" width="448" height="448" rx="105" fill="#FFFFFF" fill-opacity="0.06"/>
+
+  <!-- Logo Mark (Dynamic Hexagonal Lightning Pulse) -->
+  <path d="M 288 112 
+           L 176 272 
+           H 264 
+           L 224 400 
+           L 336 240 
+           H 248 
+           Z" 
+        fill="url(#symbolGradient)" 
+        filter="url(#dropShadow)"
+        stroke-linejoin="round"/>
+</svg>

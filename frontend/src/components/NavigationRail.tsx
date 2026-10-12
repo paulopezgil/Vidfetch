@@ -9,9 +9,7 @@ export default function NavigationRail() {
       aria-label="Navegació principal"
       className="hidden w-20 shrink-0 flex-col items-center gap-1 border-r border-outline-variant bg-surface py-4 md:flex lg:hidden"
     >
-      <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-on-primary">
-        <Icon name="smart_display" filled className="text-[22px]" />
-      </div>
+      <img src="/favicon.svg" alt="" className="mb-1 h-10 w-10" />
 
       {destinations.map((destination) => (
         <NavLink
