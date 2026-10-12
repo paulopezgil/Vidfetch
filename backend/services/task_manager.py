@@ -657,10 +657,10 @@ def _friendly(exc: Exception) -> str:
     import yt_dlp
 
     if isinstance(exc, ytdlp_service.DownloadError):
-        return str(exc)
+        return ytdlp_service.redact_sensitive(str(exc))
     if isinstance(exc, yt_dlp.utils.DownloadError):
         return ytdlp_service.friendly_error(exc)
-    return f"Download failed: {exc}"
+    return ytdlp_service.redact_sensitive(f"Download failed: {exc}")
 
 
 manager = TaskManager()

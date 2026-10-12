@@ -385,3 +385,28 @@ def test_playlist_total_size_ignores_stale_or_missing_files(env, monkeypatch):
     assert task.status == "completed"
     # 10 (existing a) + 10 (freshly written b), never the stale 999.
     assert database.get_playlist(pid)["total_size"] == 20
+
+
+# -- disk space guard ----------------------------------------------------- #
+
+class _FakeUsage:
+    def __init__(self, free: int):
+        self.free = free
+        self.total = free
+        self.used = 0
+
+
+def test_download_fails_fast_when_disk_full(env, monkeypatch):
+    monkeypatch.setattr(
+        ytdlp_service, "get_info",
+        lambda url: {"type": "video", "id": "v1", "title": "V", "thumbnail": None},
+    )
+    monkeypatch.setattr(ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(1))
+
+    tm = TaskManager()
+    task = _make_task(tm)
+    tm._execute(task)
+
+    assert task.status == "failed"
+    assert "disk space" in task.error.lower()
+    assert task.output_filename == ""
