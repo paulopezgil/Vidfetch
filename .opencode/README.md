@@ -11,8 +11,13 @@ These are repo-local OpenCode agents for the vidfetch project, discovered from
 
 ## Usage
 
-Open OpenCode in the relevant directory and select the agent (press `Ctrl+P` →
-agent, or the agent picker). Examples:
+Open OpenCode in the relevant directory and **select the agent** before (or
+during) the session:
+
+- `Ctrl+X` then `a` — list agents (`agent.list`); or
+- `Shift+Tab` — cycle to the next agent (`agent.cycle`).
+
+Examples:
 
 ```bash
 # Orchestrator (from the main checkout)
