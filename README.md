@@ -1,8 +1,8 @@
-# vidfetch — yt-dlp Web Frontend
+# Vidfetch
 
 A polished, desktop-first web application that provides a modern graphical
-interface for downloading individual videos and entire playlists with
-[`yt-dlp`](https://github.com/yt-dlp/yt-dlp).
+interface for downloading individual videos and entire playlists. Powered by
+[`yt-dlp`](https://github.com/yt-dlp/yt-dlp) as its download engine.
 
 Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
 (backend), shipped as a single **Docker** container.
@@ -202,4 +202,5 @@ docker-compose.yml       local orchestration + persistent volumes
 
 ## License
 
-Provided as-is for personal use. You are responsible for using it lawfully.
+Released under the [MIT License](LICENSE). Provided as-is; you are responsible
+for using it lawfully.

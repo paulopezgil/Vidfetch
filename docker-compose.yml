@@ -1,7 +1,9 @@
+name: vidfetch
+
 services:
   app:
     build: .
-    container_name: yt-dlp-frontend
+    container_name: vidfetch
     ports:
       - "8000:8000"
     environment:

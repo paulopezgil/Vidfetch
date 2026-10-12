@@ -21,13 +21,19 @@ boss: you delegate, review, and decide; the human makes product/design calls.
 
 ## Repo layout (discover it, don't trust stale paths)
 
-- Main checkout (this one): `~/Projects/yt-dlp-frontend` — holds `dev`.
-- Backend worktree: `~/Projects/yt-dlp-frontend-backend` — holds `dev-backend`.
-- Frontend worktree: `~/Projects/yt-dlp-frontend-frontend` — holds `dev-frontend`.
-- Always confirm current reality with:
-  - `git worktree list`
-  - `git branch -vv`
-  - `git log --oneline --graph --all -20`
+There are three checkouts of this one repository:
+
+- the **main checkout** (this one) — holds `dev`;
+- a **backend worktree** — a sibling directory, conventionally
+  `<main-checkout>-backend` — holds `dev-backend`;
+- a **frontend worktree** — a sibling directory, conventionally
+  `<main-checkout>-frontend` — holds `dev-frontend`.
+
+Always confirm the current reality with:
+
+- `git worktree list`
+- `git branch -vv`
+- `git log --oneline --graph --all -20`
 
 ## Branch & worktree model
 
@@ -35,8 +41,8 @@ boss: you delegate, review, and decide; the human makes product/design calls.
 | --- | --- | --- |
 | `main` | Production / releases. Tag releases here. | main checkout (only after final merge) |
 | `dev` | Integration branch. Everything lands here first. | main checkout |
-| `dev-backend` | Backend agent's branch. | `yt-dlp-frontend-backend` |
-| `dev-frontend` | Frontend agent's branch. | `yt-dlp-frontend-frontend` |
+| `dev-backend` | Backend agent's branch. | backend worktree |
+| `dev-frontend` | Frontend agent's branch. | frontend worktree |
 
 - Git allows **one branch per worktree**.
 - **Merge INTO a branch from the worktree that has it checked out.** To merge a
@@ -65,8 +71,8 @@ boss: you delegate, review, and decide; the human makes product/design calls.
    - Inspect: `git log --oneline dev..dev-<side>`,
      `git diff --stat dev..dev-<side>`,
      `git diff --name-only dev..dev-<side>` (must be confined to the right folder).
-   - **Backend**: `cd ../yt-dlp-frontend-backend && python3 -m pytest backend/tests -q`.
-   - **Frontend**: `cd ../yt-dlp-frontend-frontend/frontend && npm run build`
+   - **Backend**: run `python3 -m pytest backend/tests -q` in the backend worktree.
+   - **Frontend**: run `npm run build` in `frontend/` of the frontend worktree
      (zero TS errors) and a serve-check (`npm run preview` + `curl` → `200`).
    - **Overlap check** (predicts conflicts):
      `comm -12 <(git diff --name-only dev..dev-backend | sort) <(git diff --name-only dev..dev-frontend | sort)`
