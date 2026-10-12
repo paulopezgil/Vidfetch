@@ -15,7 +15,7 @@ from . import database
 from .config import settings
 from .routers import download, files, health, history, info, playlists, tasks
 
-logger = logging.getLogger("yt-dlp-frontend")
+logger = logging.getLogger("vidfetch")
 
 APP_VERSION = "1.0.0"
 
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="yt-dlp Frontend",
+    title="Vidfetch",
     version=APP_VERSION,
     lifespan=lifespan,
 )
@@ -94,7 +94,7 @@ else:  # pragma: no cover - local development without a built frontend
     @app.get("/", include_in_schema=False)
     async def root() -> dict:
         return {
-            "app": "yt-dlp-frontend",
+            "app": "vidfetch",
             "message": "API is running. Serve the Vite dev server for the UI.",
             "docs": "/docs",
         }

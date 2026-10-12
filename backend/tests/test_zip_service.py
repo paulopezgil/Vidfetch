@@ -39,3 +39,17 @@ def test_progress_callback_reaches_one(tmp_path):
     seen = []
     zip_service.create_zip([tmp_path / "a.mp4"], tmp_path / "out.zip", seen.append)
     assert seen and seen[-1] == pytest.approx(1.0)
+
+
+def test_callback_exception_discards_partial_archive(tmp_path):
+    """A callback that aborts (e.g. cancellation) must not leave a .part file."""
+    (tmp_path / "a.mp4").write_bytes(b"x" * 1000)
+
+    def boom(_frac):
+        raise RuntimeError("cancelled")
+
+    with pytest.raises(RuntimeError):
+        zip_service.create_zip([tmp_path / "a.mp4"], tmp_path / "out.zip", boom)
+
+    assert not (tmp_path / "out.zip").exists()
+    assert not (tmp_path / "out.zip.part").exists()

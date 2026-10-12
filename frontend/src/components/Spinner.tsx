@@ -1,10 +1,10 @@
-import { Loader2 } from "lucide-react";
+import Icon from "./Icon";
 
 export default function Spinner({ className = "" }: { className?: string }) {
   return (
-    <Loader2
-      className={`h-4 w-4 animate-spin text-current ${className}`}
-      aria-hidden="true"
+    <Icon
+      name="progress_activity"
+      className={`text-[20px] animate-spin ${className}`}
     />
   );
 }

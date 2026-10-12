@@ -1,15 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-  ArrowLeft,
-  Download,
-  Film,
-  ListVideo,
-  Music,
-  RefreshCw,
-  Package,
-  RotateCw,
-} from "lucide-react";
 import type { FormatName, PlaylistDetail, PlaylistItem } from "../types";
 import { formatBytes, formatDuration } from "../lib";
 import {
@@ -23,14 +13,19 @@ import Button from "../components/Button";
 import Thumbnail from "../components/Thumbnail";
 import ProgressBar from "../components/ProgressBar";
 import StatusChip from "../components/StatusChip";
+import IconButton from "../components/IconButton";
+import Icon from "../components/Icon";
+import Card from "../components/Card";
+import SegmentedButton from "../components/SegmentedButton";
+import Switch from "../components/Switch";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 
-const formats: { value: FormatName; label: string; icon: typeof Film }[] = [
-  { value: "best", label: "Best", icon: Film },
-  { value: "720p", label: "720p", icon: Film },
-  { value: "mp3", label: "MP3", icon: Music },
+const formatOptions = [
+  { value: "best", label: "Millor", icon: "high_quality" },
+  { value: "720p", label: "720p", icon: "hd" },
+  { value: "mp3", label: "MP3", icon: "music_note" },
 ];
 
 export default function PlaylistDetail() {
@@ -50,7 +45,11 @@ export default function PlaylistDetail() {
       setDetail(await getPlaylist(id));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load playlist.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut carregar la llista de reproducció.",
+      );
     } finally {
       setLoading(false);
     }
@@ -73,7 +72,7 @@ export default function PlaylistDetail() {
         const { task_id } = await startDownload(payload);
         setActive(true);
         setBusyUrl(url);
-        toast("Download started", "info");
+        toast("Descàrrega iniciada", "info");
         streamTask(
           task_id,
           () => {},
@@ -84,7 +83,10 @@ export default function PlaylistDetail() {
           },
         );
       } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to start download", "error");
+        toast(
+          e instanceof Error ? e.message : "No s’ha pogut iniciar la descàrrega",
+          "error",
+        );
       }
     },
     [refresh, toast],
@@ -94,10 +96,13 @@ export default function PlaylistDetail() {
     setBuildingZip(true);
     try {
       const result = await rebuildZip(id, true);
-      toast(result.built ? "ZIP created" : "ZIP is up to date", "success");
+      toast(result.built ? "ZIP creat" : "El ZIP ja està actualitzat", "success");
       refresh();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to build ZIP", "error");
+      toast(
+        e instanceof Error ? e.message : "No s’ha pogut crear el ZIP",
+        "error",
+      );
     } finally {
       setBuildingZip(false);
     }
@@ -105,22 +110,25 @@ export default function PlaylistDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-fg-secondary">
-        <Spinner className="mr-2" /> Loading playlist…
+      <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
+        <Spinner /> S’està carregant la llista de reproducció…
       </div>
     );
   }
 
   if (error || !detail) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10">
-        <Link to="/library" className="mb-4 inline-flex items-center gap-1.5 text-sm text-fg-secondary hover:text-fg">
-          <ArrowLeft className="h-4 w-4" /> Back to library
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
+        <Link
+          to="/library"
+          className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
+        >
+          <Icon name="arrow_back" className="text-[20px]" /> Biblioteca
         </Link>
         <EmptyState
-          icon={<ListVideo className="h-6 w-6" />}
-          title="Playlist not found"
-          description={error ?? "This playlist does not exist."}
+          icon="playlist_remove"
+          title="No s’ha trobat la llista de reproducció"
+          description={error ?? "Aquesta llista de reproducció no existeix."}
         />
       </div>
     );
@@ -131,42 +139,45 @@ export default function PlaylistDetail() {
   const hasZip = Boolean(detail.zip_path);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-6 sm:px-6">
+    <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
       <Link
         to="/library"
-        className="inline-flex items-center gap-1.5 text-sm text-fg-secondary transition-colors hover:text-fg"
+        className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <ArrowLeft className="h-4 w-4" /> Library
+        <Icon name="arrow_back" className="text-[20px]" /> Biblioteca
       </Link>
 
-      <div className="card p-5">
+      <Card variant="outlined" className="p-4 sm:p-6">
         <div className="flex flex-col gap-5 sm:flex-row">
           <Thumbnail
             src={detail.thumbnail_url}
-            className="aspect-video w-full rounded-lg sm:w-52"
-            icon={<ListVideo className="h-6 w-6" />}
+            icon="playlist_play"
+            className="aspect-video w-full sm:w-52"
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold leading-snug text-fg">
+            <h1 className="text-headline-small text-on-surface">
               {detail.title}
             </h1>
-            <p className="mt-1 text-sm text-fg-secondary">
+            <p className="mt-1 text-body-medium text-on-surface-variant">
               {detail.channel}
               {detail.channel ? " · " : ""}
-              {detail.item_count} videos
+              {detail.item_count} vídeos
               {detail.total_size ? ` · ${formatBytes(detail.total_size)}` : ""}
             </p>
 
             <div className="mt-4">
-              <div className="mb-1 flex items-center justify-between text-xs text-fg-secondary">
+              <div className="mb-1.5 flex items-center justify-between text-label-medium text-on-surface-variant">
                 <span>
-                  {detail.downloaded_count} of {detail.item_count} downloaded
-                  {detail.failed_count ? ` · ${detail.failed_count} failed` : ""}
+                  {detail.downloaded_count} de {detail.item_count} descarregats
+                  {detail.failed_count
+                    ? ` · ${detail.failed_count} fallits`
+                    : ""}
                 </span>
                 <span className="tabular-nums">{overall}%</span>
               </div>
               <ProgressBar
                 value={overall}
+                label="Progrés de la descàrrega de la llista"
                 status={
                   detail.failed_count && detail.downloaded_count
                     ? "completed"
@@ -175,35 +186,28 @@ export default function PlaylistDetail() {
               />
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              {formats.map((f) => {
-                const selected = format === f.value;
-                return (
-                  <button
-                    key={f.value}
-                    onClick={() => setFormat(f.value)}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${
-                      selected
-                        ? "border-brand bg-brand/15 text-brand-hover"
-                        : "border-line bg-surface-2 text-fg-secondary hover:text-fg"
-                    }`}
-                  >
-                    <f.icon className="h-4 w-4" /> {f.label}
-                  </button>
-                );
-              })}
-              <label className="ml-1 flex cursor-pointer items-center gap-2 text-sm text-fg-secondary">
-                <input
-                  type="checkbox"
-                  checked={embedSubs}
-                  onChange={(e) => setEmbedSubs(e.target.checked)}
-                  className="h-4 w-4 rounded accent-brand"
-                />
-                Embed subtitles
-              </label>
+            <div className="mt-5">
+              <p className="mb-2 text-label-large text-on-surface-variant">
+                Format
+              </p>
+              <SegmentedButton
+                options={formatOptions}
+                value={format}
+                onChange={(value) => setFormat(value as FormatName)}
+                label="Format de descàrrega"
+              />
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
+            <div className="mt-5">
+              <Switch
+                checked={embedSubs && format !== "mp3"}
+                onChange={setEmbedSubs}
+                disabled={format === "mp3"}
+                label="Incrusta els subtítols si estan disponibles"
+              />
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-2">
               <Button
                 onClick={() =>
                   startTask(
@@ -218,52 +222,78 @@ export default function PlaylistDetail() {
                   )
                 }
               >
-                <Download className="h-4 w-4" /> Download playlist
+                <Icon name="download" className="text-[18px]" /> Descarrega la
+                llista de reproducció
               </Button>
               {hasZip ? (
                 <a
                   href={fileUrl(detail.zip_path)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface-2 px-4 text-sm font-medium text-fg transition-colors hover:bg-line/60"
+                  className="inline-flex h-10 items-center gap-2 rounded-full bg-secondary-container px-6 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
                 >
-                  <Package className="h-4 w-4" /> Download ZIP
+                  <Icon name="folder_zip" className="text-[18px]" /> Descarrega el
+                  ZIP
                 </a>
               ) : detail.downloaded_count > 0 ? (
-                <Button variant="secondary" onClick={handleRebuildZip} disabled={buildingZip}>
-                  {buildingZip ? <Spinner /> : <Package className="h-4 w-4" />}
-                  Create ZIP
+                <Button
+                  variant="tonal"
+                  onClick={handleRebuildZip}
+                  disabled={buildingZip}
+                >
+                  {buildingZip ? (
+                    <Spinner />
+                  ) : (
+                    <Icon name="folder_zip" className="text-[18px]" />
+                  )}
+                  Crea el ZIP
                 </Button>
               ) : null}
               {hasZip ? (
-                <Button variant="ghost" size="sm" onClick={handleRebuildZip} disabled={buildingZip}>
-                  <RefreshCw className="h-4 w-4" /> Rebuild
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={handleRebuildZip}
+                  disabled={buildingZip}
+                >
+                  <Icon name="refresh" className="text-[18px]" /> Reconstrueix
                 </Button>
               ) : null}
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="card divide-y divide-line/60">
-        {detail.items.map((item) => (
-          <ItemRow
-            key={item.index}
-            item={item}
-            busy={busyUrl === item.url}
-            onDownload={() =>
-              startTask(
-                {
-                  url: item.url,
-                  operation_type: "playlist_item",
-                  format,
-                  embed_subs: embedSubs && format !== "mp3",
-                  playlist_id: detail.playlist_id,
-                },
-                item.url,
-              )
-            }
-          />
-        ))}
-      </div>
+      {detail.items.length > 0 ? (
+        <Card
+          variant="outlined"
+          className="divide-y divide-outline-variant overflow-hidden"
+        >
+          {detail.items.map((item) => (
+            <ItemRow
+              key={item.index}
+              item={item}
+              busy={busyUrl === item.url}
+              onDownload={() =>
+                startTask(
+                  {
+                    url: item.url,
+                    operation_type: "playlist_item",
+                    format,
+                    embed_subs: embedSubs && format !== "mp3",
+                    playlist_id: detail.playlist_id,
+                  },
+                  item.url,
+                )
+              }
+            />
+          ))}
+        </Card>
+      ) : (
+        <EmptyState
+          icon="playlist_play"
+          title="No hi ha elements per mostrar"
+          description="Aquesta llista de reproducció encara no té cap element per descarregar."
+        />
+      )}
     </div>
   );
 }
@@ -280,55 +310,51 @@ function ItemRow({
   const thumbSrc = item.video_id ? `/api/thumb/${item.video_id}.jpg` : null;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <span className="w-6 shrink-0 text-right text-xs tabular-nums text-fg-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
+      <span className="w-6 shrink-0 text-right text-label-medium tabular-nums text-on-surface-variant">
         {item.index + 1}
       </span>
-      <Thumbnail
-        src={thumbSrc}
-        className="aspect-video w-16 rounded-md"
-        icon={<Film className="h-4 w-4" />}
-      />
+      <Thumbnail src={thumbSrc} icon="movie" className="aspect-video w-16" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-fg">{item.title}</p>
-        <div className="mt-0.5 flex items-center gap-3 text-xs text-fg-muted">
+        <p className="truncate text-body-large text-on-surface">
+          {item.title}
+        </p>
+        <div className="mt-0.5 flex items-center gap-3 text-label-medium text-on-surface-variant">
           {item.duration ? (
             <span className="tabular-nums">{formatDuration(item.duration)}</span>
           ) : null}
           {item.size ? <span>{formatBytes(item.size)}</span> : null}
           {item.status === "failed" && item.error ? (
-            <span className="truncate text-danger">{item.error}</span>
+            <span className="truncate text-error">{item.error}</span>
           ) : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         <StatusChip status={item.status} />
         {item.status === "downloaded" && item.filename ? (
-          <a
+          <IconButton
             href={fileUrl(item.filename)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
-            title="Download file"
-            aria-label="Download file"
+            variant="tonal"
+            label="Descarrega el fitxer"
           >
-            <Download className="h-4 w-4" />
-          </a>
+            <Icon name="download" className="text-[20px]" />
+          </IconButton>
         ) : item.status === "downloading" || busy ? (
-          <Spinner />
-        ) : item.status === "failed" ? (
-          <button
-            onClick={onDownload}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 text-[13px] font-medium text-fg transition-colors hover:bg-line/60"
-          >
-            <RotateCw className="h-4 w-4" /> Retry
-          </button>
+          <span className="px-2">
+            <Spinner />
+          </span>
         ) : (
-          <button
-            onClick={onDownload}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 text-[13px] font-medium text-fg transition-colors hover:bg-line/60"
-          >
-            <Download className="h-4 w-4" />
-            {item.status === "missing" ? "Re-download" : "Download"}
-          </button>
+          <Button variant="outlined" size="sm" onClick={onDownload}>
+            <Icon
+              name={item.status === "failed" ? "refresh" : "download"}
+              className="text-[18px]"
+            />
+            {item.status === "failed"
+              ? "Torna-ho a provar"
+              : item.status === "missing"
+                ? "Torna a descarregar"
+                : "Descarrega"}
+          </Button>
         )}
       </div>
     </div>

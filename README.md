@@ -1,8 +1,8 @@
-# vidfetch — yt-dlp Web Frontend
+# Vidfetch
 
 A polished, desktop-first web application that provides a modern graphical
-interface for downloading individual videos and entire playlists with
-[`yt-dlp`](https://github.com/yt-dlp/yt-dlp).
+interface for downloading individual videos and entire playlists. Powered by
+[`yt-dlp`](https://github.com/yt-dlp/yt-dlp) as its download engine.
 
 Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
 (backend), shipped as a single **Docker** container.
@@ -25,7 +25,9 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
   download and delete actions.
 - Persistent **download history** (SQLite) with retry support.
 - Honest error handling for failures, cancellation, and missing files.
-- Dark, Material Design 3–inspired interface with a restrained design system.
+- A Material Design 3 interface seeded from a signature red, with light and dark
+  color schemes and adaptive navigation — navigation bar on compact windows,
+  a rail on medium windows, and a permanent drawer on expanded windows.
 
 ---
 
@@ -200,4 +202,5 @@ docker-compose.yml       local orchestration + persistent volumes
 
 ## License
 
-Provided as-is for personal use. You are responsible for using it lawfully.
+Released under the [MIT License](LICENSE). Provided as-is; you are responsible
+for using it lawfully.

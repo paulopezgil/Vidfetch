@@ -33,6 +33,10 @@ class Settings:
             os.getenv("MAX_CONCURRENT_DOWNLOADS", "2")
         )
 
+        # Refuse to start a download when the target filesystem has less than
+        # this much free space. This is a coarse floor, not a size estimate.
+        self.min_free_disk_mb = int(os.getenv("MIN_FREE_DISK_MB", "500"))
+
         cors_raw = os.getenv("CORS_ORIGINS", "*")
         self.cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
 

@@ -326,6 +326,32 @@ def reset_downloading_items(playlist_id: str) -> None:
     )
 
 
+def prune_playlist_items(playlist_id: str, keep_urls: set[str]) -> int:
+    """Delete tracked items whose URL is no longer in the source playlist.
+
+    Returns the number of removed rows. Only the tracking rows are removed;
+    media files on disk are intentionally left untouched (the storage policy is
+    that nothing is deleted after packaging).
+    """
+    with _write_lock:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                "SELECT url FROM playlist_items WHERE playlist_id = ?",
+                (playlist_id,),
+            ).fetchall()
+            stale = [r["url"] for r in rows if r["url"] not in keep_urls]
+            if stale:
+                conn.executemany(
+                    "DELETE FROM playlist_items WHERE playlist_id = ? AND url = ?",
+                    [(playlist_id, url) for url in stale],
+                )
+                conn.commit()
+            return len(stale)
+        finally:
+            conn.close()
+
+
 def mark_interrupted_tasks() -> None:
     """Mark tasks left running by a previous process as interrupted."""
     now = iso_now()

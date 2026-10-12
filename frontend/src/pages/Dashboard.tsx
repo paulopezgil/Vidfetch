@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Link2 } from "lucide-react";
-import type {
-  FormatName,
-  InfoResult,
-  OperationType,
-  Task,
-} from "../types";
+import type { FormatName, InfoResult, OperationType, Task } from "../types";
 import { isTerminal } from "../lib";
 import {
   cancelTask,
@@ -40,11 +34,14 @@ export default function Dashboard() {
           const finished = tasksRef.current[taskId];
           if (finished) {
             if (finished.status === "completed") {
-              toast("Download completed", "success");
+              toast("Descàrrega completada", "success");
             } else if (finished.status === "failed") {
-              toast(`Download failed: ${finished.error || "unknown error"}`, "error");
+              toast(
+                `La descàrrega ha fallat: ${finished.error || "error desconegut"}`,
+                "error",
+              );
             } else if (finished.status === "cancelled") {
-              toast("Download cancelled", "info");
+              toast("Descàrrega cancel·lada", "info");
             }
           }
           window.setTimeout(() => {
@@ -97,7 +94,9 @@ export default function Dashboard() {
       const result = await fetchInfo(url);
       setInfo(result);
     } catch (e) {
-      setInfoError(e instanceof Error ? e.message : "Failed to fetch information.");
+      setInfoError(
+        e instanceof Error ? e.message : "No s’ha pogut obtenir la informació.",
+      );
     } finally {
       setInfoLoading(false);
     }
@@ -118,11 +117,11 @@ export default function Dashboard() {
           format: opts.format,
           embed_subs: opts.embed_subs,
         });
-        toast("Download started", "info");
+        toast("Descàrrega iniciada", "info");
         subscribe(task_id);
       } catch (e) {
         toast(
-          e instanceof Error ? e.message : "Failed to start download",
+          e instanceof Error ? e.message : "No s’ha pogut iniciar la descàrrega",
           "error",
         );
       } finally {
@@ -137,7 +136,10 @@ export default function Dashboard() {
       try {
         await cancelTask(taskId);
       } catch (e) {
-        toast(e instanceof Error ? e.message : "Could not cancel task", "error");
+        toast(
+          e instanceof Error ? e.message : "No s’ha pogut cancel·lar la tasca",
+          "error",
+        );
       }
     },
     [toast],
@@ -148,43 +150,31 @@ export default function Dashboard() {
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6">
-      <header>
-        <h1 className="text-xl font-semibold text-fg">Dashboard</h1>
-        <p className="mt-1 text-sm text-fg-secondary">
-          Download individual videos or entire playlists.
-        </p>
-      </header>
-
+    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <UrlInput onFetch={handleFetch} loading={infoLoading} error={infoError} />
 
       {infoLoading ? (
-        <div className="card flex items-center justify-center gap-2 px-4 py-10 text-sm text-fg-secondary">
-          <Spinner /> Fetching information…
+        <div className="flex items-center justify-center gap-3 py-10 text-body-medium text-on-surface-variant">
+          <Spinner /> Obtenint informació…
         </div>
-      ) : null}
-
-      {info ? (
+      ) : info ? (
         <InfoPreview
           info={info}
           submitting={submitting}
           onDownload={handleDownload}
         />
-      ) : !infoLoading ? (
+      ) : !infoError ? (
         <EmptyState
-          icon={<Link2 className="h-6 w-6" />}
-          title="Nothing to preview yet"
-          description="Paste a video or playlist URL above and choose “Fetch Info” to see its details."
+          icon="link"
+          title="Encara no hi ha res per previsualitzar"
+          description="Enganxa una URL de vídeo o de llista de reproducció a dalt per revisar-ne els detalls abans de descarregar."
         />
       ) : null}
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Download className="h-4 w-4 text-fg-secondary" />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-            Active downloads
-          </h2>
-        </div>
+        <h2 className="text-title-medium text-on-surface">
+          Descàrregues actives
+        </h2>
         {activeTasks.length > 0 ? (
           <div className="space-y-3">
             {activeTasks.map((t) => (
@@ -192,7 +182,9 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-fg-muted">No active downloads.</p>
+          <p className="text-body-medium text-on-surface-variant">
+            No hi ha cap descàrrega activa.
+          </p>
         )}
       </section>
     </div>

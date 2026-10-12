@@ -1,25 +1,26 @@
-import { useState, type ReactNode } from "react";
-import { Clapperboard } from "lucide-react";
+import { useState } from "react";
+import Icon from "./Icon";
 
 interface ThumbnailProps {
   src?: string | null;
   className?: string;
-  icon?: ReactNode;
+  /** Material Symbols name for the placeholder state. */
+  icon?: string;
 }
 
 export default function Thumbnail({
   src,
   className = "",
-  icon,
+  icon = "movie",
 }: ThumbnailProps) {
   const [failed, setFailed] = useState(false);
 
   if (!src || failed) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center bg-surface-2 text-fg-muted ${className}`}
+        className={`flex shrink-0 items-center justify-center rounded-lg bg-surface-container-high text-on-surface-variant ${className}`}
       >
-        {icon ?? <Clapperboard className="h-5 w-5" />}
+        <Icon name={icon} className="text-[24px]" />
       </div>
     );
   }
@@ -30,7 +31,7 @@ export default function Thumbnail({
       alt=""
       loading="lazy"
       onError={() => setFailed(true)}
-      className={`shrink-0 object-cover ${className}`}
+      className={`shrink-0 rounded-lg object-cover ${className}`}
     />
   );
 }

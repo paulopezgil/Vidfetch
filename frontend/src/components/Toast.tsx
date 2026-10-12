@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { CheckCircle2, Info, XCircle } from "lucide-react";
+import Icon from "./Icon";
 
 type ToastType = "success" | "error" | "info";
 
@@ -23,12 +23,13 @@ export function useToast(): Push {
   return useContext(ToastContext);
 }
 
-const icons: Record<ToastType, ReactNode> = {
-  success: <CheckCircle2 className="h-4 w-4 text-success" />,
-  error: <XCircle className="h-4 w-4 text-danger" />,
-  info: <Info className="h-4 w-4 text-info" />,
+const icons: Record<ToastType, string> = {
+  success: "check_circle",
+  error: "error",
+  info: "info",
 };
 
+/** Material 3 snackbar host. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -43,13 +44,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
+      <div
+        className="pointer-events-none fixed inset-x-4 bottom-4 z-50 flex flex-col items-center gap-2 sm:inset-x-0"
+        role="region"
+        aria-label="Notificacions"
+        aria-live="polite"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="pointer-events-auto flex items-center gap-2.5 rounded-lg border border-line bg-surface-1 px-4 py-3 text-sm text-fg shadow-lg"
+            role="status"
+            className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xs bg-inverse-surface px-4 py-3 text-body-medium text-inverse-on-surface shadow-elevation-3"
           >
-            {icons[t.type]}
+            <Icon name={icons[t.type]} className="text-[20px] shrink-0" />
             <span className="min-w-0 flex-1">{t.message}</span>
           </div>
         ))}

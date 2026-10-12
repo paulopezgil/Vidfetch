@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle, Info } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import type { Health } from "../types";
 import { getHealth } from "../api";
+import ErrorBanner from "../components/ErrorBanner";
+import Icon from "../components/Icon";
+import Card from "../components/Card";
 import Spinner from "../components/Spinner";
 
 function Dep({
@@ -14,18 +16,38 @@ function Dep({
   version?: string | null;
 }) {
   return (
-    <div className="flex items-center justify-between border-b border-line/60 py-3 last:border-0">
-      <div className="flex items-center gap-2.5">
-        {ok ? (
-          <CheckCircle2 className="h-4 w-4 text-success" />
-        ) : (
-          <XCircle className="h-4 w-4 text-danger" />
-        )}
-        <span className="text-sm text-fg">{label}</span>
-      </div>
-      <span className="text-sm text-fg-secondary">
-        {ok ? version ?? "Available" : "Not available"}
+    <div className="flex items-center gap-3 p-4">
+      <Icon
+        name={ok ? "check_circle" : "cancel"}
+        filled={ok}
+        className={`text-[20px] ${ok ? "text-success" : "text-error"}`}
+      />
+      <span className="min-w-0 flex-1 text-body-large text-on-surface">
+        {label}
       </span>
+      <span className="text-body-medium text-on-surface-variant">
+        {ok ? (version ?? "Disponible") : "No disponible"}
+      </span>
+    </div>
+  );
+}
+
+function Row({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-4">
+      <Icon name={icon} className="text-[20px] text-on-surface-variant" />
+      <span className="min-w-0 flex-1 text-body-large text-on-surface">
+        {label}
+      </span>
+      <span className="text-body-medium text-on-surface-variant">{value}</span>
     </div>
   );
 }
@@ -34,91 +56,99 @@ export default function Settings() {
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getHealth()
-      .then(setHealth)
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : "Could not reach the server."),
+  const load = useCallback(async () => {
+    try {
+      setHealth(await getHealth());
+      setError(null);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut contactar amb el servidor.",
       );
+    }
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 sm:px-6">
-      <header>
-        <h1 className="text-xl font-semibold text-fg">Settings</h1>
-        <p className="mt-1 text-sm text-fg-secondary">
-          Runtime status and storage policy.
-        </p>
-      </header>
-
-      <section className="card p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-          Runtime
+    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <section className="space-y-2">
+        <h2 className="px-1 text-title-medium text-on-surface">
+          Entorn d’execució
         </h2>
-        {error ? (
-          <p className="mt-3 text-sm text-danger">{error}</p>
-        ) : !health ? (
-          <div className="mt-3 flex items-center gap-2 text-sm text-fg-secondary">
-            <Spinner /> Checking dependencies…
-          </div>
-        ) : (
-          <div className="mt-2 divide-y divide-line/60">
-            <Dep
-              ok={health.dependencies.ffmpeg_available}
-              label="FFmpeg"
-              version={health.dependencies.ffmpeg_version}
-            />
-            <Dep
-              ok={health.dependencies.node_available}
-              label="Node.js"
-              version={health.dependencies.node_version}
-            />
-            <div className="flex items-center justify-between py-3">
-              <span className="text-sm text-fg">yt-dlp</span>
-              <span className="text-sm text-fg-secondary">
-                {health.ytdlp_version ?? "Unknown"}
-              </span>
+        <Card variant="outlined" className="overflow-hidden">
+          {error ? (
+            <div className="p-4">
+              <ErrorBanner message={error} onRetry={load} />
             </div>
-            <div className="flex items-center justify-between py-3">
-              <span className="text-sm text-fg">Application</span>
-              <span className="text-sm text-fg-secondary">
-                v{health.version}
-              </span>
+          ) : !health ? (
+            <div className="flex items-center gap-3 p-4 text-body-medium text-on-surface-variant">
+              <Spinner /> S’estan comprovant les dependències…
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="divide-y divide-outline-variant">
+              <Dep
+                ok={health.dependencies.ffmpeg_available}
+                label="FFmpeg"
+                version={health.dependencies.ffmpeg_version}
+              />
+              <Dep
+                ok={health.dependencies.node_available}
+                label="Node.js"
+                version={health.dependencies.node_version}
+              />
+              <Row
+                icon="terminal"
+                label="yt-dlp"
+                value={health.ytdlp_version ?? "Desconegut"}
+              />
+              <Row
+                icon="deployed_code"
+                label="Aplicació"
+                value={`v${health.version}`}
+              />
+            </div>
+          )}
+        </Card>
       </section>
 
-      <section className="card p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-          Storage policy
+      <section className="space-y-2">
+        <h2 className="px-1 text-title-medium text-on-surface">
+          Política d’emmagatzematge
         </h2>
-        <div className="mt-3 space-y-3 text-sm text-fg-secondary">
+        <Card
+          variant="outlined"
+          className="space-y-3 p-4 text-body-medium text-on-surface-variant"
+        >
           <p>
-            When you download a full playlist, each video is saved as an
-            individual file <em>and</em> packaged into a single ZIP archive.
-            Both the files and the archive remain in your library, so you can
-            grab a single video or the whole playlist as you prefer.
+            Quan descarregues una llista de reproducció sencera, cada vídeo es
+            desa com a fitxer individual <em>i</em>, a més, s’empaqueta en un
+            únic arxiu ZIP. Tant els fitxers com l’arxiu es queden a la
+            biblioteca, així que pots agafar un sol vídeo o tota la llista com
+            prefereixis.
           </p>
           <p>
-            Deleting a file removes it from disk but keeps its history record.
-            Files deleted from a playlist can be re-downloaded at any time.
+            Eliminar un fitxer l’esborra del disc, però en conserva el registre
+            a l’historial. Els fitxers eliminats d’una llista de reproducció es
+            poden tornar a descarregar en qualsevol moment.
           </p>
-        </div>
+        </Card>
       </section>
 
-      <section className="card p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-          About
-        </h2>
-        <div className="mt-3 flex items-start gap-2.5 text-sm text-fg-secondary">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
-          <p>
-            Downloads are performed with yt-dlp. Only download content you are
-            authorised to download and ensure you comply with applicable laws,
-            platform terms of service, and content rights.
+      <section className="space-y-2">
+        <h2 className="px-1 text-title-medium text-on-surface">Quant a</h2>
+        <Card variant="outlined" className="flex items-start gap-3 p-4">
+          <Icon name="info" className="text-[20px] text-primary" />
+          <p className="text-body-medium text-on-surface-variant">
+            Les descàrregues es fan amb yt-dlp. Descarrega només contingut que
+            tinguis autoritzat a descarregar i assegura’t de complir les lleis
+            aplicables, els termes del servei de les plataformes i els drets
+            del contingut.
           </p>
-        </div>
+        </Card>
       </section>
     </div>
   );
