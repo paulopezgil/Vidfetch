@@ -20,9 +20,11 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
   output, with optional subtitle embedding.
 - Live **progress tracking** via Server-Sent Events (per-video and
   aggregate playlist progress — "video 8 of 24").
-- Automatic **ZIP packaging** of playlist downloads.
-- A browsable **media library** (individual files and playlists), with
-  download and delete actions.
+- **On-demand ZIP** download of a playlist's items, generated when you click
+  (failed items you retry are included automatically; nothing is stored).
+- A browsable **media library** (individual files and playlists) with in-app
+  **playback/preview** — play videos and audio and view images — plus download
+  and delete actions.
 - Persistent **download history** (SQLite) with retry support.
 - Honest error handling for failures, cancellation, and missing files.
 - A Material Design 3 interface seeded from a signature red, with light and dark
@@ -70,7 +72,7 @@ Environment variables (see `docker-compose.yml`):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DOWNLOAD_DIR` | `/app/downloads` | Where media files, ZIPs, and thumbnails live. |
+| `DOWNLOAD_DIR` | `/app/downloads` | Where media files and thumbnails live. |
 | `DATA_DIR` | `/app/data` | Where the SQLite database lives. |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Maximum simultaneous downloads. |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins. |
@@ -80,7 +82,8 @@ Environment variables (see `docker-compose.yml`):
 
 Two bind mounts persist data across container restarts:
 
-- `./downloads` → media files, playlist ZIP archives, and cached thumbnails.
+- `./downloads` → media files and cached thumbnails (playlist ZIPs are streamed
+  on demand and never persisted).
 - `./data` → the SQLite database (`yt-dlp.db`), holding task history and
   playlist metadata.
 
@@ -89,16 +92,18 @@ Two bind mounts persist data across container restarts:
 ## How downloads and ZIP packaging work
 
 - **Single video:** the file is downloaded into the output directory and shown
-  in the library.
+  in the library, where it can be played (video/audio), viewed (images), or
+  downloaded.
 - **Playlist:** each item is downloaded individually (per-item status is
-  tracked), and successfully downloaded items are packaged into a ZIP archive.
-  The individual files **and** the ZIP are retained — so you can grab a single
-  video or the whole archive.
-- **Storage policy:** nothing is deleted after packaging. A valid archive is
-  never regenerated automatically; it is only rebuilt when new items are added
-  or when you request a rebuild from the playlist detail view.
-- Deleting a file removes it from disk but **keeps its history record**. Files
-  deleted from a playlist can be re-downloaded at any time.
+  tracked) and the individual files are retained. A **ZIP is assembled on
+  demand** when you click *Download ZIP* on the playlist, and streamed straight
+  to your browser — it is never written to disk or kept in storage.
+- **Retries are always included:** because the archive is rebuilt from the
+  current files every time you request it, an item you retry after a failure
+  becomes part of the next ZIP with no extra step.
+- **Storage policy:** only the individual media files are retained; no archive
+  is persisted. Deleting a file removes it from disk but **keeps its history
+  record**; files deleted from a playlist can be re-downloaded at any time.
 
 ---
 

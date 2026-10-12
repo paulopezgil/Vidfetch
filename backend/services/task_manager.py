@@ -10,8 +10,9 @@ Design notes
   semaphore. The ``yt-dlp`` progress hook updates the in-memory task state and
   bumps a version counter that the SSE endpoint polls.
 * Playlist downloads iterate items one at a time, updating per-item status in
-  the database, then ZIP the successful items. Cancellation is checked between
-  items and inside the progress hook.
+  the database. No archive is persisted: playlist ZIPs are built on demand at
+  download time. Cancellation is checked between items and inside the progress
+  hook.
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from typing import Any, Callable, Optional
 
 from .. import database
 from ..config import settings
-from . import ytdlp_service, zip_service
+from . import ytdlp_service
 from .filenames import sanitize_filename
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -345,7 +346,9 @@ class TaskManager:
             "thumbnail_path": f"playlist_{playlist_id}.jpg",
             "item_count": len(entries),
             "total_size": existing["total_size"] if existing else 0,
-            "zip_path": existing["zip_path"] if existing else "",
+            # The legacy zip_path column is retained for schema compatibility
+            # but no longer used: archives are built on demand at request time.
+            "zip_path": "",
             "status": "downloading",
             "created_at": existing["created_at"] if existing else now,
             "updated_at": now,
@@ -378,9 +381,7 @@ class TaskManager:
         task_base.mkdir(parents=True, exist_ok=True)
 
         self._set_status(task, "downloading")
-        succeeded_files: list[Path] = []
         total_size = 0
-        new_items = 0
 
         # Iterate the pruned, deduplicated item set (duplicate URLs collapse
         # via UNIQUE(playlist_id, url)). Progress is measured against this set
@@ -402,7 +403,6 @@ class TaskManager:
             if item["status"] == "downloaded" and item["filename"]:
                 f = settings.download_dir / item["filename"]
                 if f.exists():
-                    succeeded_files.append(f)
                     total_size += item["size"] or f.stat().st_size
                     task.completed_items += 1
                     continue
@@ -437,10 +437,8 @@ class TaskManager:
                 database.update_playlist_item_status(
                     playlist_id, item_url, "downloaded", dest.name, size, ""
                 )
-                succeeded_files.append(dest)
                 total_size += size
                 task.completed_items += 1
-                new_items += 1
             except ytdlp_service.DownloadCancelled:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -461,30 +459,10 @@ class TaskManager:
                 task.version += 1
             self._persist(task)
 
-        # ZIP packaging.
-        zip_name = ""
-        if succeeded_files and not task.cancel_requested:
-            zip_name = (
-                f"{sanitize_filename(info['title'])} [{playlist_id}].zip"
-            )
-            zip_path = settings.download_dir / zip_name
-            # Rebuild only when new items were added or the archive is missing;
-            # a valid existing archive is never regenerated unless requested.
-            need_zip = (new_items > 0) or (not zip_path.exists())
-            if need_zip:
-                self._set_status(task, "packaging zip")
-
-                def zip_cb(_frac: float) -> None:
-                    # Cancellation is honoured during packaging too: raising
-                    # here makes zip_service discard its in-progress .part file.
-                    if task.cancel_requested:
-                        raise ytdlp_service.DownloadCancelled()
-                    with self._lock:
-                        task.version += 1
-
-                zip_service.create_zip(succeeded_files, zip_path, zip_cb)
-            task.output_filename = zip_name
-
+        # No archive is produced here: the playlist ZIP is built on demand by
+        # the download endpoint, so a later single-item retry is included
+        # automatically without re-packaging. ``task.output_filename`` stays
+        # empty; History simply shows no file link for playlist tasks.
         final_items = database.get_playlist_items(playlist_id)
         downloaded = [i for i in final_items if i["status"] == "downloaded"]
         failed = [i for i in final_items if i["status"] == "failed"]
@@ -497,7 +475,7 @@ class TaskManager:
             "thumbnail_path": f"playlist_{playlist_id}.jpg",
             "item_count": len(final_items),
             "total_size": total_size,
-            "zip_path": zip_name,
+            "zip_path": "",
             "status": "completed" if downloaded else "failed",
             "created_at": (database.get_playlist(playlist_id) or {}).get("created_at", now),
             "updated_at": _now(),

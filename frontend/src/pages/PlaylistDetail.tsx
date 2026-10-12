@@ -5,9 +5,10 @@ import { formatBytes, formatDuration } from "../lib";
 import {
   fileUrl,
   getPlaylist,
-  rebuildZip,
+  mediaUrl,
   startDownload,
   streamTask,
+  zipUrl,
 } from "../api";
 import Button from "../components/Button";
 import Thumbnail from "../components/Thumbnail";
@@ -20,6 +21,7 @@ import SegmentedButton from "../components/SegmentedButton";
 import Switch from "../components/Switch";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
+import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import { useToast } from "../components/Toast";
 
 const formatOptions = [
@@ -27,6 +29,27 @@ const formatOptions = [
   { value: "720p", label: "720p", icon: "hd" },
   { value: "mp3", label: "MP3", icon: "music_note" },
 ];
+
+const AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "m4a",
+  "aac",
+  "wav",
+  "flac",
+  "ogg",
+  "opus",
+]);
+
+function mediaTypeFor(filename: string): "video" | "audio" {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  return AUDIO_EXTENSIONS.has(ext) ? "audio" : "video";
+}
+
+interface PreviewState {
+  title: string;
+  mediaType: "video" | "audio";
+  src: string;
+}
 
 export default function PlaylistDetail() {
   const { id = "" } = useParams();
@@ -37,8 +60,8 @@ export default function PlaylistDetail() {
   const [format, setFormat] = useState<FormatName>("best");
   const [embedSubs, setEmbedSubs] = useState(false);
   const [active, setActive] = useState(false);
-  const [buildingZip, setBuildingZip] = useState(false);
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -92,22 +115,6 @@ export default function PlaylistDetail() {
     [refresh, toast],
   );
 
-  async function handleRebuildZip() {
-    setBuildingZip(true);
-    try {
-      const result = await rebuildZip(id, true);
-      toast(result.built ? "ZIP creat" : "El ZIP ja està actualitzat", "success");
-      refresh();
-    } catch (e) {
-      toast(
-        e instanceof Error ? e.message : "No s’ha pogut crear el ZIP",
-        "error",
-      );
-    } finally {
-      setBuildingZip(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
@@ -136,7 +143,6 @@ export default function PlaylistDetail() {
 
   const total = detail.item_count || 1;
   const overall = Math.round((detail.downloaded_count / total) * 100);
-  const hasZip = Boolean(detail.zip_path);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -225,37 +231,14 @@ export default function PlaylistDetail() {
                 <Icon name="download" className="text-[18px]" /> Descarrega la
                 llista de reproducció
               </Button>
-              {hasZip ? (
+              {detail.downloaded_count > 0 ? (
                 <a
-                  href={fileUrl(detail.zip_path)}
+                  href={zipUrl(id)}
                   className="inline-flex h-10 items-center gap-2 rounded-full bg-secondary-container px-6 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
                 >
                   <Icon name="folder_zip" className="text-[18px]" /> Descarrega el
                   ZIP
                 </a>
-              ) : detail.downloaded_count > 0 ? (
-                <Button
-                  variant="tonal"
-                  onClick={handleRebuildZip}
-                  disabled={buildingZip}
-                >
-                  {buildingZip ? (
-                    <Spinner />
-                  ) : (
-                    <Icon name="folder_zip" className="text-[18px]" />
-                  )}
-                  Crea el ZIP
-                </Button>
-              ) : null}
-              {hasZip ? (
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={handleRebuildZip}
-                  disabled={buildingZip}
-                >
-                  <Icon name="refresh" className="text-[18px]" /> Reconstrueix
-                </Button>
               ) : null}
             </div>
           </div>
@@ -284,6 +267,13 @@ export default function PlaylistDetail() {
                   item.url,
                 )
               }
+              onPreview={() =>
+                setPreview({
+                  title: item.title,
+                  mediaType: mediaTypeFor(item.filename),
+                  src: mediaUrl(item.filename),
+                })
+              }
             />
           ))}
         </Card>
@@ -294,6 +284,14 @@ export default function PlaylistDetail() {
           description="Aquesta llista de reproducció encara no té cap element per descarregar."
         />
       )}
+
+      <MediaPreviewDialog
+        open={preview !== null}
+        title={preview?.title ?? ""}
+        mediaType={preview?.mediaType ?? "video"}
+        src={preview?.src ?? ""}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 }
@@ -302,10 +300,12 @@ function ItemRow({
   item,
   busy,
   onDownload,
+  onPreview,
 }: {
   item: PlaylistItem;
   busy: boolean;
   onDownload: () => void;
+  onPreview: () => void;
 }) {
   const thumbSrc = item.video_id ? `/api/thumb/${item.video_id}.jpg` : null;
 
@@ -331,6 +331,15 @@ function ItemRow({
       </div>
       <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         <StatusChip status={item.status} />
+        {item.status === "downloaded" && item.filename ? (
+          <IconButton
+            variant="tonal"
+            label="Reprodueix"
+            onClick={onPreview}
+          >
+            <Icon name="play_arrow" className="text-[20px]" />
+          </IconButton>
+        ) : null}
         {item.status === "downloaded" && item.filename ? (
           <IconButton
             href={fileUrl(item.filename)}

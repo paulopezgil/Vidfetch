@@ -6,14 +6,13 @@ a fresh SQLite database per test.
 """
 import hashlib
 import uuid
-import zipfile
 from pathlib import Path
 
 import pytest
 
 from backend import database
 from backend.config import settings
-from backend.services import task_manager, ytdlp_service
+from backend.services import ytdlp_service
 from backend.services.task_manager import Task, TaskManager
 
 
@@ -152,14 +151,15 @@ def test_playlist_partial_failure(env, monkeypatch):
     assert items["https://example.com/b"]["status"] == "failed"
     assert "403" in items["https://example.com/b"]["error"]
 
-    # The ZIP contains only the successful items.
-    zip_path = settings.download_dir / task.output_filename
-    assert zip_path.exists()
-    with zipfile.ZipFile(zip_path) as zf:
-        assert len(zf.namelist()) == 2
+    # A playlist run persists no archive: ZIPs are built on demand at request
+    # time, so nothing must be written under the download directory.
+    assert task.output_filename == ""
+    assert not list(settings.download_dir.glob("*.zip"))
+    assert not list(settings.download_dir.rglob("*.zip"))
 
     playlist = database.get_playlist(task.playlist_id)
     assert playlist["status"] == "completed"
+    assert playlist["zip_path"] == ""
 
     # Working directory is cleaned up.
     assert not (settings.tmp_dir / task.task_id).exists()
@@ -235,27 +235,21 @@ def test_playlist_duplicate_urls_do_not_overflow_progress(env, monkeypatch):
     assert task.status == "completed"
 
 
-def test_cancel_during_zip_packaging(env, monkeypatch):
+def test_playlist_retry_does_not_create_archive(env, monkeypatch):
+    """A retried item is never packaged into a persisted ZIP at download time."""
     monkeypatch.setattr(ytdlp_service, "get_info", lambda url: _playlist_info([_entry("a")]))
     monkeypatch.setattr(ytdlp_service, "download_video", _successful_download())
 
-    holder: dict = {}
-
-    def fake_zip(files, dest, cb=None):
-        # Simulate the user cancelling while the archive is being written.
-        holder["task"].cancel_requested = True
-        cb(0.5)  # the manager's callback must raise DownloadCancelled
-        raise AssertionError("packaging callback should have aborted")
-
-    monkeypatch.setattr(task_manager.zip_service, "create_zip", fake_zip)
-
     tm = TaskManager()
     task = _make_task(tm, url="https://example.com/playlist", operation_type="playlist")
-    holder["task"] = task
     tm._execute(task)
 
-    assert task.status == "cancelled"
+    assert task.status == "completed"
     assert task.output_filename == ""
+    # The downloaded media file is present; only the (never-created) archive
+    # would be absent.
+    assert list(settings.download_dir.glob("*.mp4"))
+    assert not list(settings.download_dir.rglob("*.zip"))
 
 
 # -- single-item retries -------------------------------------------------- #
