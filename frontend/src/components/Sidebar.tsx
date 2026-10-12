@@ -37,6 +37,7 @@ export default function Sidebar() {
             end={item.end}
             className={classNames}
             title={item.label}
+            aria-label={item.label}
           >
             <item.icon className="h-4 w-4 shrink-0" />
             <span className="hidden md:inline">{item.label}</span>
