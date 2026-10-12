@@ -6,7 +6,6 @@ const active = new Set([
   "fetching information",
   "downloading",
   "processing",
-  "packaging zip",
 ]);
 
 const styles: Record<string, string> = {
@@ -14,7 +13,6 @@ const styles: Record<string, string> = {
   "fetching information": "bg-primary-container text-on-primary-container",
   downloading: "bg-primary-container text-on-primary-container",
   processing: "bg-primary-container text-on-primary-container",
-  "packaging zip": "bg-primary-container text-on-primary-container",
   completed: "bg-success-container text-on-success-container",
   failed: "bg-error-container text-on-error-container",
   cancelled: "bg-surface-container-highest text-on-surface-variant",
@@ -28,7 +26,6 @@ const icons: Record<string, string> = {
   "fetching information": "sync",
   downloading: "download",
   processing: "sync",
-  "packaging zip": "folder_zip",
   completed: "check_circle",
   failed: "error",
   cancelled: "cancel",

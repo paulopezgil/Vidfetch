@@ -42,7 +42,6 @@ export const STATUS_LABELS: Record<string, string> = {
   "fetching information": "Obtenint informació",
   downloading: "Descarregant",
   processing: "Processant",
-  "packaging zip": "Empaquetant el ZIP",
   completed: "Completat",
   failed: "Fallit",
   cancelled: "Cancel·lat",

@@ -125,10 +125,10 @@ export default function Settings() {
         >
           <p>
             Quan descarregues una llista de reproducció sencera, cada vídeo es
-            desa com a fitxer individual <em>i</em>, a més, s’empaqueta en un
-            únic arxiu ZIP. Tant els fitxers com l’arxiu es queden a la
-            biblioteca, així que pots agafar un sol vídeo o tota la llista com
-            prefereixis.
+            desa com a fitxer individual. L’arxiu ZIP no es conserva a
+            l’emmagatzematge: es genera a l’instant quan cliques «Descarrega el
+            ZIP», així que sempre inclou l’estat actual dels fitxers. Només es
+            retenen els fitxers individuals.
           </p>
           <p>
             Eliminar un fitxer l’esborra del disc, però en conserva el registre

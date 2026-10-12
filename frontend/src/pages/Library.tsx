@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryFile, LibraryResponse, Playlist } from "../types";
 import { formatBytes, formatDate } from "../lib";
-import { deleteFile, deletePlaylist, fileUrl, listLibrary } from "../api";
+import { deleteFile, deletePlaylist, fileUrl, listLibrary, mediaUrl, zipUrl } from "../api";
 import Thumbnail from "../components/Thumbnail";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -12,16 +12,24 @@ import Card from "../components/Card";
 import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
+import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import { useToast } from "../components/Toast";
 
-type Tab = "all" | "videos" | "audio" | "playlists";
+type Tab = "all" | "videos" | "audio" | "images" | "playlists";
 
 const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "Tot" },
   { value: "videos", label: "Vídeos" },
   { value: "audio", label: "Àudio" },
+  { value: "images", label: "Imatges" },
   { value: "playlists", label: "Llistes" },
 ];
+
+interface PreviewState {
+  title: string;
+  mediaType: "video" | "audio" | "image";
+  src: string;
+}
 
 export default function Library() {
   const toast = useToast();
@@ -34,6 +42,7 @@ export default function Library() {
     id: string;
     label: string;
   } | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -75,15 +84,18 @@ export default function Library() {
   const individualFiles = files.filter((f) => !f.playlist_id);
   const videoFiles = individualFiles.filter((f) => f.media_type === "video");
   const audioFiles = individualFiles.filter((f) => f.media_type === "audio");
+  const imageFiles = individualFiles.filter((f) => f.media_type === "image");
 
   const visibleVideos = tab === "all" || tab === "videos" ? videoFiles : [];
   const visibleAudio = tab === "all" || tab === "audio" ? audioFiles : [];
+  const visibleImages = tab === "all" || tab === "images" ? imageFiles : [];
   const visiblePlaylists =
     tab === "all" || tab === "playlists" ? playlists : [];
 
   const isEmpty =
     visibleVideos.length === 0 &&
     visibleAudio.length === 0 &&
+    visibleImages.length === 0 &&
     visiblePlaylists.length === 0;
 
   return (
@@ -150,6 +162,13 @@ export default function Library() {
                   <FileRow
                     key={f.filename}
                     file={f}
+                    onPreview={() =>
+                      setPreview({
+                        title: f.title,
+                        mediaType: f.media_type,
+                        src: mediaUrl(f.filename),
+                      })
+                    }
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
@@ -178,6 +197,48 @@ export default function Library() {
                   <FileRow
                     key={f.filename}
                     file={f}
+                    onPreview={() =>
+                      setPreview({
+                        title: f.title,
+                        mediaType: f.media_type,
+                        src: mediaUrl(f.filename),
+                      })
+                    }
+                    onDelete={() =>
+                      setPendingDelete({
+                        kind: "file",
+                        id: f.filename,
+                        label: f.title,
+                      })
+                    }
+                  />
+                ))}
+              </Card>
+            </section>
+          ) : null}
+
+          {visibleImages.length > 0 ? (
+            <section className="space-y-2">
+              {tab === "all" ? (
+                <h2 className="px-1 text-title-medium text-on-surface">
+                  Imatges
+                </h2>
+              ) : null}
+              <Card
+                variant="outlined"
+                className="divide-y divide-outline-variant overflow-hidden"
+              >
+                {visibleImages.map((f) => (
+                  <FileRow
+                    key={f.filename}
+                    file={f}
+                    onPreview={() =>
+                      setPreview({
+                        title: f.title,
+                        mediaType: f.media_type,
+                        src: mediaUrl(f.filename),
+                      })
+                    }
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
@@ -225,6 +286,14 @@ export default function Library() {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
       />
+
+      <MediaPreviewDialog
+        open={preview !== null}
+        title={preview?.title ?? ""}
+        mediaType={preview?.mediaType ?? "video"}
+        src={preview?.src ?? ""}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 }
@@ -232,18 +301,22 @@ export default function Library() {
 function FileRow({
   file,
   onDelete,
+  onPreview,
 }: {
   file: LibraryFile;
   onDelete: () => void;
+  onPreview: () => void;
 }) {
-  const icon = file.media_type === "audio" ? "music_note" : "movie";
+  const isImage = file.media_type === "image";
+  const icon = isImage
+    ? "image"
+    : file.media_type === "audio"
+      ? "music_note"
+      : "movie";
+  const thumbSrc = isImage ? mediaUrl(file.filename) : file.thumbnail_url;
   return (
     <div className="flex flex-wrap items-center gap-3 p-4">
-      <Thumbnail
-        src={file.thumbnail_url}
-        icon={icon}
-        className="aspect-video w-20"
-      />
+      <Thumbnail src={thumbSrc} icon={icon} className="aspect-video w-20" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-title-small text-on-surface">
           {file.title}
@@ -254,6 +327,13 @@ function FileRow({
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
+        <IconButton
+          variant="tonal"
+          label={isImage ? "Mostra la imatge" : "Reprodueix"}
+          onClick={onPreview}
+        >
+          <Icon name={isImage ? "image" : "play_arrow"} className="text-[20px]" />
+        </IconButton>
         <IconButton
           href={fileUrl(file.filename)}
           variant="tonal"
@@ -280,7 +360,6 @@ function PlaylistRow({
   playlist: Playlist;
   onDelete: () => void;
 }) {
-  const hasZip = Boolean(playlist.zip_path);
   return (
     <div className="flex flex-wrap items-center gap-3 p-4 sm:gap-4">
       <Thumbnail
@@ -304,9 +383,9 @@ function PlaylistRow({
         >
           <Icon name="folder_open" className="text-[18px]" /> Mostra
         </Link>
-        {hasZip ? (
+        {playlist.downloaded_count > 0 ? (
           <a
-            href={fileUrl(playlist.zip_path)}
+            href={zipUrl(playlist.playlist_id)}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-outline px-4 text-label-large text-primary transition-colors hover:bg-primary/8"
           >
             <Icon name="folder_zip" className="text-[18px]" /> ZIP
