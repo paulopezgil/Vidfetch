@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Link2 } from "lucide-react";
-import type {
-  FormatName,
-  InfoResult,
-  OperationType,
-  Task,
-} from "../types";
+import type { FormatName, InfoResult, OperationType, Task } from "../types";
 import { isTerminal } from "../lib";
 import {
   cancelTask,
@@ -42,7 +36,10 @@ export default function Dashboard() {
             if (finished.status === "completed") {
               toast("Download completed", "success");
             } else if (finished.status === "failed") {
-              toast(`Download failed: ${finished.error || "unknown error"}`, "error");
+              toast(
+                `Download failed: ${finished.error || "unknown error"}`,
+                "error",
+              );
             } else if (finished.status === "cancelled") {
               toast("Download cancelled", "info");
             }
@@ -97,7 +94,9 @@ export default function Dashboard() {
       const result = await fetchInfo(url);
       setInfo(result);
     } catch (e) {
-      setInfoError(e instanceof Error ? e.message : "Failed to fetch information.");
+      setInfoError(
+        e instanceof Error ? e.message : "Failed to fetch information.",
+      );
     } finally {
       setInfoLoading(false);
     }
@@ -137,7 +136,10 @@ export default function Dashboard() {
       try {
         await cancelTask(taskId);
       } catch (e) {
-        toast(e instanceof Error ? e.message : "Could not cancel task", "error");
+        toast(
+          e instanceof Error ? e.message : "Could not cancel task",
+          "error",
+        );
       }
     },
     [toast],
@@ -148,43 +150,29 @@ export default function Dashboard() {
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6">
-      <header>
-        <h1 className="text-xl font-semibold text-fg">Dashboard</h1>
-        <p className="mt-1 text-sm text-fg-secondary">
-          Download individual videos or entire playlists.
-        </p>
-      </header>
-
+    <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <UrlInput onFetch={handleFetch} loading={infoLoading} error={infoError} />
 
       {infoLoading ? (
-        <div className="card flex items-center justify-center gap-2 px-4 py-10 text-sm text-fg-secondary">
+        <div className="flex items-center justify-center gap-3 py-10 text-body-medium text-on-surface-variant">
           <Spinner /> Fetching information…
         </div>
-      ) : null}
-
-      {info ? (
+      ) : info ? (
         <InfoPreview
           info={info}
           submitting={submitting}
           onDownload={handleDownload}
         />
-      ) : !infoLoading && !infoError ? (
+      ) : !infoError ? (
         <EmptyState
-          icon={<Link2 className="h-6 w-6" />}
+          icon="link"
           title="Nothing to preview yet"
-          description="Paste a video or playlist URL above and choose “Fetch Info” to see its details."
+          description="Paste a video or playlist URL above to review its details before downloading."
         />
       ) : null}
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Download className="h-4 w-4 text-fg-secondary" />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-            Active downloads
-          </h2>
-        </div>
+        <h2 className="text-title-medium text-on-surface">Active downloads</h2>
         {activeTasks.length > 0 ? (
           <div className="space-y-3">
             {activeTasks.map((t) => (
@@ -192,7 +180,9 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-fg-muted">No active downloads.</p>
+          <p className="text-body-medium text-on-surface-variant">
+            No active downloads.
+          </p>
         )}
       </section>
     </div>

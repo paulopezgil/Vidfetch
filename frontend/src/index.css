@@ -2,41 +2,201 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Material 3 baseline color scheme.
+ * Channels are stored space-separated so Tailwind can apply opacity via
+ * `rgb(var(--md-x) / <alpha-value>)`.
+ */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+
+  --md-primary: 103 80 164;
+  --md-on-primary: 255 255 255;
+  --md-primary-container: 234 221 255;
+  --md-on-primary-container: 33 0 93;
+
+  --md-secondary: 98 91 113;
+  --md-on-secondary: 255 255 255;
+  --md-secondary-container: 232 222 248;
+  --md-on-secondary-container: 29 25 43;
+
+  --md-tertiary: 125 82 96;
+  --md-on-tertiary: 255 255 255;
+  --md-tertiary-container: 255 216 228;
+  --md-on-tertiary-container: 49 17 29;
+
+  --md-error: 179 38 30;
+  --md-on-error: 255 255 255;
+  --md-error-container: 249 222 220;
+  --md-on-error-container: 65 14 11;
+
+  --md-background: 255 251 254;
+  --md-on-background: 28 27 31;
+
+  --md-surface: 254 247 255;
+  --md-on-surface: 29 27 32;
+  --md-surface-variant: 231 224 236;
+  --md-on-surface-variant: 73 69 79;
+  --md-surface-dim: 222 216 225;
+  --md-surface-bright: 254 247 255;
+  --md-surface-container-lowest: 255 255 255;
+  --md-surface-container-low: 247 242 250;
+  --md-surface-container: 243 237 247;
+  --md-surface-container-high: 236 230 240;
+  --md-surface-container-highest: 230 224 233;
+
+  --md-outline: 121 116 126;
+  --md-outline-variant: 202 196 208;
+
+  --md-inverse-surface: 50 47 53;
+  --md-inverse-on-surface: 245 239 247;
+  --md-inverse-primary: 208 188 255;
+
+  --md-shadow: 0 0 0;
+  --md-scrim: 0 0 0;
+
+  --md-success: 20 108 46;
+  --md-on-success: 255 255 255;
+  --md-success-container: 206 234 214;
+  --md-on-success-container: 11 61 30;
+
+  --md-warning: 146 96 0;
+  --md-on-warning: 255 255 255;
+  --md-warning-container: 255 222 168;
+  --md-on-warning-container: 61 46 0;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
 
-body {
-  margin: 0;
-  background-color: #0e1013;
-  color: #e8ebf2;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
+    --md-primary: 208 188 255;
+    --md-on-primary: 56 30 114;
+    --md-primary-container: 79 55 139;
+    --md-on-primary-container: 234 221 255;
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #2b2f3a transparent;
-}
+    --md-secondary: 204 194 220;
+    --md-on-secondary: 51 45 65;
+    --md-secondary-container: 74 68 88;
+    --md-on-secondary-container: 232 222 248;
 
-/* Visible keyboard focus for interactive elements that don't opt in to a
-   Tailwind focus ring (e.g. link-buttons). Components that set
-   focus:outline-none + focus-visible:ring keep their own treatment. */
-@layer base {
-  :focus-visible {
-    outline: 2px solid #6e7bff;
-    outline-offset: 2px;
+    --md-tertiary: 239 184 200;
+    --md-on-tertiary: 73 37 50;
+    --md-tertiary-container: 99 59 72;
+    --md-on-tertiary-container: 255 216 228;
+
+    --md-error: 242 184 181;
+    --md-on-error: 96 20 16;
+    --md-error-container: 140 29 24;
+    --md-on-error-container: 249 222 220;
+
+    --md-background: 20 18 24;
+    --md-on-background: 230 224 233;
+
+    --md-surface: 20 18 24;
+    --md-on-surface: 230 224 233;
+    --md-surface-variant: 73 69 79;
+    --md-on-surface-variant: 202 196 208;
+    --md-surface-dim: 20 18 24;
+    --md-surface-bright: 59 56 62;
+    --md-surface-container-lowest: 15 13 19;
+    --md-surface-container-low: 29 27 32;
+    --md-surface-container: 33 31 38;
+    --md-surface-container-high: 43 41 48;
+    --md-surface-container-highest: 54 52 59;
+
+    --md-outline: 147 143 153;
+    --md-outline-variant: 73 69 79;
+
+    --md-inverse-surface: 230 224 233;
+    --md-inverse-on-surface: 50 47 53;
+    --md-inverse-primary: 103 80 164;
+
+    --md-shadow: 0 0 0;
+    --md-scrim: 0 0 0;
+
+    --md-success: 137 213 160;
+    --md-on-success: 0 57 25;
+    --md-success-container: 0 82 42;
+    --md-on-success-container: 163 246 179;
+
+    --md-warning: 253 214 99;
+    --md-on-warning: 61 46 0;
+    --md-warning-container: 90 67 0;
+    --md-on-warning-container: 255 224 138;
   }
 }
 
-/* Respect reduced-motion preferences (M3 motion guidance). */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: rgb(var(--md-surface));
+    color: rgb(var(--md-on-surface));
+    font-family: Roboto, system-ui, -apple-system, "Segoe UI", "Helvetica Neue",
+      Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Material Symbols icon font. Font-size is left overridable by utilities. */
+  .material-symbols-rounded {
+    font-family: "Material Symbols Rounded";
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings:
+      "FILL" 0,
+      "wght" 400,
+      "GRAD" 0,
+      "opsz" 24;
+    user-select: none;
+  }
+
+  .material-symbols-rounded.filled {
+    font-variation-settings:
+      "FILL" 1,
+      "wght" 400,
+      "GRAD" 0,
+      "opsz" 24;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--md-primary));
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--md-outline-variant)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--md-outline-variant));
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Respect reduced-motion preferences. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -45,22 +205,5 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-}
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-*::-webkit-scrollbar-thumb {
-  background: #2b2f3a;
-  border-radius: 4px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-@layer components {
-  .card {
-    @apply rounded-xl border border-line bg-surface-1;
   }
 }

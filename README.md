@@ -25,7 +25,9 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
   download and delete actions.
 - Persistent **download history** (SQLite) with retry support.
 - Honest error handling for failures, cancellation, and missing files.
-- Dark, Material Design 3–inspired interface with a restrained design system.
+- A Material Design 3 interface (baseline light and dark color schemes) with
+  adaptive navigation — navigation bar on compact windows, a rail on medium
+  windows, and a permanent drawer on expanded windows.
 
 ---
 

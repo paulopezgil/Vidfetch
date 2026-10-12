@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "filled" | "tonal" | "outlined" | "text" | "elevated" | "danger";
 type Size = "sm" | "md";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -9,23 +9,28 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
+/** Material 3 common buttons. */
 const variants: Record<Variant, string> = {
-  primary:
-    "bg-brand text-on-brand hover:bg-brand-hover active:bg-brand-active",
-  secondary:
-    "bg-surface-2 text-fg border border-line hover:bg-line/60",
-  ghost: "text-fg-secondary hover:text-fg hover:bg-surface-2",
+  filled:
+    "bg-primary text-on-primary hover:shadow-elevation-1 active:shadow-none",
+  tonal:
+    "bg-secondary-container text-on-secondary-container hover:bg-secondary-container/90 active:bg-secondary-container/80",
+  outlined:
+    "border border-outline text-primary hover:bg-primary/8 active:bg-primary/12",
+  text: "text-primary hover:bg-primary/8 active:bg-primary/12",
+  elevated:
+    "bg-surface-container-low text-primary shadow-elevation-1 hover:shadow-elevation-2",
   danger:
-    "bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25",
+    "bg-error text-on-error hover:shadow-elevation-1 active:shadow-none",
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-9 px-3.5 text-[13px]",
-  md: "h-10 px-4 text-sm",
+  sm: "h-9 px-4 text-label-large",
+  md: "h-10 px-6 text-label-large",
 };
 
 export default function Button({
-  variant = "primary",
+  variant = "filled",
   size = "md",
   className = "",
   children,
@@ -33,7 +38,7 @@ export default function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-[background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38] ${variants[variant]} ${sizes[size]} ${className}`}
       {...rest}
     >
       {children}

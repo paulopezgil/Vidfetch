@@ -14,6 +14,7 @@ interface ConfirmDialogProps {
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/** Material 3 basic dialog with predictable focus management. */
 export default function ConfirmDialog({
   open,
   title,
@@ -60,7 +61,7 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/32 p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
@@ -68,16 +69,18 @@ export default function ConfirmDialog({
     >
       <div
         ref={dialogRef}
-        className="card w-full max-w-md p-5"
+        className="w-full max-w-[560px] rounded-xl bg-surface-container-high p-6 text-on-surface shadow-elevation-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-base font-semibold text-fg">{title}</h2>
-        <div className="mt-2 text-sm text-fg-secondary">{message}</div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={onCancel} autoFocus>
+        <h2 className="text-headline-small">{title}</h2>
+        <div className="mt-4 text-body-medium text-on-surface-variant">
+          {message}
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="text" onClick={onCancel} autoFocus>
             Cancel
           </Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm}>
+          <Button variant={danger ? "danger" : "filled"} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

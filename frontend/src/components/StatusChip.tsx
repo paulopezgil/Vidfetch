@@ -1,4 +1,5 @@
 import { STATUS_LABELS } from "../lib";
+import Icon from "./Icon";
 
 const active = new Set([
   "queued",
@@ -9,29 +10,46 @@ const active = new Set([
 ]);
 
 const styles: Record<string, string> = {
-  queued: "bg-fg-muted/15 text-fg-muted",
-  "fetching information": "bg-info/15 text-info",
-  downloading: "bg-brand/15 text-brand-hover",
-  processing: "bg-info/15 text-info",
-  "packaging zip": "bg-info/15 text-info",
-  completed: "bg-success/15 text-success",
-  failed: "bg-danger/15 text-danger",
-  cancelled: "bg-fg-muted/15 text-fg-muted",
-  pending: "bg-fg-muted/15 text-fg-muted",
-  downloaded: "bg-success/15 text-success",
-  missing: "bg-warning/15 text-warning",
+  queued: "bg-surface-container-highest text-on-surface-variant",
+  "fetching information": "bg-secondary-container text-on-secondary-container",
+  downloading: "bg-primary-container text-on-primary-container",
+  processing: "bg-secondary-container text-on-secondary-container",
+  "packaging zip": "bg-secondary-container text-on-secondary-container",
+  completed: "bg-success-container text-on-success-container",
+  failed: "bg-error-container text-on-error-container",
+  cancelled: "bg-surface-container-highest text-on-surface-variant",
+  pending: "bg-surface-container-highest text-on-surface-variant",
+  downloaded: "bg-success-container text-on-success-container",
+  missing: "bg-warning-container text-on-warning-container",
 };
 
+const icons: Record<string, string> = {
+  queued: "schedule",
+  "fetching information": "sync",
+  downloading: "download",
+  processing: "sync",
+  "packaging zip": "folder_zip",
+  completed: "check_circle",
+  failed: "error",
+  cancelled: "cancel",
+  pending: "radio_button_unchecked",
+  downloaded: "check_circle",
+  missing: "warning",
+};
+
+/** Status is communicated with an icon and label, never color alone. */
 export default function StatusChip({ status }: { status: string }) {
-  const style = styles[status] ?? "bg-fg-muted/15 text-fg-muted";
+  const style = styles[status] ?? "bg-surface-container-highest text-on-surface-variant";
+  const icon = icons[status] ?? "circle";
   const label = STATUS_LABELS[status] ?? status;
   const pulse = active.has(status);
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${style}`}
+      className={`inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-label-medium ${style}`}
     >
-      <span
-        className={`h-1.5 w-1.5 rounded-full bg-current ${pulse ? "animate-pulse" : ""}`}
+      <Icon
+        name={icon}
+        className={`text-[16px] ${pulse ? "animate-pulse" : ""}`}
       />
       {label}
     </span>
