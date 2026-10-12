@@ -50,7 +50,7 @@ export default function UrlInput({ onFetch, loading, error }: UrlInputProps) {
         error={Boolean(shownError)}
         describedBy={shownError ? "url-error" : undefined}
         label="URL de vídeo o de llista de reproducció"
-        placeholder="Enganxa una URL de vídeo o de llista de reproducció de YouTube"
+        placeholder="Enganxa una URL de vídeo o de llista de reproducció"
         submitLabel="Obtén la informació"
       />
       {shownError ? <ErrorBanner id="url-error" message={shownError} /> : null}
