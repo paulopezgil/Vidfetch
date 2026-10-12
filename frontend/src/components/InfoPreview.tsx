@@ -19,7 +19,7 @@ interface InfoPreviewProps {
 }
 
 const formats = [
-  { value: "best" as FormatName, label: "Best", icon: "high_quality" },
+  { value: "best" as FormatName, label: "Millor", icon: "high_quality" },
   { value: "720p" as FormatName, label: "720p", icon: "hd" },
   { value: "mp3" as FormatName, label: "MP3", icon: "music_note" },
 ];
@@ -57,7 +57,7 @@ export default function InfoPreview({
               name={isPlaylist ? "playlist_play" : "movie"}
               className="text-[16px]"
             />
-            {isPlaylist ? "Playlist" : "Video"}
+            {isPlaylist ? "Llista de reproducció" : "Vídeo"}
           </span>
 
           <h2 className="mt-3 text-title-large text-on-surface">{info.title}</h2>
@@ -78,7 +78,7 @@ export default function InfoPreview({
             {isPlaylist && info.video_count ? (
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="playlist_play" className="text-[18px]" />
-                {info.video_count} videos
+                {info.video_count} vídeos
               </span>
             ) : null}
           </div>
@@ -91,12 +91,12 @@ export default function InfoPreview({
               options={formatOptions}
               value={format}
               onChange={(value) => setFormat(value as FormatName)}
-              label="Download format"
+              label="Format de descàrrega"
             />
             {no720 ? (
               <p className="mt-2 text-body-small text-on-surface-variant">
-                720p is not available for this video; “Best” will be used
-                instead.
+                El 720p no està disponible per a aquest vídeo; s’utilitzarà
+                l’opció «Millor».
               </p>
             ) : null}
           </div>
@@ -106,7 +106,7 @@ export default function InfoPreview({
               checked={embedSubs && !mp3}
               onChange={setEmbedSubs}
               disabled={mp3}
-              label="Embed subtitles when available"
+              label="Incrusta els subtítols si estan disponibles"
             />
           </div>
 
@@ -123,10 +123,10 @@ export default function InfoPreview({
             >
               <Icon name="download" className="text-[18px]" />
               {submitting
-                ? "Starting…"
+                ? "S’està iniciant…"
                 : isPlaylist
-                  ? "Download playlist"
-                  : "Download video"}
+                  ? "Descarrega la llista de reproducció"
+                  : "Descarrega el vídeo"}
             </Button>
           </div>
         </div>

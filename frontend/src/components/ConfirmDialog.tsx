@@ -19,7 +19,7 @@ export default function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = "Delete",
+  confirmLabel = "Elimina",
   danger = true,
   onConfirm,
   onCancel,
@@ -78,7 +78,7 @@ export default function ConfirmDialog({
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="text" onClick={onCancel} autoFocus>
-            Cancel
+            Cancel·la
           </Button>
           <Button variant={danger ? "danger" : "filled"} onClick={onConfirm}>
             {confirmLabel}

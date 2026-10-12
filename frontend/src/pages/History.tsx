@@ -17,13 +17,13 @@ import { useToast } from "../components/Toast";
 const PAGE = 25;
 
 const filters = [
-  { value: "", label: "All" },
-  { value: "completed", label: "Completed" },
-  { value: "failed", label: "Failed" },
+  { value: "", label: "Tot" },
+  { value: "completed", label: "Completades" },
+  { value: "failed", label: "Fallides" },
 ];
 
 const formatLabels: Record<string, string> = {
-  best: "Best",
+  best: "Millor",
   "720p": "720p",
   mp3: "MP3",
 };
@@ -53,7 +53,9 @@ export default function History() {
         setTotal(page.total);
         setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load history");
+        setError(
+          e instanceof Error ? e.message : "No s’ha pogut carregar l’historial",
+        );
       } finally {
         setLoading(false);
       }
@@ -81,9 +83,9 @@ export default function History() {
         embed_subs: entry.embed_subs,
         playlist_id: entry.playlist_id || undefined,
       });
-      toast("Retry started — track it on Home", "info");
+      toast("Nou intent iniciat: segueix-lo a l’Inici", "info");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Retry failed", "error");
+      toast(e instanceof Error ? e.message : "No s’ha pogut reintentar", "error");
     } finally {
       setRetrying(null);
     }
@@ -95,9 +97,9 @@ export default function History() {
         value={search}
         onChange={setSearch}
         onSubmit={runSearch}
-        label="Search history"
-        placeholder="Search history"
-        submitLabel="Search"
+        label="Cerca a l’historial"
+        placeholder="Cerca a l’historial"
+        submitLabel="Cerca"
       />
 
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -116,7 +118,7 @@ export default function History() {
 
       {loading ? (
         <div className="flex items-center justify-center gap-3 py-16 text-body-medium text-on-surface-variant">
-          <Spinner /> Loading history…
+          <Spinner /> S’està carregant l’historial…
         </div>
       ) : error ? (
         <ErrorBanner
@@ -126,8 +128,8 @@ export default function History() {
       ) : items.length === 0 ? (
         <EmptyState
           icon="history"
-          title="No history yet"
-          description="Completed and failed downloads will be recorded here."
+          title="Encara no hi ha historial"
+          description="Les descàrregues completades i les que hagin fallat es registraran aquí."
         />
       ) : (
         <Card
@@ -154,10 +156,10 @@ export default function History() {
                     {formatDate(entry.created_at)}
                     {" · "}
                     {entry.operation_type === "playlist"
-                      ? "Playlist"
+                      ? "Llista de reproducció"
                       : entry.operation_type === "playlist_item"
-                        ? "Playlist item"
-                        : "Video"}
+                        ? "Element de la llista"
+                        : "Vídeo"}
                     {" · "}
                     {formatLabels[entry.format] ?? entry.format}
                     {entry.output_filename
@@ -175,7 +177,7 @@ export default function History() {
                     <IconButton
                       href={fileUrl(entry.output_filename)}
                       variant="tonal"
-                      label="Download file"
+                      label="Descarrega el fitxer"
                     >
                       <Icon name="download" className="text-[20px]" />
                     </IconButton>
@@ -192,7 +194,7 @@ export default function History() {
                       ) : (
                         <Icon name="refresh" className="text-[18px]" />
                       )}
-                      Retry
+                      Torna-ho a provar
                     </Button>
                   ) : null}
                 </div>
@@ -205,7 +207,7 @@ export default function History() {
       {total > PAGE ? (
         <div className="flex items-center justify-between text-body-medium text-on-surface-variant">
           <span>
-            {offset + 1}–{Math.min(offset + PAGE, total)} of {total}
+            {offset + 1}–{Math.min(offset + PAGE, total)} de {total}
           </span>
           <div className="flex gap-2">
             <Button
@@ -218,7 +220,7 @@ export default function History() {
                 load(next, status, search);
               }}
             >
-              Previous
+              Anterior
             </Button>
             <Button
               variant="outlined"
@@ -230,7 +232,7 @@ export default function History() {
                 load(next, status, search);
               }}
             >
-              Next
+              Següent
             </Button>
           </div>
         </div>

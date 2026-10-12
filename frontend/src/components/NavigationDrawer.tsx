@@ -6,7 +6,7 @@ import { destinations } from "../navigation";
 export default function NavigationDrawer() {
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Navegació principal"
       className="hidden w-72 shrink-0 flex-col gap-1 border-r border-outline-variant bg-surface py-4 lg:flex"
     >
       <div className="mb-4 flex items-center gap-3 px-6">
@@ -24,7 +24,7 @@ export default function NavigationDrawer() {
           className={({ isActive }) =>
             `mx-3 flex h-14 items-center gap-3 rounded-full px-4 text-label-large transition-colors ${
               isActive
-                ? "bg-primary"
+                ? "bg-secondary-container"
                 : "hover:bg-on-surface/8 active:bg-on-surface/12"
             }`
           }
@@ -35,12 +35,12 @@ export default function NavigationDrawer() {
                 name={destination.icon}
                 filled={isActive}
                 className={`text-[24px] ${
-                  isActive ? "text-on-primary" : "text-on-surface-variant"
+                  isActive ? "text-on-secondary-container" : "text-on-surface-variant"
                 }`}
               />
               <span
                 className={
-                  isActive ? "text-on-primary" : "text-on-surface-variant"
+                  isActive ? "text-on-secondary-container" : "text-on-surface-variant"
                 }
               >
                 {destination.label}

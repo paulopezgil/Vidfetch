@@ -18,18 +18,18 @@ export function formatDuration(seconds?: number | null): string {
 
 export function formatEta(seconds?: number | null): string {
   if (!seconds || seconds <= 0) return "";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 60) return `${Math.round(seconds)} s`;
   if (seconds < 3600) {
-    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
   }
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
 }
 
 export function formatDate(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return d.toLocaleString("ca-ES", { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function formatSpeed(bytesPerSec: number): string {
@@ -38,17 +38,17 @@ export function formatSpeed(bytesPerSec: number): string {
 }
 
 export const STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  "fetching information": "Fetching information",
-  downloading: "Downloading",
-  processing: "Processing",
-  "packaging zip": "Packaging ZIP",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  pending: "Not downloaded",
-  downloaded: "Downloaded",
-  missing: "File missing",
+  queued: "En cua",
+  "fetching information": "Obtenint informació",
+  downloading: "Descarregant",
+  processing: "Processant",
+  "packaging zip": "Empaquetant el ZIP",
+  completed: "Completat",
+  failed: "Fallit",
+  cancelled: "Cancel·lat",
+  pending: "No descarregat",
+  downloaded: "Descarregat",
+  missing: "Fitxer no trobat",
 };
 
 export function isTerminal(status: string): boolean {

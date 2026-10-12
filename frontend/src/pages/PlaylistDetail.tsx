@@ -23,7 +23,7 @@ import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 
 const formatOptions = [
-  { value: "best", label: "Best", icon: "high_quality" },
+  { value: "best", label: "Millor", icon: "high_quality" },
   { value: "720p", label: "720p", icon: "hd" },
   { value: "mp3", label: "MP3", icon: "music_note" },
 ];
@@ -45,7 +45,11 @@ export default function PlaylistDetail() {
       setDetail(await getPlaylist(id));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load playlist.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut carregar la llista de reproducció.",
+      );
     } finally {
       setLoading(false);
     }
@@ -68,7 +72,7 @@ export default function PlaylistDetail() {
         const { task_id } = await startDownload(payload);
         setActive(true);
         setBusyUrl(url);
-        toast("Download started", "info");
+        toast("Descàrrega iniciada", "info");
         streamTask(
           task_id,
           () => {},
@@ -80,7 +84,7 @@ export default function PlaylistDetail() {
         );
       } catch (e) {
         toast(
-          e instanceof Error ? e.message : "Failed to start download",
+          e instanceof Error ? e.message : "No s’ha pogut iniciar la descàrrega",
           "error",
         );
       }
@@ -92,10 +96,13 @@ export default function PlaylistDetail() {
     setBuildingZip(true);
     try {
       const result = await rebuildZip(id, true);
-      toast(result.built ? "ZIP created" : "ZIP is up to date", "success");
+      toast(result.built ? "ZIP creat" : "El ZIP ja està actualitzat", "success");
       refresh();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to build ZIP", "error");
+      toast(
+        e instanceof Error ? e.message : "No s’ha pogut crear el ZIP",
+        "error",
+      );
     } finally {
       setBuildingZip(false);
     }
@@ -104,7 +111,7 @@ export default function PlaylistDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-        <Spinner /> Loading playlist…
+        <Spinner /> S’està carregant la llista de reproducció…
       </div>
     );
   }
@@ -116,12 +123,12 @@ export default function PlaylistDetail() {
           to="/library"
           className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
         >
-          <Icon name="arrow_back" className="text-[20px]" /> Library
+          <Icon name="arrow_back" className="text-[20px]" /> Biblioteca
         </Link>
         <EmptyState
           icon="playlist_remove"
-          title="Playlist not found"
-          description={error ?? "This playlist does not exist."}
+          title="No s’ha trobat la llista de reproducció"
+          description={error ?? "Aquesta llista de reproducció no existeix."}
         />
       </div>
     );
@@ -137,7 +144,7 @@ export default function PlaylistDetail() {
         to="/library"
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <Icon name="arrow_back" className="text-[20px]" /> Library
+        <Icon name="arrow_back" className="text-[20px]" /> Biblioteca
       </Link>
 
       <Card variant="outlined" className="p-4 sm:p-6">
@@ -154,21 +161,23 @@ export default function PlaylistDetail() {
             <p className="mt-1 text-body-medium text-on-surface-variant">
               {detail.channel}
               {detail.channel ? " · " : ""}
-              {detail.item_count} videos
+              {detail.item_count} vídeos
               {detail.total_size ? ` · ${formatBytes(detail.total_size)}` : ""}
             </p>
 
             <div className="mt-4">
               <div className="mb-1.5 flex items-center justify-between text-label-medium text-on-surface-variant">
                 <span>
-                  {detail.downloaded_count} of {detail.item_count} downloaded
-                  {detail.failed_count ? ` · ${detail.failed_count} failed` : ""}
+                  {detail.downloaded_count} de {detail.item_count} descarregats
+                  {detail.failed_count
+                    ? ` · ${detail.failed_count} fallits`
+                    : ""}
                 </span>
                 <span className="tabular-nums">{overall}%</span>
               </div>
               <ProgressBar
                 value={overall}
-                label="Playlist download progress"
+                label="Progrés de la descàrrega de la llista"
                 status={
                   detail.failed_count && detail.downloaded_count
                     ? "completed"
@@ -185,7 +194,7 @@ export default function PlaylistDetail() {
                 options={formatOptions}
                 value={format}
                 onChange={(value) => setFormat(value as FormatName)}
-                label="Download format"
+                label="Format de descàrrega"
               />
             </div>
 
@@ -194,7 +203,7 @@ export default function PlaylistDetail() {
                 checked={embedSubs && format !== "mp3"}
                 onChange={setEmbedSubs}
                 disabled={format === "mp3"}
-                label="Embed subtitles when available"
+                label="Incrusta els subtítols si estan disponibles"
               />
             </div>
 
@@ -213,15 +222,16 @@ export default function PlaylistDetail() {
                   )
                 }
               >
-                <Icon name="download" className="text-[18px]" /> Download
-                playlist
+                <Icon name="download" className="text-[18px]" /> Descarrega la
+                llista de reproducció
               </Button>
               {hasZip ? (
                 <a
                   href={fileUrl(detail.zip_path)}
                   className="inline-flex h-10 items-center gap-2 rounded-full bg-secondary-container px-6 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
                 >
-                  <Icon name="folder_zip" className="text-[18px]" /> Download ZIP
+                  <Icon name="folder_zip" className="text-[18px]" /> Descarrega el
+                  ZIP
                 </a>
               ) : detail.downloaded_count > 0 ? (
                 <Button
@@ -234,7 +244,7 @@ export default function PlaylistDetail() {
                   ) : (
                     <Icon name="folder_zip" className="text-[18px]" />
                   )}
-                  Create ZIP
+                  Crea el ZIP
                 </Button>
               ) : null}
               {hasZip ? (
@@ -244,7 +254,7 @@ export default function PlaylistDetail() {
                   onClick={handleRebuildZip}
                   disabled={buildingZip}
                 >
-                  <Icon name="refresh" className="text-[18px]" /> Rebuild
+                  <Icon name="refresh" className="text-[18px]" /> Reconstrueix
                 </Button>
               ) : null}
             </div>
@@ -280,8 +290,8 @@ export default function PlaylistDetail() {
       ) : (
         <EmptyState
           icon="playlist_play"
-          title="No items to show"
-          description="This playlist does not have any downloadable items yet."
+          title="No hi ha elements per mostrar"
+          description="Aquesta llista de reproducció encara no té cap element per descarregar."
         />
       )}
     </div>
@@ -325,7 +335,7 @@ function ItemRow({
           <IconButton
             href={fileUrl(item.filename)}
             variant="tonal"
-            label="Download file"
+            label="Descarrega el fitxer"
           >
             <Icon name="download" className="text-[20px]" />
           </IconButton>
@@ -340,10 +350,10 @@ function ItemRow({
               className="text-[18px]"
             />
             {item.status === "failed"
-              ? "Retry"
+              ? "Torna-ho a provar"
               : item.status === "missing"
-                ? "Re-download"
-                : "Download"}
+                ? "Torna a descarregar"
+                : "Descarrega"}
           </Button>
         )}
       </div>

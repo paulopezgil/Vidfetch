@@ -6,7 +6,7 @@ import { destinations } from "../navigation";
 export default function NavigationBar() {
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Navegació principal"
       className="flex h-20 shrink-0 items-stretch border-t border-outline-variant bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {destinations.map((destination) => (
@@ -21,7 +21,7 @@ export default function NavigationBar() {
               <span
                 className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
                   isActive
-                    ? "bg-primary text-on-primary"
+                    ? "bg-secondary-container text-on-secondary-container"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"
                 }`}
               >

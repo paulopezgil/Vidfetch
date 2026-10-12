@@ -26,7 +26,7 @@ function Dep({
         {label}
       </span>
       <span className="text-body-medium text-on-surface-variant">
-        {ok ? (version ?? "Available") : "Not available"}
+        {ok ? (version ?? "Disponible") : "No disponible"}
       </span>
     </div>
   );
@@ -61,7 +61,11 @@ export default function Settings() {
       setHealth(await getHealth());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not reach the server.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut contactar amb el servidor.",
+      );
     }
   }, []);
 
@@ -72,7 +76,9 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <section className="space-y-2">
-        <h2 className="px-1 text-title-medium text-on-surface">Runtime</h2>
+        <h2 className="px-1 text-title-medium text-on-surface">
+          Entorn d’execució
+        </h2>
         <Card variant="outlined" className="overflow-hidden">
           {error ? (
             <div className="p-4">
@@ -80,7 +86,7 @@ export default function Settings() {
             </div>
           ) : !health ? (
             <div className="flex items-center gap-3 p-4 text-body-medium text-on-surface-variant">
-              <Spinner /> Checking dependencies…
+              <Spinner /> S’estan comprovant les dependències…
             </div>
           ) : (
             <div className="divide-y divide-outline-variant">
@@ -97,11 +103,11 @@ export default function Settings() {
               <Row
                 icon="terminal"
                 label="yt-dlp"
-                value={health.ytdlp_version ?? "Unknown"}
+                value={health.ytdlp_version ?? "Desconegut"}
               />
               <Row
                 icon="deployed_code"
-                label="Application"
+                label="Aplicació"
                 value={`v${health.version}`}
               />
             </div>
@@ -111,33 +117,36 @@ export default function Settings() {
 
       <section className="space-y-2">
         <h2 className="px-1 text-title-medium text-on-surface">
-          Storage policy
+          Política d’emmagatzematge
         </h2>
         <Card
           variant="outlined"
           className="space-y-3 p-4 text-body-medium text-on-surface-variant"
         >
           <p>
-            When you download a full playlist, each video is saved as an
-            individual file <em>and</em> packaged into a single ZIP archive.
-            Both the files and the archive remain in your library, so you can
-            grab a single video or the whole playlist as you prefer.
+            Quan descarregues una llista de reproducció sencera, cada vídeo es
+            desa com a fitxer individual <em>i</em>, a més, s’empaqueta en un
+            únic arxiu ZIP. Tant els fitxers com l’arxiu es queden a la
+            biblioteca, així que pots agafar un sol vídeo o tota la llista com
+            prefereixis.
           </p>
           <p>
-            Deleting a file removes it from disk but keeps its history record.
-            Files deleted from a playlist can be re-downloaded at any time.
+            Eliminar un fitxer l’esborra del disc, però en conserva el registre
+            a l’historial. Els fitxers eliminats d’una llista de reproducció es
+            poden tornar a descarregar en qualsevol moment.
           </p>
         </Card>
       </section>
 
       <section className="space-y-2">
-        <h2 className="px-1 text-title-medium text-on-surface">About</h2>
+        <h2 className="px-1 text-title-medium text-on-surface">Quant a</h2>
         <Card variant="outlined" className="flex items-start gap-3 p-4">
           <Icon name="info" className="text-[20px] text-primary" />
           <p className="text-body-medium text-on-surface-variant">
-            Downloads are performed with yt-dlp. Only download content you are
-            authorised to download and ensure you comply with applicable laws,
-            platform terms of service, and content rights.
+            Les descàrregues es fan amb yt-dlp. Descarrega només contingut que
+            tinguis autoritzat a descarregar i assegura’t de complir les lleis
+            aplicables, els termes del servei de les plataformes i els drets
+            del contingut.
           </p>
         </Card>
       </section>

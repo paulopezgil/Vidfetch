@@ -34,14 +34,14 @@ export default function Dashboard() {
           const finished = tasksRef.current[taskId];
           if (finished) {
             if (finished.status === "completed") {
-              toast("Download completed", "success");
+              toast("Descàrrega completada", "success");
             } else if (finished.status === "failed") {
               toast(
-                `Download failed: ${finished.error || "unknown error"}`,
+                `La descàrrega ha fallat: ${finished.error || "error desconegut"}`,
                 "error",
               );
             } else if (finished.status === "cancelled") {
-              toast("Download cancelled", "info");
+              toast("Descàrrega cancel·lada", "info");
             }
           }
           window.setTimeout(() => {
@@ -95,7 +95,7 @@ export default function Dashboard() {
       setInfo(result);
     } catch (e) {
       setInfoError(
-        e instanceof Error ? e.message : "Failed to fetch information.",
+        e instanceof Error ? e.message : "No s’ha pogut obtenir la informació.",
       );
     } finally {
       setInfoLoading(false);
@@ -117,11 +117,11 @@ export default function Dashboard() {
           format: opts.format,
           embed_subs: opts.embed_subs,
         });
-        toast("Download started", "info");
+        toast("Descàrrega iniciada", "info");
         subscribe(task_id);
       } catch (e) {
         toast(
-          e instanceof Error ? e.message : "Failed to start download",
+          e instanceof Error ? e.message : "No s’ha pogut iniciar la descàrrega",
           "error",
         );
       } finally {
@@ -137,7 +137,7 @@ export default function Dashboard() {
         await cancelTask(taskId);
       } catch (e) {
         toast(
-          e instanceof Error ? e.message : "Could not cancel task",
+          e instanceof Error ? e.message : "No s’ha pogut cancel·lar la tasca",
           "error",
         );
       }
@@ -155,7 +155,7 @@ export default function Dashboard() {
 
       {infoLoading ? (
         <div className="flex items-center justify-center gap-3 py-10 text-body-medium text-on-surface-variant">
-          <Spinner /> Fetching information…
+          <Spinner /> Obtenint informació…
         </div>
       ) : info ? (
         <InfoPreview
@@ -166,13 +166,15 @@ export default function Dashboard() {
       ) : !infoError ? (
         <EmptyState
           icon="link"
-          title="Nothing to preview yet"
-          description="Paste a video or playlist URL above to review its details before downloading."
+          title="Encara no hi ha res per previsualitzar"
+          description="Enganxa una URL de vídeo o de llista de reproducció a dalt per revisar-ne els detalls abans de descarregar."
         />
       ) : null}
 
       <section className="space-y-3">
-        <h2 className="text-title-medium text-on-surface">Active downloads</h2>
+        <h2 className="text-title-medium text-on-surface">
+          Descàrregues actives
+        </h2>
         {activeTasks.length > 0 ? (
           <div className="space-y-3">
             {activeTasks.map((t) => (
@@ -181,7 +183,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <p className="text-body-medium text-on-surface-variant">
-            No active downloads.
+            No hi ha cap descàrrega activa.
           </p>
         )}
       </section>
