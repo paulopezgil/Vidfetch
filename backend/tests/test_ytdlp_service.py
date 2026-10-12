@@ -184,3 +184,92 @@ def test_download_video_short_circuits_when_already_cancelled(tmp_path):
             lambda d: None,
             lambda: True,
         )
+
+
+# -- robustness: disk space, ffmpeg, network, secrets --------------------- #
+
+class _FakeUsage:
+    def __init__(self, free: int):
+        self.free = free
+        self.total = free
+        self.used = 0
+
+
+def test_free_space_check_rejects_low_disk(monkeypatch, tmp_path):
+    monkeypatch.setattr(ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(1))
+    with pytest.raises(ytdlp_service.DownloadError) as exc:
+        ytdlp_service._check_free_space(tmp_path)
+    assert "disk space" in str(exc.value).lower()
+
+
+def test_free_space_check_allows_plenty(monkeypatch, tmp_path):
+    huge = ytdlp_service.settings.min_free_disk_mb * 1024 * 1024 + 1
+    monkeypatch.setattr(
+        ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(huge)
+    )
+    ytdlp_service._check_free_space(tmp_path)  # must not raise
+
+
+def test_download_video_rejects_when_disk_full(monkeypatch, tmp_path):
+    monkeypatch.setattr(ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(1))
+    with pytest.raises(ytdlp_service.DownloadError) as exc:
+        ytdlp_service.download_video(
+            "https://example.com/video", "best", False, tmp_path,
+            lambda d: None, lambda: False,
+        )
+    assert "disk space" in str(exc.value).lower()
+
+
+def test_friendly_error_maps_ffmpeg_missing():
+    msg = ytdlp_service.friendly_error(
+        Exception("ERROR: Postprocessing: ffmpeg not found. Please install or provide")
+    )
+    assert "FFmpeg" in msg
+
+
+def test_friendly_error_maps_network_failures():
+    for raw in (
+        "ERROR: Unable to download webpage: <urlopen error [Errno -3] Temporary failure in name resolution>",
+        "ERROR: [Errno 111] Connection refused",
+        "ERROR: The read operation timed out",
+    ):
+        assert "Network error" in ytdlp_service.friendly_error(Exception(raw))
+
+
+def test_friendly_error_maps_enospc():
+    msg = ytdlp_service.friendly_error(
+        Exception("ERROR: unable to write data: [Errno 28] No space left on device")
+    )
+    assert "disk space" in msg.lower()
+
+
+def test_redact_sensitive_strips_credentials():
+    raw = (
+        "GET https://user:s3cret@example.com/x?token=abc123&sig=deadbeef HTTP/1.1\n"
+        "Cookie: SID=verysecretvalue\n"
+        "Authorization: Bearer xyz"
+    )
+    out = ytdlp_service.redact_sensitive(raw)
+    assert "s3cret" not in out
+    assert "user@" not in out
+    assert "abc123" not in out
+    assert "deadbeef" not in out
+    assert "verysecretvalue" not in out
+    assert "Bearer xyz" not in out
+    # ...but harmless structure is retained.
+    assert "https://example.com/x" in out
+
+
+def test_friendly_error_redacts_secrets_in_fallback():
+    msg = ytdlp_service.friendly_error(
+        Exception("bad request to https://u:p@example.com/v?token=leak")
+    )
+    assert "leak" not in msg
+    assert "u:p@" not in msg
+
+
+def test_base_opts_never_carry_credentials():
+    opts = ytdlp_service._base_opts()
+    for key in ("cookiefile", "cookiesfrombrowser", "username", "password",
+                "videopassword", "http_headers"):
+        assert key not in opts

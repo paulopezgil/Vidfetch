@@ -350,12 +350,21 @@ class TaskManager:
             "created_at": existing["created_at"] if existing else now,
             "updated_at": now,
         })
+        # Retention policy: the freshly extracted playlist is the source of
+        # truth. We re-upsert every current entry, then delete any persisted
+        # item whose URL is no longer present, so videos removed from the
+        # source playlist are not retried on later runs (and cannot distort
+        # progress or total_size). Only tracking rows are pruned -- media files
+        # stay on disk, matching the "nothing is deleted after packaging" policy.
+        current_urls: set[str] = set()
         for i, e in enumerate(entries):
+            url = e.get("url") or ""
+            current_urls.add(url)
             database.upsert_playlist_item({
                 "playlist_id": playlist_id,
                 "item_index": i,
                 "video_id": e.get("id") or "",
-                "url": e.get("url") or "",
+                "url": url,
                 "title": e.get("title") or f"Video {i + 1}",
                 "duration": e.get("duration"),
                 "status": "pending",
@@ -363,6 +372,7 @@ class TaskManager:
                 "size": 0,
                 "error": "",
             })
+        database.prune_playlist_items(playlist_id, current_urls)
 
         task_base = settings.tmp_dir / task.task_id
         task_base.mkdir(parents=True, exist_ok=True)
@@ -372,10 +382,9 @@ class TaskManager:
         total_size = 0
         new_items = 0
 
-        # The persisted item set is authoritative: duplicate URLs collapse in
-        # the DB (UNIQUE(playlist_id, url)) and stale items from earlier runs
-        # may still be present. Using the freshly extracted entry count here
-        # would let progress exceed 100%.
+        # Iterate the pruned, deduplicated item set (duplicate URLs collapse
+        # via UNIQUE(playlist_id, url)). Progress is measured against this set
+        # and capped at 100%, and total_size only sums files that still exist.
         items = database.get_playlist_items(playlist_id)
         if items:
             task.item_count = len(items)
@@ -648,10 +657,10 @@ def _friendly(exc: Exception) -> str:
     import yt_dlp
 
     if isinstance(exc, ytdlp_service.DownloadError):
-        return str(exc)
+        return ytdlp_service.redact_sensitive(str(exc))
     if isinstance(exc, yt_dlp.utils.DownloadError):
         return ytdlp_service.friendly_error(exc)
-    return f"Download failed: {exc}"
+    return ytdlp_service.redact_sensitive(f"Download failed: {exc}")
 
 
 manager = TaskManager()
