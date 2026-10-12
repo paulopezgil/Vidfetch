@@ -169,11 +169,11 @@ class TaskManager:
         return task.task_id
 
     def cancel_task(self, task_id: str) -> bool:
-        task = self._tasks.get(task_id)
-        if task is None or task.status in TERMINAL_STATUSES:
-            return False
-        task.cancel_requested = True
         with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None or task.status in TERMINAL_STATUSES:
+                return False
+            task.cancel_requested = True
             task.version += 1
         return True
 
@@ -205,6 +205,10 @@ class TaskManager:
 
     def _execute(self, task: Task) -> None:
         try:
+            # A task cancelled while queued (waiting on the semaphore) must not
+            # burn a network round-trip fetching metadata.
+            if task.cancel_requested:
+                raise ytdlp_service.DownloadCancelled()
             if task.operation_type == "playlist":
                 self._execute_playlist(task)
             elif task.operation_type == "playlist_item":
@@ -226,7 +230,18 @@ class TaskManager:
         self._persist(task)
 
     def _execute_playlist_item(self, task: Task) -> None:
-        dest = self._run_single_download(task)
+        try:
+            dest = self._run_single_download(task)
+        except ytdlp_service.DownloadCancelled:
+            raise
+        except ytdlp_service.DownloadError as exc:
+            # A single-item retry should record why it failed so the playlist
+            # detail view can show the message on the right row.
+            if task.playlist_id:
+                database.update_playlist_item_status(
+                    task.playlist_id, task.url, "failed", "", 0, str(exc)
+                )
+            raise
 
         if task.playlist_id:
             size = dest.stat().st_size
@@ -357,7 +372,13 @@ class TaskManager:
         total_size = 0
         new_items = 0
 
+        # The persisted item set is authoritative: duplicate URLs collapse in
+        # the DB (UNIQUE(playlist_id, url)) and stale items from earlier runs
+        # may still be present. Using the freshly extracted entry count here
+        # would let progress exceed 100%.
         items = database.get_playlist_items(playlist_id)
+        if items:
+            task.item_count = len(items)
         for item in items:
             if task.cancel_requested:
                 raise ytdlp_service.DownloadCancelled()
@@ -423,8 +444,9 @@ class TaskManager:
                 shutil.rmtree(item_workdir, ignore_errors=True)
 
             with self._lock:
-                task.progress = round(
-                    task.completed_items / max(task.item_count, 1) * 100, 1
+                task.progress = min(
+                    round(task.completed_items / max(task.item_count, 1) * 100, 1),
+                    100.0,
                 )
                 task.current_item_progress = 0.0
                 task.version += 1
@@ -444,6 +466,10 @@ class TaskManager:
                 self._set_status(task, "packaging zip")
 
                 def zip_cb(_frac: float) -> None:
+                    # Cancellation is honoured during packaging too: raising
+                    # here makes zip_service discard its in-progress .part file.
+                    if task.cancel_requested:
+                        raise ytdlp_service.DownloadCancelled()
                     with self._lock:
                         task.version += 1
 
@@ -507,16 +533,22 @@ class TaskManager:
         self._set_status(task, "cancelled")
 
     def _finalize_playlist_on_terminal(self, task: Task, status: str) -> None:
-        """Keep playlist metadata consistent when a task ends unexpectedly."""
+        """Keep playlist metadata consistent when a task ends unexpectedly.
+
+        A ``playlist_item`` task represents a single-item retry: its failure or
+        cancellation must not downgrade the playlist-level status (which
+        reflects the whole playlist), so only in-flight item rows are reset.
+        """
         if not task.playlist_id:
             return
-        playlist = database.get_playlist(task.playlist_id)
-        if playlist:
-            database.upsert_playlist({
-                **playlist,
-                "status": status,
-                "updated_at": _now(),
-            })
+        if task.operation_type != "playlist_item":
+            playlist = database.get_playlist(task.playlist_id)
+            if playlist:
+                database.upsert_playlist({
+                    **playlist,
+                    "status": status,
+                    "updated_at": _now(),
+                })
         database.reset_downloading_items(task.playlist_id)
 
     def _progress_hook(self, task: Task) -> Callable[[dict], None]:
@@ -530,11 +562,14 @@ class TaskManager:
                     pct = data.get("percent", 0.0)
                     if task.operation_type == "playlist":
                         task.current_item_progress = pct
-                        task.progress = round(
-                            (task.completed_items + pct / 100.0)
-                            / max(task.item_count, 1)
-                            * 100,
-                            1,
+                        task.progress = min(
+                            round(
+                                (task.completed_items + pct / 100.0)
+                                / max(task.item_count, 1)
+                                * 100,
+                                1,
+                            ),
+                            100.0,
                         )
                     else:
                         task.progress = pct
