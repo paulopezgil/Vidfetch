@@ -10,7 +10,18 @@ from ..config import settings
 
 VIDEO_EXT = {"mp4", "mkv", "webm", "avi", "mov", "m4v", "flv", "ts", "mpg", "mpeg"}
 AUDIO_EXT = {"mp3", "m4a", "aac", "wav", "flac", "ogg", "opus"}
-MEDIA_EXT = VIDEO_EXT | AUDIO_EXT
+# Raster images only: SVG is deliberately excluded because it can carry script
+# and is not safe to serve inline from the same origin.
+IMAGE_EXT = {"jpg", "jpeg", "png", "webp", "gif", "avif", "bmp"}
+MEDIA_EXT = VIDEO_EXT | AUDIO_EXT | IMAGE_EXT
+
+
+def _media_type(ext: str) -> str:
+    if ext in AUDIO_EXT:
+        return "audio"
+    if ext in IMAGE_EXT:
+        return "image"
+    return "video"
 
 
 def _thumb_url(video_id: str) -> Optional[str]:
@@ -61,13 +72,24 @@ def list_media_files() -> list[dict]:
             "size": stat.st_size,
             "mtime": stat.st_mtime,
             "ext": ext,
-            "media_type": "audio" if ext in AUDIO_EXT else "video",
+            "media_type": _media_type(ext),
             "thumbnail_url": _thumb_url(video_id),
             "video_id": video_id,
             "playlist_id": database.find_item_by_filename(name),
         })
     files.sort(key=lambda f: f["mtime"], reverse=True)
     return files
+
+
+def _downloaded_count(playlist_id: str) -> int:
+    """Count items marked downloaded whose file still exists on disk."""
+    count = 0
+    for item in database.get_playlist_items(playlist_id):
+        if item["status"] != "downloaded" or not item.get("filename"):
+            continue
+        if (settings.download_dir / item["filename"]).exists():
+            count += 1
+    return count
 
 
 def list_playlists() -> list[dict]:
@@ -85,7 +107,7 @@ def list_playlists() -> list[dict]:
             "thumbnail_url": thumb_url,
             "item_count": p["item_count"],
             "total_size": p.get("total_size") or 0,
-            "zip_path": p.get("zip_path") or "",
+            "downloaded_count": _downloaded_count(p["playlist_id"]),
             "status": p.get("status") or "pending",
             "created_at": p["created_at"],
             "updated_at": p["updated_at"],
@@ -138,7 +160,6 @@ def playlist_detail(playlist_id: str) -> Optional[dict]:
         "thumbnail_url": thumb_url,
         "item_count": len(item_out),
         "total_size": p.get("total_size") or 0,
-        "zip_path": p.get("zip_path") or "",
         "status": p.get("status") or "pending",
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
@@ -154,24 +175,14 @@ def delete_file(filename: str) -> Optional[dict]:
     if path is None:
         return None
 
-    result = {"filename": filename, "deleted": False, "was_zip": False,
-              "playlist_id": ""}
-
-    if path.suffix.lower() == ".zip":
-        result["was_zip"] = True
-        for p in database.list_playlists():
-            if p.get("zip_path") == filename:
-                result["playlist_id"] = p["playlist_id"]
-                database.upsert_playlist({
-                    **p,
-                    "zip_path": "",
-                    "updated_at": database.iso_now(),
-                })
+    result = {"filename": filename, "deleted": False, "playlist_id": ""}
 
     # If the file belongs to a playlist item, clear its reference so it can be
-    # re-downloaded. History is intentionally left untouched.
+    # re-downloaded. Archives are never persisted, so there is nothing to
+    # reconcile for them. History is intentionally left untouched.
     item = database.get_item_by_filename(filename)
     if item:
+        result["playlist_id"] = item["playlist_id"]
         database.update_playlist_item_status(
             item["playlist_id"], item["url"], "pending", "", 0, ""
         )

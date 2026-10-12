@@ -58,3 +58,33 @@ def test_list_media_files_excludes_hidden(tmp_path, monkeypatch):
     names = [f["filename"] for f in files]
     assert "video.mp4" in names
     assert ".hidden" not in names
+
+
+def test_list_media_files_classifies_media_types(tmp_path, monkeypatch):
+    downloads = _setup(tmp_path, monkeypatch)
+    (downloads / "clip.mp4").write_bytes(b"v")
+    (downloads / "song.mp3").write_bytes(b"a")
+    (downloads / "pic.png").write_bytes(b"i")
+    (downloads / "photo.jpeg").write_bytes(b"i")
+    (downloads / "vector.svg").write_bytes(b"<svg/>")
+
+    files = {f["filename"]: f for f in library.list_media_files()}
+    assert files["clip.mp4"]["media_type"] == "video"
+    assert files["song.mp3"]["media_type"] == "audio"
+    assert files["pic.png"]["media_type"] == "image"
+    assert files["photo.jpeg"]["media_type"] == "image"
+    # SVG is intentionally excluded (can carry script).
+    assert "vector.svg" not in files
+
+
+def test_delete_zip_file_has_no_special_handling(tmp_path, monkeypatch):
+    downloads = _setup(tmp_path, monkeypatch)
+    (downloads / "archive.zip").write_bytes(b"PK")
+
+    result = library.delete_file("archive.zip")
+    # No persisted archives exist, so a .zip is deleted like any other file and
+    # there is no zip-specific result field.
+    assert result == {
+        "filename": "archive.zip", "deleted": True, "playlist_id": "",
+    }
+    assert not (downloads / "archive.zip").exists()

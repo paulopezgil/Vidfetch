@@ -4,8 +4,11 @@ Settings are redirected at a tmp directory so nothing touches the real data
 dir, and the yt-dlp service is stubbed wherever a download task would otherwise
 hit the network.
 """
+import io
 import time
 import uuid
+import zipfile
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,6 +49,42 @@ def _seed_task(status: str) -> str:
     )
     database.insert_task(task._row())
     return task.task_id
+
+
+def _seed_playlist(playlist_id: str, title: str = "My List", items=()) -> None:
+    now = database.iso_now()
+    database.upsert_playlist({
+        "playlist_id": playlist_id,
+        "url": f"https://example.com/{playlist_id}",
+        "title": title,
+        "channel": "",
+        "thumbnail_path": "",
+        "item_count": len(items),
+        "total_size": 0,
+        "zip_path": "",
+        "status": "completed",
+        "created_at": now,
+        "updated_at": now,
+    })
+    for item in items:
+        database.upsert_playlist_item({
+            "playlist_id": playlist_id,
+            "duration": 1,
+            "error": "",
+            **item,
+        })
+
+
+def _item(index, vid, status, filename="", size=0):
+    return {
+        "item_index": index,
+        "video_id": vid,
+        "url": f"https://example.com/{vid}",
+        "title": vid.upper(),
+        "status": status,
+        "filename": filename,
+        "size": size,
+    }
 
 
 def _wait_terminal(client, task_id, timeout=10.0) -> str:
@@ -171,3 +210,110 @@ def test_health(client):
     assert body["status"] == "ok"
     assert body["version"]
     assert {"node_available", "ffmpeg_available"} <= set(body["dependencies"])
+
+
+# -- playlist ZIP (on demand) --------------------------------------------- #
+
+def test_playlist_zip_unknown_returns_404(client):
+    assert client.get("/api/playlists/nope/zip").status_code == 404
+
+
+def test_playlist_zip_without_downloaded_files_returns_409(client, env):
+    _seed_playlist("pl_empty", items=[_item(0, "a", "failed")])
+    r = client.get("/api/playlists/pl_empty/zip")
+    assert r.status_code == 409
+    assert r.json()["detail"]
+
+
+def test_playlist_zip_includes_redownloaded_item_and_is_transient(client, env):
+    (env / "a.mp4").write_bytes(b"aaaa")
+    _seed_playlist("pl_zip", title="My List", items=[
+        _item(0, "a", "downloaded", "a.mp4", 4),
+        _item(1, "b", "failed"),
+    ])
+
+    # Before the retry only the successful item is packaged.
+    first = client.get("/api/playlists/pl_zip/zip")
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "application/zip"
+    assert first.headers["content-disposition"].startswith("attachment")
+    assert "My List [pl_zip].zip" in unquote(first.headers["content-disposition"])
+    assert zipfile.ZipFile(io.BytesIO(first.content)).namelist() == ["a.mp4"]
+
+    # The failed item is retried: its file lands on disk and the row is updated.
+    (env / "b.mp4").write_bytes(b"bbbb")
+    database.update_playlist_item_status(
+        "pl_zip", "https://example.com/b", "downloaded", "b.mp4", 4, ""
+    )
+
+    second = client.get("/api/playlists/pl_zip/zip")
+    assert second.status_code == 200
+    assert set(zipfile.ZipFile(io.BytesIO(second.content)).namelist()) == {
+        "a.mp4", "b.mp4",
+    }
+
+    # Nothing is persisted: no archive anywhere, and the transient temp file
+    # has been removed after the response was sent.
+    assert not list(env.rglob("*.zip"))
+    leftovers = [p for p in (env / ".tmp").rglob("*") if p.is_file()]
+    assert leftovers == []
+    on_disk = sorted(p.name for p in env.iterdir() if p.is_file())
+    assert on_disk == ["a.mp4", "b.mp4"]
+
+
+# -- downloaded_count ----------------------------------------------------- #
+
+def test_downloaded_count_in_library_and_playlist_detail(client, env):
+    (env / "a.mp4").write_bytes(b"aaaa")
+    _seed_playlist("pl_count", title="Counted", items=[
+        _item(0, "a", "downloaded", "a.mp4", 4),
+        _item(1, "b", "downloaded", "gone.mp4", 4),  # file missing on disk
+        _item(2, "c", "failed"),
+    ])
+
+    listing = client.get("/api/downloads").json()
+    pl = next(p for p in listing["playlists"] if p["playlist_id"] == "pl_count")
+    assert pl["downloaded_count"] == 1
+    assert "zip_path" not in pl
+
+    detail = client.get("/api/playlists/pl_count").json()
+    assert detail["downloaded_count"] == 1
+    assert "zip_path" not in detail
+
+
+# -- inline media --------------------------------------------------------- #
+
+def test_media_served_inline_and_file_stays_attachment(client, env):
+    (env / "clip.mp4").write_bytes(b"0123456789")
+
+    inline = client.get("/api/media/clip.mp4")
+    assert inline.status_code == 200
+    assert inline.headers["content-type"] == "video/mp4"
+    assert inline.headers["content-disposition"].startswith("inline")
+    assert inline.content == b"0123456789"
+
+    attached = client.get("/api/file/clip.mp4")
+    assert attached.status_code == 200
+    assert attached.headers["content-disposition"].startswith("attachment")
+    assert attached.content == b"0123456789"
+
+
+def test_media_image_content_type(client, env):
+    (env / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    r = client.get("/api/media/pic.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+
+
+def test_media_range_request_returns_206(client, env):
+    (env / "clip.mp4").write_bytes(b"0123456789")
+    r = client.get("/api/media/clip.mp4", headers={"Range": "bytes=0-3"})
+    assert r.status_code == 206
+    assert r.headers["content-range"] == "bytes 0-3/10"
+    assert r.content == b"0123"
+
+
+def test_media_rejects_traversal_and_unknown(client):
+    assert client.get("/api/media/%2e%2e%2f%2e%2e%2fetc%2fpasswd").status_code == 404
+    assert client.get("/api/media/../../etc/passwd").status_code == 404
+    assert client.get("/api/media/missing.mp4").status_code == 404
