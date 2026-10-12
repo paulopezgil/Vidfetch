@@ -82,13 +82,8 @@ export function deleteFile(filename: string): Promise<{ deleted: boolean }> {
   }).then((res) => handle<{ deleted: boolean }>(res));
 }
 
-export function rebuildZip(
-  id: string,
-  force = false,
-): Promise<{ zip_path: string; built: boolean }> {
-  return post<{ zip_path: string; built: boolean }>(`/playlists/${id}/zip`, {
-    force,
-  });
+export function zipUrl(playlistId: string): string {
+  return `${BASE}/playlists/${playlistId}/zip`;
 }
 
 export function listHistory(params: {
@@ -111,6 +106,10 @@ export function getHealth(): Promise<Health> {
 
 export function fileUrl(filename: string): string {
   return `${BASE}/file/${encodeURIComponent(filename)}`;
+}
+
+export function mediaUrl(filename: string): string {
+  return `${BASE}/media/${encodeURIComponent(filename)}`;
 }
 
 /**

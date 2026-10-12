@@ -22,7 +22,6 @@ const indeterminateStatuses = new Set([
   "queued",
   "fetching information",
   "processing",
-  "packaging zip",
 ]);
 
 export default function TaskCard({ task, onCancel }: TaskCardProps) {

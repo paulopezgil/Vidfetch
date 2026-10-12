@@ -6,7 +6,6 @@ export type TaskStatus =
   | "fetching information"
   | "downloading"
   | "processing"
-  | "packaging zip"
   | "completed"
   | "failed"
   | "cancelled";
@@ -72,7 +71,7 @@ export interface LibraryFile {
   size: number;
   mtime: number;
   ext: string;
-  media_type: "video" | "audio";
+  media_type: "video" | "audio" | "image";
   thumbnail_url?: string | null;
   video_id?: string;
   playlist_id?: string;
@@ -86,7 +85,7 @@ export interface Playlist {
   thumbnail_url?: string | null;
   item_count: number;
   total_size: number;
-  zip_path: string;
+  downloaded_count: number;
   status: string;
   created_at: string;
   updated_at: string;
@@ -106,7 +105,6 @@ export interface PlaylistItem {
 
 export interface PlaylistDetail extends Playlist {
   items: PlaylistItem[];
-  downloaded_count: number;
   failed_count: number;
 }
 
