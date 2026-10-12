@@ -5,6 +5,7 @@ rest of the application never touches ``yt_dlp`` directly.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -176,6 +177,9 @@ def download_video(
 
     Returns a dict with ``id``, ``title``, ``filepath``, ``thumbnail``, ``ext``.
     """
+    if cancel and cancel():
+        raise DownloadCancelled()
+
     opts = _base_opts()
     opts["outtmpl"] = str(workdir / "%(id)s.%(ext)s")
     opts["format"] = _format_spec(fmt)
@@ -251,15 +255,23 @@ def get_playlist_entries(url: str) -> list[dict]:
 
 
 def friendly_error(exc: Exception) -> str:
+    """Translate a raw yt-dlp error into an actionable, human-readable message.
+
+    Matching is deliberately specific: a previous version tested for the bare
+    substring ``"age"`` (which also matches "language", "storage", "package"…)
+    and for a bare ``"403"`` (which also matches larger numbers), producing
+    misleading messages. We now match HTTP statuses on word boundaries and
+    age-restriction on explicit phrasing.
+    """
     msg = str(exc)
     low = msg.lower()
-    if "403" in msg or "http error 403" in low:
+    if re.search(r"\b403\b", msg) or "forbidden" in low:
         return (
             "YouTube returned HTTP 403 (access denied). This is usually caused "
             "by bot detection, rate limiting, or missing authentication. See "
             "the README troubleshooting section for steps to resolve it."
         )
-    if "429" in msg or "http error 429" in low:
+    if re.search(r"\b429\b", msg):
         return "Rate limited (HTTP 429). Wait a while and try again."
     if "unsupported url" in low:
         return "Unsupported or invalid URL."
@@ -267,7 +279,16 @@ def friendly_error(exc: Exception) -> str:
         return "FFmpeg is required for this operation but is unavailable."
     if "video unavailable" in low or "this video is unavailable" in low:
         return "The video is unavailable (private, region-locked, or removed)."
-    if "sign in to confirm" in low or "age" in low:
+    if any(
+        phrase in low
+        for phrase in (
+            "sign in to confirm",
+            "confirm your age",
+            "age-restricted",
+            "age restricted",
+            "inappropriate for some users",
+        )
+    ):
         return "This video requires sign-in or age confirmation, which is not supported."
     if "login" in low and "cookie" in low:
         return "This content requires authentication; cookies are not configured."
