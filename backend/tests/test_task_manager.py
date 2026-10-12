@@ -4,6 +4,7 @@ We exercise the synchronous ``_execute`` path directly, stubbing the yt-dlp
 service so no network access is required. Settings point at a tmp directory and
 a fresh SQLite database per test.
 """
+import hashlib
 import uuid
 import zipfile
 from pathlib import Path
@@ -296,3 +297,91 @@ def test_playlist_item_failure_records_error_without_downgrading_playlist(
     assert "403" in item["error"]
     # ...but the playlist-level status is left alone.
     assert database.get_playlist("pl_x")["status"] == "completed"
+
+
+# -- item retention / pruning --------------------------------------------- #
+
+def _playlist_id(url: str) -> str:
+    return "pl_" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+
+
+def _seed_playlist(playlist_id, items):
+    database.upsert_playlist({
+        "playlist_id": playlist_id, "url": "https://example.com/playlist",
+        "title": "List", "channel": "", "thumbnail_path": "", "item_count": len(items),
+        "total_size": 0, "zip_path": "", "status": "completed",
+        "created_at": database.iso_now(), "updated_at": database.iso_now(),
+    })
+    for item in items:
+        database.upsert_playlist_item({
+            "playlist_id": playlist_id, "duration": 1, "error": "",
+            **item,
+        })
+
+
+def test_playlist_prunes_items_removed_from_source(env, monkeypatch):
+    url = "https://example.com/playlist"
+    pid = _playlist_id(url)
+
+    # An earlier run tracked a, b and c with files already on disk.
+    for i, vid in enumerate(["a", "b", "c"]):
+        (env / f"{vid}.mp4").write_bytes(b"x" * (10 * (i + 1)))
+    _seed_playlist(pid, [
+        {"item_index": 0, "video_id": "a", "url": "https://example.com/a",
+         "title": "A", "status": "downloaded", "filename": "a.mp4", "size": 10},
+        {"item_index": 1, "video_id": "b", "url": "https://example.com/b",
+         "title": "B", "status": "downloaded", "filename": "b.mp4", "size": 20},
+        {"item_index": 2, "video_id": "c", "url": "https://example.com/c",
+         "title": "C", "status": "downloaded", "filename": "c.mp4", "size": 30},
+    ])
+
+    # The source playlist now only contains a and b.
+    entries = [_entry("a"), _entry("b")]
+    monkeypatch.setattr(ytdlp_service, "get_info", lambda u: _playlist_info(entries))
+    monkeypatch.setattr(ytdlp_service, "download_video", _successful_download())
+
+    tm = TaskManager()
+    task = _make_task(tm, url=url, operation_type="playlist")
+    tm._execute(task)
+
+    remaining = {i["url"] for i in database.get_playlist_items(pid)}
+    assert remaining == {"https://example.com/a", "https://example.com/b"}
+    # The stale item's file is intentionally retained on disk.
+    assert (env / "c.mp4").exists()
+
+    assert task.item_count == 2
+    assert task.completed_items == 2
+    assert task.progress == 100.0
+    assert task.status == "completed"
+
+    playlist = database.get_playlist(pid)
+    assert playlist["item_count"] == 2
+    assert playlist["total_size"] == 30  # only a (10) + b (20)
+
+
+def test_playlist_total_size_ignores_stale_or_missing_files(env, monkeypatch):
+    url = "https://example.com/playlist"
+    pid = _playlist_id(url)
+
+    # a exists on disk; b is marked downloaded but its file is gone, so it must
+    # be re-downloaded. Its stale DB size (999) must not be counted.
+    (env / "a.mp4").write_bytes(b"x" * 10)
+    _seed_playlist(pid, [
+        {"item_index": 0, "video_id": "a", "url": "https://example.com/a",
+         "title": "A", "status": "downloaded", "filename": "a.mp4", "size": 10},
+        {"item_index": 1, "video_id": "b", "url": "https://example.com/b",
+         "title": "B", "status": "downloaded", "filename": "b.mp4", "size": 999},
+    ])
+
+    entries = [_entry("a"), _entry("b")]
+    monkeypatch.setattr(ytdlp_service, "get_info", lambda u: _playlist_info(entries))
+    monkeypatch.setattr(ytdlp_service, "download_video", _successful_download())
+
+    tm = TaskManager()
+    task = _make_task(tm, url=url, operation_type="playlist")
+    tm._execute(task)
+
+    assert task.completed_items == 2
+    assert task.status == "completed"
+    # 10 (existing a) + 10 (freshly written b), never the stale 999.
+    assert database.get_playlist(pid)["total_size"] == 20
