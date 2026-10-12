@@ -86,8 +86,11 @@
   :root {
     color-scheme: dark;
 
-    --md-primary: 255 180 168;
-    --md-on-primary: 105 1 0;
+    /* Intentionally NOT the generated Vibrant tone-80 (#FFB4A8, salmon):
+       darkened to a proper red so brand fills (logo, search submit, filled
+       buttons, selected chips) read as red rather than pink in dark mode. */
+    --md-primary: 220 54 46;
+    --md-on-primary: 255 255 255;
     --md-primary-container: 147 1 0;
     --md-on-primary-container: 255 218 212;
 
