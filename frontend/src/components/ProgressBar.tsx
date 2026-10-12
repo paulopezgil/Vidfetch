@@ -11,7 +11,7 @@ export default function ProgressBar({
   value,
   status,
   indeterminate = false,
-  label = "Progress",
+  label = "Progrés",
 }: ProgressBarProps) {
   const color =
     status === "failed"
@@ -26,7 +26,7 @@ export default function ProgressBar({
         className="h-1 w-full overflow-hidden rounded-full bg-surface-container-highest"
         role="progressbar"
         aria-label={label}
-        aria-valuetext="In progress"
+        aria-valuetext="En curs"
       >
         <div className="h-full w-2/5 animate-[m3-indeterminate_1.6s_cubic-bezier(0.65,0,0.35,1)_infinite] rounded-full bg-primary" />
         <style>{`@keyframes m3-indeterminate{0%{margin-left:-45%}60%{margin-left:100%}100%{margin-left:100%}}`}</style>

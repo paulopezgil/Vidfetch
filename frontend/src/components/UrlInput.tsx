@@ -24,11 +24,11 @@ export default function UrlInput({ onFetch, loading, error }: UrlInputProps) {
   function submit() {
     const url = value.trim();
     if (!url) {
-      setLocalError("Enter a video or playlist URL.");
+      setLocalError("Introdueix una URL de vídeo o de llista de reproducció.");
       return;
     }
     if (!isValidUrl(url)) {
-      setLocalError("Enter a valid http(s) URL.");
+      setLocalError("Introdueix una URL http(s) vàlida.");
       return;
     }
     setLocalError(null);
@@ -49,9 +49,9 @@ export default function UrlInput({ onFetch, loading, error }: UrlInputProps) {
         loading={loading}
         error={Boolean(shownError)}
         describedBy={shownError ? "url-error" : undefined}
-        label="Video or playlist URL"
-        placeholder="Paste a YouTube video or playlist URL"
-        submitLabel="Fetch info"
+        label="URL de vídeo o de llista de reproducció"
+        placeholder="Enganxa una URL de vídeo o de llista de reproducció de YouTube"
+        submitLabel="Obtén la informació"
       />
       {shownError ? <ErrorBanner id="url-error" message={shownError} /> : null}
     </div>

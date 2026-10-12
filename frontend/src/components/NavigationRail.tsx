@@ -6,7 +6,7 @@ import { destinations } from "../navigation";
 export default function NavigationRail() {
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Navegació principal"
       className="hidden w-20 shrink-0 flex-col items-center gap-1 border-r border-outline-variant bg-surface py-4 md:flex lg:hidden"
     >
       <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-on-primary">
@@ -26,7 +26,7 @@ export default function NavigationRail() {
               <span
                 className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${
                   isActive
-                    ? "bg-primary text-on-primary"
+                    ? "bg-secondary-container text-on-secondary-container"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"
                 }`}
               >

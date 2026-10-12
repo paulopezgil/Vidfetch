@@ -13,9 +13,9 @@ interface TaskCardProps {
 }
 
 const formatLabels: Record<string, string> = {
-  best: "MP4 · Best",
+  best: "MP4 · Millor",
   "720p": "MP4 · 720p",
-  mp3: "MP3 audio",
+  mp3: "Àudio MP3",
 };
 
 const indeterminateStatuses = new Set([
@@ -53,13 +53,13 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-title-small text-on-surface">
-                {task.title || "Preparing…"}
+                {task.title || "S’està preparant…"}
               </p>
               <p className="mt-0.5 text-body-small text-on-surface-variant">
                 {formatLabels[task.format] ?? task.format}
-                {isPlaylist ? " · Playlist" : ""}
+                {isPlaylist ? " · Llista de reproducció" : ""}
                 {isPlaylist && task.item_count
-                  ? ` · ${task.completed_items} of ${task.item_count}`
+                  ? ` · ${task.completed_items} de ${task.item_count}`
                   : ""}
               </p>
             </div>
@@ -68,7 +68,7 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
               {!done ? (
                 <IconButton
                   variant="danger"
-                  label="Cancel"
+                  label="Cancel·la"
                   onClick={() => onCancel(task.task_id)}
                 >
                   <Icon name="close" className="text-[20px]" />
@@ -79,7 +79,7 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
 
           {isPlaylist && task.item_count > 1 ? (
             <p className="mt-2 text-body-small text-on-surface-variant">
-              Video {task.item_index} of {task.item_count}
+              Vídeo {task.item_index} de {task.item_count}
               {task.current_item_title ? ` — ${task.current_item_title}` : ""}
             </p>
           ) : null}
@@ -87,7 +87,7 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
           <div className="mt-3">
             <ProgressBar
               value={task.progress}
-              label="Download progress"
+              label="Progrés de la descàrrega"
               status={task.status}
               indeterminate={indeterminate}
             />
@@ -109,13 +109,15 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
                   <span className="tabular-nums">{formatSpeed(task.speed)}</span>
                 ) : null}
                 {task.eta > 0 ? (
-                  <span className="tabular-nums">{formatEta(task.eta)} left</span>
+                  <span className="tabular-nums">
+                    {formatEta(task.eta)} restants
+                  </span>
                 ) : null}
               </>
             ) : null}
             {isPlaylist && task.item_count > 1 ? (
               <span className="tabular-nums">
-                Overall {task.progress.toFixed(0)}%
+                Total {task.progress.toFixed(0)}%
               </span>
             ) : null}
             {task.error && !done ? (

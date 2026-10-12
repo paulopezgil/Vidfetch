@@ -21,7 +21,7 @@ export default function ErrorBanner({ message, onRetry, id }: ErrorBannerProps) 
           onClick={onRetry}
           className="shrink-0 rounded-sm px-2 py-1 text-label-large transition-colors hover:bg-on-error-container/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-on-error-container"
         >
-          Retry
+          Torna-ho a provar
         </button>
       ) : null}
     </div>

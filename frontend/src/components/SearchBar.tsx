@@ -23,7 +23,7 @@ export default function SearchBar({
   onSubmit,
   placeholder,
   label,
-  submitLabel = "Submit",
+  submitLabel = "Envia",
   submitIcon = "arrow_forward",
   loading = false,
   error = false,
