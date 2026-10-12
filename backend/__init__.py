@@ -1,1 +1,1 @@
-"""yt-dlp frontend backend package."""
+"""Vidfetch backend package."""
