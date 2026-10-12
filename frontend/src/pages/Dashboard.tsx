@@ -170,7 +170,7 @@ export default function Dashboard() {
           submitting={submitting}
           onDownload={handleDownload}
         />
-      ) : !infoLoading ? (
+      ) : !infoLoading && !infoError ? (
         <EmptyState
           icon={<Link2 className="h-6 w-6" />}
           title="Nothing to preview yet"

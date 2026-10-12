@@ -13,6 +13,8 @@ import { formatBytes, formatDate } from "../lib";
 import { deleteFile, deletePlaylist, fileUrl, listLibrary } from "../api";
 import Thumbnail from "../components/Thumbnail";
 import EmptyState from "../components/EmptyState";
+import ErrorBanner from "../components/ErrorBanner";
+import IconButton from "../components/IconButton";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
@@ -71,14 +73,6 @@ export default function Library() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-fg-secondary">
-        <Spinner className="mr-2" /> Loading library…
-      </div>
-    );
-  }
-
   const files = data?.files ?? [];
   const playlists = data?.playlists ?? [];
 
@@ -103,86 +97,95 @@ export default function Library() {
         </p>
       </header>
 
-      {error ? (
-        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-          {error}
+      {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-fg-secondary">
+          <Spinner className="mr-2" /> Loading library…
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setTab(t.value)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${
+                  tab === t.value
+                    ? "bg-brand/15 text-brand-hover"
+                    : "text-fg-secondary hover:bg-surface-2 hover:text-fg"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {tabs.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => setTab(t.value)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${
-              tab === t.value
-                ? "bg-brand/15 text-brand-hover"
-                : "text-fg-secondary hover:bg-surface-2 hover:text-fg"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {showPlaylists && visiblePlaylists.length > 0 ? (
-        <section className="space-y-3">
-          {tab === "all" ? (
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-              Playlists
-            </h2>
-          ) : null}
-          {visiblePlaylists.map((p) => (
-            <PlaylistCard
-              key={p.playlist_id}
-              playlist={p}
-              onDelete={() =>
-                setPendingDelete({
-                  kind: "playlist",
-                  id: p.playlist_id,
-                  label: p.title,
-                })
-              }
-            />
-          ))}
-        </section>
-      ) : null}
-
-      {showFiles ? (
-        <section className="space-y-3">
-          {tab === "all" && visibleFiles.length > 0 ? (
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
-              Files
-            </h2>
-          ) : null}
-          {visibleFiles.length > 0 ? (
-            <div className="card divide-y divide-line/60">
-              {visibleFiles.map((f) => (
-                <FileRow
-                  key={f.filename}
-                  file={f}
+          {showPlaylists && visiblePlaylists.length > 0 ? (
+            <section className="space-y-3">
+              {tab === "all" ? (
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
+                  Playlists
+                </h2>
+              ) : null}
+              {visiblePlaylists.map((p) => (
+                <PlaylistCard
+                  key={p.playlist_id}
+                  playlist={p}
                   onDelete={() =>
                     setPendingDelete({
-                      kind: "file",
-                      id: f.filename,
-                      label: f.title,
+                      kind: "playlist",
+                      id: p.playlist_id,
+                      label: p.title,
                     })
                   }
                 />
               ))}
-            </div>
+            </section>
           ) : null}
-        </section>
-      ) : null}
 
-      {visibleFiles.length === 0 &&
-      visiblePlaylists.length === 0 ? (
-        <EmptyState
-          icon={<FolderOpen className="h-6 w-6" />}
-          title="Your library is empty"
-          description="Downloaded videos and playlists will appear here."
-        />
-      ) : null}
+          {showFiles ? (
+            <section className="space-y-3">
+              {tab === "all" && visibleFiles.length > 0 ? (
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
+                  Files
+                </h2>
+              ) : null}
+              {visibleFiles.length > 0 ? (
+                <div className="card divide-y divide-line/60">
+                  {visibleFiles.map((f) => (
+                    <FileRow
+                      key={f.filename}
+                      file={f}
+                      onDelete={() =>
+                        setPendingDelete({
+                          kind: "file",
+                          id: f.filename,
+                          label: f.title,
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {!error &&
+          visibleFiles.length === 0 &&
+          visiblePlaylists.length === 0 ? (
+            <EmptyState
+              icon={<FolderOpen className="h-6 w-6" />}
+              title={tab === "all" ? "Your library is empty" : "Nothing here yet"}
+              description={
+                tab === "all"
+                  ? "Downloaded videos and playlists will appear here."
+                  : "Try a different filter, or download something new from the Dashboard."
+              }
+            />
+          ) : null}
+        </>
+      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -223,23 +226,13 @@ function FileRow({
           {formatDate(new Date(file.mtime * 1000).toISOString())}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <a
-          href={fileUrl(file.filename)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
-          title="Download"
-          aria-label="Download file"
-        >
+      <div className="flex w-full shrink-0 items-center gap-1.5 sm:w-auto">
+        <IconButton href={fileUrl(file.filename)} label="Download file">
           <Download className="h-4 w-4" />
-        </a>
-        <button
-          onClick={onDelete}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-danger/15 hover:text-danger"
-          title="Delete"
-          aria-label="Delete file"
-        >
+        </IconButton>
+        <IconButton variant="danger" label="Delete file" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
-        </button>
+        </IconButton>
       </div>
     </div>
   );
@@ -254,7 +247,7 @@ function PlaylistCard({
 }) {
   const hasZip = Boolean(playlist.zip_path);
   return (
-    <div className="card flex items-center gap-4 p-4">
+    <div className="card flex flex-wrap items-center gap-4 p-4">
       <Thumbnail
         src={playlist.thumbnail_url}
         className="aspect-video w-24 rounded-md"
@@ -267,7 +260,7 @@ function PlaylistCard({
           {playlist.total_size ? ` · ${formatBytes(playlist.total_size)}` : ""}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex w-full shrink-0 items-center gap-1.5 sm:w-auto">
         <Link
           to={`/library/playlist/${playlist.playlist_id}`}
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 text-[13px] font-medium text-fg transition-colors hover:bg-line/60"
@@ -282,14 +275,13 @@ function PlaylistCard({
             <Download className="h-4 w-4" /> ZIP
           </a>
         ) : null}
-        <button
+        <IconButton
+          variant="danger"
+          label="Delete playlist"
           onClick={onDelete}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-danger/15 hover:text-danger"
-          title="Delete playlist"
-          aria-label="Delete playlist"
         >
           <Trash2 className="h-4 w-4" />
-        </button>
+        </IconButton>
       </div>
     </div>
   );

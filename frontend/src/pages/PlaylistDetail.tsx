@@ -23,6 +23,7 @@ import Button from "../components/Button";
 import Thumbnail from "../components/Thumbnail";
 import ProgressBar from "../components/ProgressBar";
 import StatusChip from "../components/StatusChip";
+import IconButton from "../components/IconButton";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
@@ -113,7 +114,7 @@ export default function PlaylistDetail() {
 
   if (error || !detail) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
         <Link to="/library" className="mb-4 inline-flex items-center gap-1.5 text-sm text-fg-secondary hover:text-fg">
           <ArrowLeft className="h-4 w-4" /> Back to library
         </Link>
@@ -167,6 +168,7 @@ export default function PlaylistDetail() {
               </div>
               <ProgressBar
                 value={overall}
+                label="Playlist download progress"
                 status={
                   detail.failed_count && detail.downloaded_count
                     ? "completed"
@@ -243,27 +245,35 @@ export default function PlaylistDetail() {
         </div>
       </div>
 
-      <div className="card divide-y divide-line/60">
-        {detail.items.map((item) => (
-          <ItemRow
-            key={item.index}
-            item={item}
-            busy={busyUrl === item.url}
-            onDownload={() =>
-              startTask(
-                {
-                  url: item.url,
-                  operation_type: "playlist_item",
-                  format,
-                  embed_subs: embedSubs && format !== "mp3",
-                  playlist_id: detail.playlist_id,
-                },
-                item.url,
-              )
-            }
-          />
-        ))}
-      </div>
+      {detail.items.length > 0 ? (
+        <div className="card divide-y divide-line/60">
+          {detail.items.map((item) => (
+            <ItemRow
+              key={item.index}
+              item={item}
+              busy={busyUrl === item.url}
+              onDownload={() =>
+                startTask(
+                  {
+                    url: item.url,
+                    operation_type: "playlist_item",
+                    format,
+                    embed_subs: embedSubs && format !== "mp3",
+                    playlist_id: detail.playlist_id,
+                  },
+                  item.url,
+                )
+              }
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<ListVideo className="h-6 w-6" />}
+          title="No items to show"
+          description="This playlist does not have any downloadable items yet."
+        />
+      )}
     </div>
   );
 }
@@ -280,7 +290,7 @@ function ItemRow({
   const thumbSrc = item.video_id ? `/api/thumb/${item.video_id}.jpg` : null;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
       <span className="w-6 shrink-0 text-right text-xs tabular-nums text-fg-muted">
         {item.index + 1}
       </span>
@@ -301,17 +311,12 @@ function ItemRow({
           ) : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         <StatusChip status={item.status} />
         {item.status === "downloaded" && item.filename ? (
-          <a
-            href={fileUrl(item.filename)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
-            title="Download file"
-            aria-label="Download file"
-          >
+          <IconButton href={fileUrl(item.filename)} label="Download file">
             <Download className="h-4 w-4" />
-          </a>
+          </IconButton>
         ) : item.status === "downloading" || busy ? (
           <Spinner />
         ) : item.status === "failed" ? (

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Info } from "lucide-react";
 import type { Health } from "../types";
 import { getHealth } from "../api";
+import ErrorBanner from "../components/ErrorBanner";
 import Spinner from "../components/Spinner";
 
 function Dep({
@@ -34,13 +35,18 @@ export default function Settings() {
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getHealth()
-      .then(setHealth)
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : "Could not reach the server."),
-      );
+  const load = useCallback(async () => {
+    try {
+      setHealth(await getHealth());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reach the server.");
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 sm:px-6">
@@ -56,7 +62,9 @@ export default function Settings() {
           Runtime
         </h2>
         {error ? (
-          <p className="mt-3 text-sm text-danger">{error}</p>
+          <div className="mt-3">
+            <ErrorBanner message={error} onRetry={load} />
+          </div>
         ) : !health ? (
           <div className="mt-3 flex items-center gap-2 text-sm text-fg-secondary">
             <Spinner /> Checking dependencies…

@@ -13,6 +13,8 @@ import { fileUrl, listHistory, startDownload } from "../api";
 import Button from "../components/Button";
 import StatusChip from "../components/StatusChip";
 import EmptyState from "../components/EmptyState";
+import ErrorBanner from "../components/ErrorBanner";
+import IconButton from "../components/IconButton";
 import Spinner from "../components/Spinner";
 import { useToast } from "../components/Toast";
 
@@ -38,6 +40,7 @@ export default function History() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
 
   const load = useCallback(
@@ -52,13 +55,14 @@ export default function History() {
         });
         setItems(page.items);
         setTotal(page.total);
+        setError(null);
       } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to load history", "error");
+        setError(e instanceof Error ? e.message : "Failed to load history");
       } finally {
         setLoading(false);
       }
     },
-    [offset, status, search, toast],
+    [offset, status, search],
   );
 
   useEffect(() => {
@@ -99,15 +103,18 @@ export default function History() {
             A record of every download operation.
           </p>
         </div>
-        <form onSubmit={submitSearch} className="flex items-center gap-2">
-          <div className="relative">
+        <form
+          onSubmit={submitSearch}
+          className="flex w-full items-center gap-2 sm:w-auto"
+        >
+          <div className="relative flex-1 sm:flex-none">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search…"
-              className="h-9 w-48 rounded-lg border border-line bg-surface-1 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/50"
+              className="h-9 w-full rounded-lg border border-line bg-surface-1 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/50 sm:w-48"
             />
           </div>
           <Button type="submit" variant="secondary" size="sm">
@@ -139,6 +146,11 @@ export default function History() {
         <div className="flex items-center justify-center py-16 text-fg-secondary">
           <Spinner className="mr-2" /> Loading history…
         </div>
+      ) : error ? (
+        <ErrorBanner
+          message={error}
+          onRetry={() => load(offset, status, search)}
+        />
       ) : items.length === 0 ? (
         <EmptyState
           icon={<HistoryIcon className="h-6 w-6" />}
@@ -183,14 +195,12 @@ export default function History() {
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {canDownload ? (
-                    <a
+                    <IconButton
                       href={fileUrl(entry.output_filename)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
-                      title="Download file"
-                      aria-label="Download file"
+                      label="Download file"
                     >
                       <Download className="h-4 w-4" />
-                    </a>
+                    </IconButton>
                   ) : null}
                   {entry.status === "failed" ? (
                     <button
