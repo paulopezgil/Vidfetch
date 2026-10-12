@@ -21,7 +21,7 @@ export default function NavigationBar() {
               <span
                 className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
                   isActive
-                    ? "bg-secondary-container text-on-secondary-container"
+                    ? "bg-primary text-on-primary"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"
                 }`}
               >

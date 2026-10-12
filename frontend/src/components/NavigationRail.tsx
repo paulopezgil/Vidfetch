@@ -26,7 +26,7 @@ export default function NavigationRail() {
               <span
                 className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${
                   isActive
-                    ? "bg-secondary-container text-on-secondary-container"
+                    ? "bg-primary text-on-primary"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"
                 }`}
               >

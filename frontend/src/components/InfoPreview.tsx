@@ -52,7 +52,7 @@ export default function InfoPreview({
         />
 
         <div className="min-w-0 flex-1">
-          <span className="inline-flex items-center gap-1 rounded-sm bg-secondary-container px-2 py-0.5 text-label-medium text-on-secondary-container">
+          <span className="inline-flex items-center gap-1 rounded-sm bg-surface-container-highest px-2 py-0.5 text-label-medium text-on-surface-variant">
             <Icon
               name={isPlaylist ? "playlist_play" : "movie"}
               className="text-[16px]"

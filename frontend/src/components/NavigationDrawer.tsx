@@ -24,7 +24,7 @@ export default function NavigationDrawer() {
           className={({ isActive }) =>
             `mx-3 flex h-14 items-center gap-3 rounded-full px-4 text-label-large transition-colors ${
               isActive
-                ? "bg-secondary-container"
+                ? "bg-primary"
                 : "hover:bg-on-surface/8 active:bg-on-surface/12"
             }`
           }
@@ -35,16 +35,12 @@ export default function NavigationDrawer() {
                 name={destination.icon}
                 filled={isActive}
                 className={`text-[24px] ${
-                  isActive
-                    ? "text-on-secondary-container"
-                    : "text-on-surface-variant"
+                  isActive ? "text-on-primary" : "text-on-surface-variant"
                 }`}
               />
               <span
                 className={
-                  isActive
-                    ? "text-on-secondary-container"
-                    : "text-on-surface-variant"
+                  isActive ? "text-on-primary" : "text-on-surface-variant"
                 }
               >
                 {destination.label}

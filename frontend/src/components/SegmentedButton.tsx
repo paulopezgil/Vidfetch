@@ -43,7 +43,7 @@ export default function SegmentedButton({
               index > 0 ? "border-l border-outline" : ""
             } ${
               selected
-                ? "bg-secondary-container text-on-secondary-container"
+                ? "bg-primary text-on-primary"
                 : "text-on-surface hover:bg-on-surface/8"
             }`}
           >
