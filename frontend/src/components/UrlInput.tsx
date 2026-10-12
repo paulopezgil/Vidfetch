@@ -56,6 +56,8 @@ export default function UrlInput({ onFetch, loading, error }: UrlInputProps) {
             }}
             placeholder="Paste a YouTube video or playlist URL"
             aria-label="Video or playlist URL"
+            aria-invalid={Boolean(localError || error)}
+            aria-describedby={localError || error ? "url-error" : undefined}
             className="h-11 w-full rounded-lg border border-line bg-surface-1 pl-10 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/50"
           />
         </div>
@@ -69,8 +71,10 @@ export default function UrlInput({ onFetch, loading, error }: UrlInputProps) {
           )}
         </Button>
       </form>
-      {localError ? <ErrorBanner message={localError} /> : null}
-      {error && !localError ? <ErrorBanner message={error} /> : null}
+      {localError ? <ErrorBanner id="url-error" message={localError} /> : null}
+      {error && !localError ? (
+        <ErrorBanner id="url-error" message={error} />
+      ) : null}
     </div>
   );
 }

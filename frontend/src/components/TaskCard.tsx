@@ -4,7 +4,7 @@ import { formatBytes, formatEta, formatSpeed, isTerminal } from "../lib";
 import ProgressBar from "./ProgressBar";
 import StatusChip from "./StatusChip";
 import Thumbnail from "./Thumbnail";
-import Button from "./Button";
+import IconButton from "./IconButton";
 
 interface TaskCardProps {
   task: Task;
@@ -64,16 +64,9 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
             <div className="flex shrink-0 items-center gap-2">
               <StatusChip status={task.status} />
               {!done ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  aria-label="Cancel"
-                  title="Cancel"
-                  onClick={() => onCancel(task.task_id)}
-                >
+                <IconButton label="Cancel" onClick={() => onCancel(task.task_id)}>
                   <X className="h-4 w-4" />
-                </Button>
+                </IconButton>
               ) : null}
             </div>
           </div>
@@ -90,6 +83,7 @@ export default function TaskCard({ task, onCancel }: TaskCardProps) {
           <div className="mt-2.5">
             <ProgressBar
               value={task.progress}
+              label="Download progress"
               status={task.status}
               indeterminate={indeterminate}
             />

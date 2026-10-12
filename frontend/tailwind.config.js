@@ -23,7 +23,9 @@ export default {
         fg: {
           DEFAULT: "#E8EBF2",
           secondary: "#A0A7B5",
-          muted: "#636B78",
+          // Lightened from #636B78 to keep small text >= 4.5:1 (WCAG AA)
+          // against surface-1/surface-2 and the muted status chips.
+          muted: "#8A93A3",
         },
         success: "#3DD68C",
         info: "#5CA8F5",

@@ -25,6 +25,28 @@ body {
   scrollbar-width: thin;
   scrollbar-color: #2b2f3a transparent;
 }
+
+/* Visible keyboard focus for interactive elements that don't opt in to a
+   Tailwind focus ring (e.g. link-buttons). Components that set
+   focus:outline-none + focus-visible:ring keep their own treatment. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #6e7bff;
+    outline-offset: 2px;
+  }
+}
+
+/* Respect reduced-motion preferences (M3 motion guidance). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
