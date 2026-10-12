@@ -1,21 +1,25 @@
-import { AlertCircle } from "lucide-react";
+import Icon from "./Icon";
 
 interface ErrorBannerProps {
   message: string;
   onRetry?: () => void;
+  id?: string;
 }
 
-export default function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
+/** Material 3 error container. */
+export default function ErrorBanner({ message, onRetry, id }: ErrorBannerProps) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3">
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-danger">{message}</p>
-      </div>
+    <div
+      id={id}
+      role="alert"
+      className="flex items-start gap-3 rounded-md bg-error-container px-4 py-3 text-on-error-container"
+    >
+      <Icon name="error" className="text-[20px]" />
+      <p className="min-w-0 flex-1 text-body-medium">{message}</p>
       {onRetry ? (
         <button
           onClick={onRetry}
-          className="shrink-0 text-xs font-medium text-danger underline underline-offset-2 hover:text-danger/80"
+          className="shrink-0 rounded-sm px-2 py-1 text-label-large transition-colors hover:bg-on-error-container/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-on-error-container"
         >
           Retry
         </button>
