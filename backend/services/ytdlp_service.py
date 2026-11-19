@@ -5,8 +5,10 @@ rest of the application never touches ``yt_dlp`` directly.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -187,6 +189,74 @@ def _format_spec(fmt: str) -> str:
     return "bestvideo+bestaudio/best"
 
 
+_COVER_SUFFIXES = {".jpg", ".jpeg", ".png"}
+
+
+def _embed_cover_art(
+    mp3: Path,
+    cover: Optional[Path],
+    album: str = "",
+) -> bool:
+    """Embed ``cover`` as the ID3 front cover of ``mp3``, in place.
+
+    yt-dlp's ``EmbedThumbnail`` only embeds the *video's* thumbnail, so a
+    playlist's own photo needs this second ffmpeg pass. The album tag is
+    re-applied here as well, which keeps the artwork and album consistent and
+    makes the operation testable end to end.
+
+    The input is never modified in place: ffmpeg writes a sibling temporary
+    file which is then moved over the original atomically. This is best-effort
+    by design -- a failed cover embed must never fail the download, so any
+    error leaves the original mp3 untouched and returns ``False``.
+    """
+    cover_path = Path(cover) if cover else None
+    if cover_path is None or not mp3.is_file():
+        return False
+    if (
+        not cover_path.is_file()
+        or cover_path.suffix.lower() not in _COVER_SUFFIXES
+    ):
+        return False
+
+    tmp = mp3.with_name(f".{mp3.stem}.cover.tmp.mp3")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(mp3),
+        "-i", str(cover_path),
+        "-map", "0:0",
+        "-map", "1:0",
+        "-c", "copy",
+        "-id3v2_version", "3",
+    ]
+    if album:
+        cmd += ["-metadata", f"album={album}"]
+    cmd += [
+        "-metadata:s:v", "title=Album cover",
+        "-metadata:s:v", "comment=Cover (front)",
+        str(tmp),
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+        )
+        if proc.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
+            tmp.unlink(missing_ok=True)
+            return False
+        os.replace(tmp, mp3)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+
+
 def download_video(
     url: str,
     fmt: str,
@@ -194,10 +264,15 @@ def download_video(
     workdir: Path,
     progress_cb: ProgressCallback,
     cancel: CancelCheck,
+    album: str = "",
+    cover: Optional[Path] = None,
 ) -> dict:
     """Download a single video into ``workdir`` and return its result info.
 
     Returns a dict with ``id``, ``title``, ``filepath``, ``thumbnail``, ``ext``.
+
+    For ``fmt == "mp3"``, ``album`` tags the file as belonging to a playlist
+    and ``cover`` (an existing jpg/png) is embedded as its artwork.
     """
     if cancel and cancel():
         raise DownloadCancelled()
@@ -216,6 +291,12 @@ def download_video(
             "preferredcodec": "mp3",
             "preferredquality": "192",
         })
+        if album:
+            # ``FFmpegExtractAudio`` resolves the ``ffmpeg`` key of
+            # ``postprocessor_args``, so its ffmpeg invocation writes the tag.
+            opts["postprocessor_args"] = {
+                "ffmpeg": ["-metadata", f"album={album}"],
+            }
     else:
         opts["merge_output_format"] = "mp4"
 
@@ -246,6 +327,11 @@ def download_video(
         raise DownloadError("Download produced no result.")
 
     filepath = _result_filepath(info)
+
+    if fmt == "mp3" and filepath:
+        # Best-effort: a failed artwork embed must leave the download intact.
+        _embed_cover_art(Path(filepath), cover, album)
+
     return {
         "id": info.get("id"),
         "title": info.get("title") or "download",

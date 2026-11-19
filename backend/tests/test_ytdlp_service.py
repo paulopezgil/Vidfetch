@@ -2,11 +2,56 @@
 
 These cover the pure helpers (error translation, format/thumbnail selection,
 progress mapping) and the cancellation short-circuit without touching the
-network.
+network. MP3 tagging/artwork is exercised end to end against the real
+``ffmpeg``/``ffprobe`` binaries.
 """
+import json
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from backend.services import ytdlp_service
+
+
+def _make_mp3(path: Path) -> None:
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "0.3", "-c:a", "libmp3lame", "-b:a", "64k",
+            str(path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _make_jpeg(path: Path) -> None:
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
+            "-frames:v", "1", str(path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _probe(path: Path) -> dict:
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-print_format", "json",
+            "-show_streams", "-show_format", str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(proc.stdout)
 
 
 # -- friendly_error ------------------------------------------------------- #
@@ -273,3 +318,120 @@ def test_base_opts_never_carry_credentials():
     for key in ("cookiefile", "cookiesfrombrowser", "username", "password",
                 "videopassword", "http_headers"):
         assert key not in opts
+
+
+# -- playlist album tags / cover art -------------------------------------- #
+
+def test_embed_cover_art_sets_album_and_cover_stream(tmp_path):
+    mp3 = tmp_path / "track.mp3"
+    cover = tmp_path / "cover.jpg"
+    _make_mp3(mp3)
+    _make_jpeg(cover)
+
+    assert ytdlp_service._embed_cover_art(mp3, cover, "Road Trip") is True
+
+    probe = _probe(mp3)
+    assert probe["format"]["format_name"] == "mp3"
+    assert probe["format"]["tags"]["album"] == "Road Trip"
+    video_streams = [
+        s for s in probe["streams"] if s["codec_type"] == "video"
+    ]
+    assert len(video_streams) == 1
+    assert video_streams[0]["disposition"]["attached_pic"] == 1
+    assert video_streams[0]["codec_name"] in {"mjpeg", "png"}
+    # The sibling temporary file is moved over the original atomically.
+    assert not list(tmp_path.glob(".*cover.tmp*"))
+
+
+def test_embed_cover_art_without_cover_keeps_valid_mp3(tmp_path):
+    mp3 = tmp_path / "track.mp3"
+    _make_mp3(mp3)
+    before = mp3.read_bytes()
+
+    for cover in (None, tmp_path / "missing.jpg"):
+        assert ytdlp_service._embed_cover_art(mp3, cover, "Album") is False
+        assert mp3.read_bytes() == before
+
+    probe = _probe(mp3)
+    assert probe["format"]["format_name"] == "mp3"
+    assert [s for s in probe["streams"] if s["codec_type"] == "audio"]
+    assert not [s for s in probe["streams"] if s["codec_type"] == "video"]
+
+
+def test_embed_cover_art_failure_leaves_mp3_untouched(tmp_path):
+    mp3 = tmp_path / "track.mp3"
+    cover = tmp_path / "bogus.jpg"
+    _make_mp3(mp3)
+    # A .jpg that is not a decodable image makes ffmpeg fail.
+    cover.write_bytes(b"not an image")
+    before = mp3.read_bytes()
+
+    assert ytdlp_service._embed_cover_art(mp3, cover, "Album") is False
+    assert mp3.read_bytes() == before
+    assert _probe(mp3)["format"]["format_name"] == "mp3"
+    assert not list(tmp_path.glob(".*cover.tmp*"))
+
+
+class _CapturingYDL:
+    """Fake ``YoutubeDL`` that records options and returns a real file."""
+
+    captured: dict = {}
+
+    def __init__(self, opts):
+        type(self).captured = opts
+        self._opts = opts
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def extract_info(self, url, download=True):
+        path = Path(self._opts["outtmpl"].replace("%(id)s", "abc").replace(
+            "%(ext)s", "mp3"
+        ))
+        path.write_bytes(b"placeholder")
+        return {
+            "id": "abc",
+            "title": "Track",
+            "requested_downloads": [{"filepath": str(path)}],
+        }
+
+
+def test_download_video_mp3_sets_album_postprocessor_args(
+    monkeypatch, tmp_path
+):
+    _CapturingYDL.captured = {}
+    monkeypatch.setattr(ytdlp_service.yt_dlp, "YoutubeDL", _CapturingYDL)
+    monkeypatch.setattr(
+        ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(10**12)
+    )
+
+    result = ytdlp_service.download_video(
+        "https://example.com/v", "mp3", False, tmp_path,
+        lambda d: None, lambda: False, album="My Playlist",
+    )
+
+    opts = _CapturingYDL.captured
+    assert opts["postprocessor_args"] == {
+        "ffmpeg": ["-metadata", "album=My Playlist"],
+    }
+    keys = [pp["key"] for pp in opts["postprocessors"]]
+    assert "FFmpegExtractAudio" in keys
+    assert result["filepath"] == str(tmp_path / "abc.mp3")
+
+
+def test_download_video_non_mp3_ignores_album(monkeypatch, tmp_path):
+    _CapturingYDL.captured = {}
+    monkeypatch.setattr(ytdlp_service.yt_dlp, "YoutubeDL", _CapturingYDL)
+    monkeypatch.setattr(
+        ytdlp_service.shutil, "disk_usage", lambda path: _FakeUsage(10**12)
+    )
+
+    ytdlp_service.download_video(
+        "https://example.com/v", "best", False, tmp_path,
+        lambda d: None, lambda: False, album="My Playlist",
+    )
+
+    assert "postprocessor_args" not in _CapturingYDL.captured
