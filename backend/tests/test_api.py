@@ -4,10 +4,12 @@ Settings are redirected at a tmp directory so nothing touches the real data
 dir, and the yt-dlp service is stubbed wherever a download task would otherwise
 hit the network.
 """
+import hashlib
 import io
 import time
 import uuid
 import zipfile
+from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
@@ -63,6 +65,7 @@ def _seed_playlist(playlist_id: str, title: str = "My List", items=()) -> None:
         "total_size": 0,
         "zip_path": "",
         "status": "completed",
+        "format": "best",
         "created_at": now,
         "updated_at": now,
     })
@@ -95,6 +98,41 @@ def _wait_terminal(client, task_id, timeout=10.0) -> str:
             return status
         time.sleep(0.05)
     return "timeout"
+
+
+def _playlist_id_for(url: str) -> str:
+    return "pl_" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+
+
+def _stub_playlist_download(monkeypatch, vids=("a", "b")) -> None:
+    """Stub yt-dlp for a playlist run: no network, a real file per item."""
+    entries = [
+        {"id": vid, "title": vid.upper(), "url": f"https://example.com/{vid}",
+         "duration": 1}
+        for vid in vids
+    ]
+    monkeypatch.setattr(ytdlp_service, "get_info", lambda url: {
+        "type": "playlist",
+        "id": "PL",
+        "title": "My List",
+        "channel": "Someone",
+        "thumbnail": None,
+        "entries": entries,
+    })
+
+    def fake_download(url, fmt, embed_subs, workdir, progress_cb, cancel):
+        vid = url.rsplit("/", 1)[-1]
+        path = Path(workdir) / f"{vid}.mp4"
+        path.write_bytes(b"x" * 10)
+        return {
+            "id": vid,
+            "title": vid.upper(),
+            "filepath": str(path),
+            "thumbnail": None,
+            "ext": "mp4",
+        }
+
+    monkeypatch.setattr(ytdlp_service, "download_video", fake_download)
 
 
 # -- info ----------------------------------------------------------------- #
@@ -279,6 +317,49 @@ def test_downloaded_count_in_library_and_playlist_detail(client, env):
     detail = client.get("/api/playlists/pl_count").json()
     assert detail["downloaded_count"] == 1
     assert "zip_path" not in detail
+
+
+# -- playlist download format --------------------------------------------- #
+
+def test_playlist_download_persists_format_through_completion(client, monkeypatch):
+    _stub_playlist_download(monkeypatch)
+    url = "https://example.com/playlist"
+    pid = _playlist_id_for(url)
+
+    r = client.post("/api/download", json={
+        "url": url, "operation_type": "playlist", "format": "mp3",
+    })
+    assert r.status_code == 202
+    task_id = r.json()["task_id"]
+
+    # The value must survive the completion upsert, not just the initial create.
+    assert _wait_terminal(client, task_id) == "completed"
+    detail = client.get(f"/api/playlists/{pid}")
+    assert detail.status_code == 200
+    assert detail.json()["format"] == "mp3"
+
+    listing = client.get("/api/downloads").json()
+    entry = next(p for p in listing["playlists"] if p["playlist_id"] == pid)
+    assert entry["format"] == "mp3"
+
+
+def test_playlist_redownload_updates_stored_format(client, monkeypatch):
+    _stub_playlist_download(monkeypatch)
+    url = "https://example.com/playlist"
+    pid = _playlist_id_for(url)
+
+    first = client.post("/api/download", json={
+        "url": url, "operation_type": "playlist", "format": "mp3",
+    })
+    assert _wait_terminal(client, first.json()["task_id"]) == "completed"
+    assert client.get(f"/api/playlists/{pid}").json()["format"] == "mp3"
+
+    # Re-downloading the same playlist goes through the UPDATE branch.
+    second = client.post("/api/download", json={
+        "url": url, "operation_type": "playlist", "format": "720p",
+    })
+    assert _wait_terminal(client, second.json()["task_id"]) == "completed"
+    assert client.get(f"/api/playlists/{pid}").json()["format"] == "720p"
 
 
 # -- inline media --------------------------------------------------------- #

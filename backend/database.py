@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS playlists (
     total_size      INTEGER NOT NULL DEFAULT 0,
     zip_path        TEXT NOT NULL DEFAULT '',
     status          TEXT NOT NULL DEFAULT 'pending',
+    format          TEXT NOT NULL DEFAULT 'best',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -95,9 +96,26 @@ def init_db() -> None:
     conn = _connect()
     try:
         conn.executescript(SCHEMA)
+        _migrate_playlist_format(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_playlist_format(conn: sqlite3.Connection) -> None:
+    """Add ``playlists.format`` to databases created before it existed.
+
+    ``CREATE TABLE IF NOT EXISTS`` leaves pre-existing tables untouched, so the
+    column is added explicitly. The guard keeps the migration idempotent: it is
+    a no-op on every call after the first.
+    """
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(playlists)").fetchall()
+    }
+    if "format" not in columns:
+        conn.execute(
+            "ALTER TABLE playlists ADD COLUMN format TEXT NOT NULL DEFAULT 'best'"
+        )
 
 
 def _execute(sql: str, params: Any = ()) -> None:
@@ -216,7 +234,7 @@ def upsert_playlist(playlist: dict) -> None:
                 url = :url, title = :title, channel = :channel,
                 thumbnail_path = :thumbnail_path, item_count = :item_count,
                 total_size = :total_size, zip_path = :zip_path, status = :status,
-                updated_at = :updated_at
+                format = :format, updated_at = :updated_at
             WHERE playlist_id = :playlist_id
             """,
             playlist,
@@ -226,10 +244,10 @@ def upsert_playlist(playlist: dict) -> None:
             """
             INSERT INTO playlists (
                 playlist_id, url, title, channel, thumbnail_path, item_count,
-                total_size, zip_path, status, created_at, updated_at
+                total_size, zip_path, status, format, created_at, updated_at
             ) VALUES (
                 :playlist_id, :url, :title, :channel, :thumbnail_path, :item_count,
-                :total_size, :zip_path, :status, :created_at, :updated_at
+                :total_size, :zip_path, :status, :format, :created_at, :updated_at
             )
             """,
             playlist,
