@@ -120,7 +120,8 @@ def _stub_playlist_download(monkeypatch, vids=("a", "b")) -> None:
         "entries": entries,
     })
 
-    def fake_download(url, fmt, embed_subs, workdir, progress_cb, cancel):
+    def fake_download(url, fmt, embed_subs, workdir, progress_cb, cancel,
+                      album="", cover=None):
         vid = url.rsplit("/", 1)[-1]
         path = Path(workdir) / f"{vid}.mp4"
         path.write_bytes(b"x" * 10)
