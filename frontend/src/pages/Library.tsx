@@ -13,6 +13,8 @@ import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
+import TaskCard from "../components/TaskCard";
+import { useActiveTasks } from "../components/ActiveTasks";
 import { useToast } from "../components/Toast";
 
 type Tab = "all" | "videos" | "audio" | "images" | "playlists";
@@ -33,6 +35,7 @@ interface PreviewState {
 
 export default function Library() {
   const toast = useToast();
+  const { tasks: activeTasks, finishedTask, cancelTask } = useActiveTasks();
   const [data, setData] = useState<LibraryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +61,18 @@ export default function Library() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Tracked downloads are owned by the shared provider, so a download started
+  // from the Dashboard keeps streaming here after navigation.
+  const finishedNotice =
+    finishedTask?.status === "completed" ? finishedTask : null;
+
+  // When a tracked download reaches a terminal state, reload the library so the
+  // new file appears without a manual reload.
+  useEffect(() => {
+    if (!finishedTask) return;
+    refresh();
+  }, [finishedTask, refresh]);
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -101,6 +116,35 @@ export default function Library() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
+
+      {activeTasks.length > 0 || finishedNotice ? (
+        <section className="space-y-3">
+          <h2 className="px-1 text-title-medium text-on-surface">
+            Descàrregues actives
+          </h2>
+          {activeTasks.length > 0 ? (
+            <div className="space-y-3">
+              {activeTasks.map((t) => (
+                <TaskCard key={t.task_id} task={t} onCancel={cancelTask} />
+              ))}
+            </div>
+          ) : null}
+          {finishedNotice ? (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md bg-success-container px-4 py-3 text-body-medium text-on-success-container"
+            >
+              <Icon name="check_circle" className="shrink-0 text-[20px]" />
+              <span>
+                <span className="font-medium">
+                  {finishedNotice.title || "El vídeo"}
+                </span>{" "}
+                s’ha descarregat i ja apareix a la biblioteca.
+              </span>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">

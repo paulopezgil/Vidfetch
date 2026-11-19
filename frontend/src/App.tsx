@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "./components/Toast";
+import { ActiveTasksProvider } from "./components/ActiveTasks";
 import TopAppBar from "./components/TopAppBar";
 import NavigationDrawer from "./components/NavigationDrawer";
 import NavigationRail from "./components/NavigationRail";
@@ -13,28 +14,30 @@ import Settings from "./pages/Settings";
 export default function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <div className="flex h-full bg-surface text-on-surface">
-          <NavigationDrawer />
-          <NavigationRail />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopAppBar />
-            <main className="min-h-0 flex-1 overflow-y-auto">
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/library" element={<Library />} />
-                <Route
-                  path="/library/playlist/:id"
-                  element={<PlaylistDetail />}
-                />
-                <Route path="/history" element={<History />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
-            </main>
-            <NavigationBar />
+      <ActiveTasksProvider>
+        <BrowserRouter>
+          <div className="flex h-full bg-surface text-on-surface">
+            <NavigationDrawer />
+            <NavigationRail />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <TopAppBar />
+              <main className="min-h-0 flex-1 overflow-y-auto">
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/library" element={<Library />} />
+                  <Route
+                    path="/library/playlist/:id"
+                    element={<PlaylistDetail />}
+                  />
+                  <Route path="/history" element={<History />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Routes>
+              </main>
+              <NavigationBar />
+            </div>
           </div>
-        </div>
-      </BrowserRouter>
+        </BrowserRouter>
+      </ActiveTasksProvider>
     </ToastProvider>
   );
 }

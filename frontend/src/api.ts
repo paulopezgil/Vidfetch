@@ -58,6 +58,10 @@ export function listTasks(): Promise<Task[]> {
   return get<Task[]>("/tasks");
 }
 
+export function getTask(taskId: string): Promise<Task> {
+  return get<Task>(`/tasks/${taskId}`);
+}
+
 export function cancelTask(taskId: string): Promise<{ cancelled: boolean }> {
   return post<{ cancelled: boolean }>(`/tasks/${taskId}/cancel`, {});
 }
