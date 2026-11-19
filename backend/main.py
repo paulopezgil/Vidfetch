@@ -14,10 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from . import database
 from .config import settings
 from .routers import download, files, health, history, info, playlists, tasks
+from .version import APP_VERSION
 
 logger = logging.getLogger("vidfetch")
-
-APP_VERSION = "1.0.0"
 
 
 def _log_dependencies() -> None:
