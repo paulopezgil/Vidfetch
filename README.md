@@ -18,14 +18,22 @@ Built with **React + TypeScript + Tailwind CSS** (frontend) and **FastAPI**
 - Inspect a **single video** or an entire **playlist** before downloading.
 - Choose **Best quality**, **720p** (when available), or **MP3 audio-only**
   output, with optional subtitle embedding.
+- MP3 playlist downloads are tagged with the **playlist name as the album** and
+  the **playlist artwork as cover art**, so albums import cleanly into a music
+  player.
 - Live **progress tracking** via Server-Sent Events (per-video and
   aggregate playlist progress — "video 8 of 24").
 - **On-demand ZIP** download of a playlist's items, generated when you click
   (failed items you retry are included automatically; nothing is stored).
 - A browsable **media library** (individual files and playlists) with in-app
   **playback/preview** — play videos and audio and view images — plus download
-  and delete actions.
-- Persistent **download history** (SQLite) with retry support.
+  and delete actions. Active downloads stay visible in the library when you
+  navigate away from the start tab, and individual videos can be deleted from
+  inside a playlist.
+- Persistent **download history** (SQLite) with retry support, which reuses the
+  original format (a retried MP3 stays MP3).
+- Installable as a **web app** (web manifest plus maskable icons) with a proper
+  app icon on desktop and mobile.
 - Honest error handling for failures, cancellation, and missing files.
 - A Material Design 3 interface seeded from a signature red, with light and dark
   color schemes and adaptive navigation — navigation bar on compact windows,
@@ -75,6 +83,7 @@ Environment variables (see `docker-compose.yml`):
 | `DOWNLOAD_DIR` | `/app/downloads` | Where media files and thumbnails live. |
 | `DATA_DIR` | `/app/data` | Where the SQLite database lives. |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Maximum simultaneous downloads. |
+| `MIN_FREE_DISK_MB` | `500` | Refuse to start a download when the target filesystem has less than this much free space (a coarse safety floor, not a size estimate). Set to `0` to disable. |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins. |
 | `FRONTEND_DIST` | `/app/frontend-dist` | Built frontend assets (set by the image). |
 

@@ -12,6 +12,8 @@ services:
       DATA_DIR: /app/data
       # Resource limits and CORS (comma-separated origins, or "*").
       MAX_CONCURRENT_DOWNLOADS: "2"
+      # Refuse to start a download below this much free space (MB); 0 disables.
+      MIN_FREE_DISK_MB: "500"
       CORS_ORIGINS: "*"
     volumes:
       # Media files, ZIP archives, and thumbnails.
