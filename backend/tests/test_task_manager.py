@@ -261,6 +261,7 @@ def test_playlist_item_failure_records_error_without_downgrading_playlist(
         "playlist_id": "pl_x", "url": "https://example.com/playlist",
         "title": "List", "channel": "", "thumbnail_path": "", "item_count": 1,
         "total_size": 0, "zip_path": "", "status": "completed",
+        "format": "best",
         "created_at": database.iso_now(), "updated_at": database.iso_now(),
     })
     database.upsert_playlist_item({
@@ -304,6 +305,7 @@ def _seed_playlist(playlist_id, items):
         "playlist_id": playlist_id, "url": "https://example.com/playlist",
         "title": "List", "channel": "", "thumbnail_path": "", "item_count": len(items),
         "total_size": 0, "zip_path": "", "status": "completed",
+        "format": "best",
         "created_at": database.iso_now(), "updated_at": database.iso_now(),
     })
     for item in items:

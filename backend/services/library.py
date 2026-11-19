@@ -109,6 +109,7 @@ def list_playlists() -> list[dict]:
             "total_size": p.get("total_size") or 0,
             "downloaded_count": _downloaded_count(p["playlist_id"]),
             "status": p.get("status") or "pending",
+            "format": p.get("format") or "best",
             "created_at": p["created_at"],
             "updated_at": p["updated_at"],
         })
@@ -161,6 +162,7 @@ def playlist_detail(playlist_id: str) -> Optional[dict]:
         "item_count": len(item_out),
         "total_size": p.get("total_size") or 0,
         "status": p.get("status") or "pending",
+        "format": p.get("format") or "best",
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
         "items": item_out,

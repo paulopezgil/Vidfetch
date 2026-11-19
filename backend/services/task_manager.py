@@ -350,6 +350,7 @@ class TaskManager:
             # but no longer used: archives are built on demand at request time.
             "zip_path": "",
             "status": "downloading",
+            "format": task.format,
             "created_at": existing["created_at"] if existing else now,
             "updated_at": now,
         })
@@ -477,6 +478,7 @@ class TaskManager:
             "total_size": total_size,
             "zip_path": "",
             "status": "completed" if downloaded else "failed",
+            "format": task.format,
             "created_at": (database.get_playlist(playlist_id) or {}).get("created_at", now),
             "updated_at": _now(),
         })

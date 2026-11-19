@@ -115,6 +115,7 @@ class PlaylistOut(BaseModel):
     total_size: int = 0
     downloaded_count: int = 0
     status: str
+    format: str = "best"
     created_at: str
     updated_at: str
 
