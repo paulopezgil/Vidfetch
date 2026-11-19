@@ -8,10 +8,9 @@ import subprocess
 from fastapi import APIRouter
 
 from ..models.schemas import HealthOut
+from ..version import APP_VERSION
 
 router = APIRouter(tags=["health"])
-
-APP_VERSION = "1.0.0"
 
 
 def _command_version(cmd: str, *args: str) -> str | None:

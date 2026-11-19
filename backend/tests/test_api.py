@@ -16,10 +16,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import database
+from backend import main as backend_main
 from backend.config import settings
 from backend.main import app
+from backend.routers import health as health_router
 from backend.services import ytdlp_service
 from backend.services.task_manager import Task
+from backend.version import APP_VERSION
 
 
 @pytest.fixture
@@ -249,6 +252,28 @@ def test_health(client):
     assert body["status"] == "ok"
     assert body["version"]
     assert {"node_available", "ffmpeg_available"} <= set(body["dependencies"])
+
+
+def test_health_reports_single_source_version(client):
+    # The reported version must be the imported constant, not a local copy.
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["version"] == APP_VERSION
+    assert backend_main.app.version == APP_VERSION
+
+
+def test_app_version_defined_once():
+    # Both consumers must bind the *same* object as backend.version.APP_VERSION.
+    # A future re-introduced local literal that drifts would fail here even if
+    # it happens to hold the same value, because it would be a distinct object.
+    assert backend_main.APP_VERSION is APP_VERSION
+    assert health_router.APP_VERSION is APP_VERSION
+
+
+def test_app_version_is_semver():
+    import re
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", APP_VERSION)
 
 
 # -- playlist ZIP (on demand) --------------------------------------------- #
