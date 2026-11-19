@@ -41,7 +41,8 @@ def _make_task(tm: TaskManager, **kwargs) -> Task:
 
 def _successful_download(fail_urls=(), on_success=None):
     """Build a ``download_video`` stub that writes a file per video id."""
-    def fake(url, fmt, embed_subs, workdir, progress_cb, cancel):
+    def fake(url, fmt, embed_subs, workdir, progress_cb, cancel,
+             album="", cover=None):
         if url in fail_urls:
             raise ytdlp_service.DownloadError("ERROR: HTTP Error 403: Forbidden")
         progress_cb({
@@ -190,7 +191,8 @@ def test_playlist_cancel_midway(env, monkeypatch):
 
     calls = {"n": 0}
 
-    def fake(url, fmt, embed_subs, workdir, progress_cb, cancel):
+    def fake(url, fmt, embed_subs, workdir, progress_cb, cancel,
+             album="", cover=None):
         calls["n"] += 1
         if calls["n"] == 2:
             raise ytdlp_service.DownloadCancelled()
@@ -261,6 +263,7 @@ def test_playlist_item_failure_records_error_without_downgrading_playlist(
         "playlist_id": "pl_x", "url": "https://example.com/playlist",
         "title": "List", "channel": "", "thumbnail_path": "", "item_count": 1,
         "total_size": 0, "zip_path": "", "status": "completed",
+        "format": "best",
         "created_at": database.iso_now(), "updated_at": database.iso_now(),
     })
     database.upsert_playlist_item({
@@ -304,6 +307,7 @@ def _seed_playlist(playlist_id, items):
         "playlist_id": playlist_id, "url": "https://example.com/playlist",
         "title": "List", "channel": "", "thumbnail_path": "", "item_count": len(items),
         "total_size": 0, "zip_path": "", "status": "completed",
+        "format": "best",
         "created_at": database.iso_now(), "updated_at": database.iso_now(),
     })
     for item in items:
@@ -404,3 +408,130 @@ def test_download_fails_fast_when_disk_full(env, monkeypatch):
     assert task.status == "failed"
     assert "disk space" in task.error.lower()
     assert task.output_filename == ""
+
+
+# -- playlist album / cover propagation ----------------------------------- #
+
+def _capturing_download(calls):
+    """Stub that records the album/cover passed by the task manager."""
+
+    def fake(url, fmt, embed_subs, workdir, progress_cb, cancel,
+             album="", cover=None):
+        calls.append({
+            "url": url, "fmt": fmt, "album": album, "cover": cover,
+        })
+        vid = url.rsplit("/", 1)[-1]
+        path = Path(workdir) / f"{vid}.{fmt if fmt == 'mp3' else 'mp4'}"
+        path.write_bytes(b"x" * 10)
+        return {
+            "id": vid,
+            "title": vid.upper(),
+            "filepath": str(path),
+            "thumbnail": None,
+            "ext": path.suffix.lstrip("."),
+        }
+
+    return fake
+
+
+def test_playlist_mp3_passes_album_and_existing_cover(env, monkeypatch):
+    url = "https://example.com/playlist"
+    pid = _playlist_id(url)
+    cover = settings.thumb_dir / f"playlist_{pid}.jpg"
+    cover.parent.mkdir(parents=True, exist_ok=True)
+    cover.write_bytes(b"jpeg")
+
+    monkeypatch.setattr(
+        ytdlp_service, "get_info", lambda u: _playlist_info([_entry("a")])
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        ytdlp_service, "download_video", _capturing_download(calls)
+    )
+
+    tm = TaskManager()
+    task = _make_task(tm, url=url, operation_type="playlist", format="mp3")
+    tm._execute(task)
+
+    assert task.status == "completed"
+    assert len(calls) == 1
+    assert calls[0]["album"] == "My List"
+    assert calls[0]["cover"] == cover
+
+
+def test_playlist_mp3_without_thumbnail_passes_no_cover(env, monkeypatch):
+    monkeypatch.setattr(
+        ytdlp_service, "get_info", lambda u: _playlist_info([_entry("a")])
+    )
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        ytdlp_service, "download_video", _capturing_download(calls)
+    )
+
+    tm = TaskManager()
+    task = _make_task(
+        tm, url="https://example.com/playlist",
+        operation_type="playlist", format="mp3",
+    )
+    tm._execute(task)
+
+    assert task.status == "completed"
+    # The album is always known from the playlist row, but a cover is only
+    # passed when the thumbnail file really exists on disk.
+    assert calls[0]["album"] == "My List"
+    assert calls[0]["cover"] is None
+
+
+def test_playlist_item_retry_passes_album_and_cover(env, monkeypatch):
+    database.upsert_playlist({
+        "playlist_id": "pl_x", "url": "https://example.com/playlist",
+        "title": "Retry List", "channel": "", "thumbnail_path": "",
+        "item_count": 1, "total_size": 0, "zip_path": "", "status": "completed",
+        "format": "mp3",
+        "created_at": database.iso_now(), "updated_at": database.iso_now(),
+    })
+    database.upsert_playlist_item({
+        "playlist_id": "pl_x", "item_index": 0, "video_id": "b",
+        "url": "https://example.com/b", "title": "B", "duration": 1,
+        "status": "pending", "filename": "", "size": 0, "error": "",
+    })
+    cover = settings.thumb_dir / "playlist_pl_x.jpg"
+    cover.parent.mkdir(parents=True, exist_ok=True)
+    cover.write_bytes(b"jpeg")
+
+    monkeypatch.setattr(ytdlp_service, "get_info", lambda url: {
+        "type": "video", "id": "b", "title": "B", "thumbnail": None,
+    })
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        ytdlp_service, "download_video", _capturing_download(calls)
+    )
+
+    tm = TaskManager()
+    task = _make_task(
+        tm, url="https://example.com/b", operation_type="playlist_item",
+        playlist_id="pl_x", format="mp3",
+    )
+    tm._execute(task)
+
+    assert task.status == "completed"
+    assert calls[0]["album"] == "Retry List"
+    assert calls[0]["cover"] == cover
+
+
+def test_single_video_passes_no_album_or_cover(env, monkeypatch):
+    monkeypatch.setattr(ytdlp_service, "get_info", lambda url: {
+        "type": "video", "id": "v1", "title": "V", "thumbnail": None,
+    })
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        ytdlp_service, "download_video", _capturing_download(calls)
+    )
+
+    tm = TaskManager()
+    task = _make_task(tm, format="mp3")
+    tm._execute(task)
+
+    assert task.status == "completed"
+    assert calls[0]["album"] == ""
+    assert calls[0]["cover"] is None

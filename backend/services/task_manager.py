@@ -287,6 +287,12 @@ class TaskManager:
         workdir = settings.tmp_dir / task.task_id
         workdir.mkdir(parents=True, exist_ok=True)
 
+        # A single-item retry still belongs to its playlist, so it gets the
+        # same album tag and cover art as a full playlist run.
+        album, cover = "", None
+        if task.operation_type == "playlist_item":
+            album, cover = self._playlist_metadata(task.playlist_id)
+
         self._set_status(task, "downloading")
         result = ytdlp_service.download_video(
             task.url,
@@ -295,6 +301,8 @@ class TaskManager:
             workdir,
             self._progress_hook(task),
             self._cancelled(task),
+            album=album,
+            cover=cover,
         )
         if not result.get("filepath"):
             raise ytdlp_service.DownloadError(
@@ -350,6 +358,7 @@ class TaskManager:
             # but no longer used: archives are built on demand at request time.
             "zip_path": "",
             "status": "downloading",
+            "format": task.format,
             "created_at": existing["created_at"] if existing else now,
             "updated_at": now,
         })
@@ -379,6 +388,10 @@ class TaskManager:
 
         task_base = settings.tmp_dir / task.task_id
         task_base.mkdir(parents=True, exist_ok=True)
+
+        # MP3 playlist tracks carry the playlist name as their album and the
+        # playlist photo as embedded cover art. Resolve both once per run.
+        album, cover = self._playlist_metadata(playlist_id)
 
         self._set_status(task, "downloading")
         total_size = 0
@@ -425,6 +438,8 @@ class TaskManager:
                     item_workdir,
                     self._progress_hook(task),
                     self._cancelled(task),
+                    album=album,
+                    cover=cover,
                 )
                 if not result.get("filepath"):
                     raise ytdlp_service.DownloadError("No output file produced.")
@@ -477,6 +492,7 @@ class TaskManager:
             "total_size": total_size,
             "zip_path": "",
             "status": "completed" if downloaded else "failed",
+            "format": task.format,
             "created_at": (database.get_playlist(playlist_id) or {}).get("created_at", now),
             "updated_at": _now(),
         })
@@ -574,6 +590,26 @@ class TaskManager:
     def _persist(self, task: Task) -> None:
         row = task._row()
         database.update_task(row)
+
+    def _playlist_metadata(
+        self, playlist_id: str
+    ) -> tuple[str, Optional[Path]]:
+        """Return the album title and existing cover art for a playlist.
+
+        Both are optional: a missing row yields an empty album, and the cover
+        is only returned when the thumbnail file is actually on disk.
+        """
+        album = ""
+        cover: Optional[Path] = None
+        if not playlist_id:
+            return album, cover
+        playlist = database.get_playlist(playlist_id)
+        if playlist:
+            album = playlist.get("title") or ""
+        candidate = settings.thumb_dir / f"playlist_{playlist_id}.jpg"
+        if candidate.is_file():
+            cover = candidate
+        return album, cover
 
     def _download_thumbnail(self, url: str, dest: Path) -> None:
         if not url or dest.exists():

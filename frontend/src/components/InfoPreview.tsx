@@ -19,7 +19,7 @@ interface InfoPreviewProps {
 }
 
 const formats = [
-  { value: "best" as FormatName, label: "Millor", icon: "high_quality" },
+  { value: "best" as FormatName, label: "Millor qualitat", icon: "high_quality" },
   { value: "720p" as FormatName, label: "720p", icon: "hd" },
   { value: "mp3" as FormatName, label: "MP3", icon: "music_note" },
 ];
@@ -96,7 +96,7 @@ export default function InfoPreview({
             {no720 ? (
               <p className="mt-2 text-body-small text-on-surface-variant">
                 El 720p no està disponible per a aquest vídeo; s’utilitzarà
-                l’opció «Millor».
+                l’opció «Millor qualitat».
               </p>
             ) : null}
           </div>
@@ -126,7 +126,7 @@ export default function InfoPreview({
                 ? "S’està iniciant…"
                 : isPlaylist
                   ? "Descarrega la llista de reproducció"
-                  : "Descarrega el vídeo"}
+                  : "Descarrega"}
             </Button>
           </div>
         </div>

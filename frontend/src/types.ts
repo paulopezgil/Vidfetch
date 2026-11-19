@@ -87,6 +87,7 @@ export interface Playlist {
   total_size: number;
   downloaded_count: number;
   status: string;
+  format: FormatName;
   created_at: string;
   updated_at: string;
 }

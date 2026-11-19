@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { FormatName, PlaylistDetail, PlaylistItem } from "../types";
 import { formatBytes, formatDuration } from "../lib";
 import {
+  deleteFile,
   fileUrl,
   getPlaylist,
   mediaUrl,
@@ -22,10 +23,11 @@ import Switch from "../components/Switch";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 
 const formatOptions = [
-  { value: "best", label: "Millor", icon: "high_quality" },
+  { value: "best", label: "Millor qualitat", icon: "high_quality" },
   { value: "720p", label: "720p", icon: "hd" },
   { value: "mp3", label: "MP3", icon: "music_note" },
 ];
@@ -62,6 +64,14 @@ export default function PlaylistDetail() {
   const [active, setActive] = useState(false);
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PlaylistItem | null>(null);
+
+  // The page polls refresh() every 3 s while a download is active. Guard the
+  // stored-format sync so that polling never overwrites a selection the user
+  // is in the middle of making: the playlist's persisted format is applied on
+  // first load and again only when the route switches to another playlist.
+  const appliedPlaylistRef = useRef<string | null>(null);
+  const formatTouchedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -89,6 +99,17 @@ export default function PlaylistDetail() {
     return () => window.clearInterval(interval);
   }, [active, refresh]);
 
+  useEffect(() => {
+    if (!detail) return;
+    if (appliedPlaylistRef.current !== detail.playlist_id) {
+      appliedPlaylistRef.current = detail.playlist_id;
+      formatTouchedRef.current = false;
+    }
+    if (!formatTouchedRef.current) {
+      setFormat(detail.format);
+    }
+  }, [detail]);
+
   const startTask = useCallback(
     async (payload: Parameters<typeof startDownload>[0], url: string | null) => {
       try {
@@ -114,6 +135,21 @@ export default function PlaylistDetail() {
     },
     [refresh, toast],
   );
+
+  const confirmDeleteItem = useCallback(async () => {
+    if (!pendingDelete) return;
+    try {
+      await deleteFile(pendingDelete.filename);
+      toast("Vídeo eliminat de la llista", "success");
+      setPendingDelete(null);
+      refresh();
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : "No s’ha pogut eliminar el vídeo",
+        "error",
+      );
+    }
+  }, [pendingDelete, refresh, toast]);
 
   if (loading) {
     return (
@@ -199,7 +235,10 @@ export default function PlaylistDetail() {
               <SegmentedButton
                 options={formatOptions}
                 value={format}
-                onChange={(value) => setFormat(value as FormatName)}
+                onChange={(value) => {
+                  formatTouchedRef.current = true;
+                  setFormat(value as FormatName);
+                }}
                 label="Format de descàrrega"
               />
             </div>
@@ -280,6 +319,7 @@ export default function PlaylistDetail() {
                   src: mediaUrl(item.filename),
                 })
               }
+              onDelete={() => setPendingDelete(item)}
             />
           ))}
         </Card>
@@ -298,6 +338,24 @@ export default function PlaylistDetail() {
         src={preview?.src ?? ""}
         onClose={() => setPreview(null)}
       />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Voleu eliminar el vídeo?"
+        message={
+          <>
+            S’eliminarà{" "}
+            <span className="font-medium text-on-surface">
+              {pendingDelete?.title}
+            </span>{" "}
+            del disc i l’element tornarà a l’estat pendent, de manera que es
+            podrà tornar a descarregar. Es conserva el registre a l’historial de
+            descàrregues.
+          </>
+        }
+        onConfirm={confirmDeleteItem}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
@@ -307,11 +365,13 @@ function ItemRow({
   busy,
   onDownload,
   onPreview,
+  onDelete,
 }: {
   item: PlaylistItem;
   busy: boolean;
   onDownload: () => void;
   onPreview: () => void;
+  onDelete: () => void;
 }) {
   const thumbSrc = item.video_id ? `/api/thumb/${item.video_id}.jpg` : null;
 
@@ -371,6 +431,15 @@ function ItemRow({
                 : "Descarrega"}
           </Button>
         )}
+        {item.status === "downloaded" && item.filename ? (
+          <IconButton
+            variant="danger"
+            label="Elimina el vídeo de la llista"
+            onClick={onDelete}
+          >
+            <Icon name="delete" className="text-[20px]" />
+          </IconButton>
+        ) : null}
       </div>
     </div>
   );
