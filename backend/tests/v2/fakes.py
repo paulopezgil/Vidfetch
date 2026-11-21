@@ -82,11 +82,29 @@ class FakeConnection:
 
 
 class FakeDatabase:
-    """Database-wrapper double with one queue-driven connection."""
+    """Database-wrapper double with one queue-driven connection.
 
-    def __init__(self, fail_with: BaseException | None = None) -> None:
+    ``fail_with`` raises before every operation. ``fail_after`` delays that
+    failure until that many calls have already been recorded, which lets a test
+    pass authentication and then fail the endpoint's own query.
+    """
+
+    def __init__(
+        self,
+        fail_with: BaseException | None = None,
+        *,
+        fail_after: int | None = None,
+    ) -> None:
         self.connection = FakeConnection()
         self.fail_with = fail_with
+        self.fail_after = fail_after
+
+    def _maybe_fail(self) -> None:
+        if self.fail_with is not None and (
+            self.fail_after is None
+            or len(self.connection.calls) >= self.fail_after
+        ):
+            raise self.fail_with
 
     def queue_fetchrow(self, *results: Any) -> None:
         self.connection.queue_fetchrow(*results)
@@ -102,23 +120,19 @@ class FakeDatabase:
         return self.connection.calls
 
     async def fetchrow(self, query: str, *args: Any, timeout: float | None = None):
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._maybe_fail()
         return await self.connection.fetchrow(query, *args, timeout=timeout)
 
     async def fetch(self, query: str, *args: Any, timeout: float | None = None):
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._maybe_fail()
         return await self.connection.fetch(query, *args, timeout=timeout)
 
     async def execute(self, query: str, *args: Any, timeout: float | None = None):
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._maybe_fail()
         return await self.connection.execute(query, *args, timeout=timeout)
 
     def transaction(self) -> FakeTransaction:
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._maybe_fail()
         return self.connection.transaction()
 
 
@@ -214,6 +228,30 @@ def asset_row(
         "created_at": NOW,
         "updated_at": NOW,
         "last_accessed_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
+def library_row(
+    *,
+    job_id: str | UUID | None = None,
+    asset_id: str | UUID | None = None,
+    status: str = "ready",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A ``LibraryItemOut``-shaped row for library service and API tests."""
+    row: dict[str, Any] = {
+        "job_id": job_id or uuid4(),
+        "asset_id": asset_id or uuid4(),
+        "title": "Clip",
+        "file_size_bytes": 1024,
+        "output_ext": "mp4",
+        "thumbnail_path": None,
+        "created_at": NOW,
+        "status": status,
+        "format_selector": "best",
+        "playlist_id": None,
     }
     row.update(overrides)
     return row

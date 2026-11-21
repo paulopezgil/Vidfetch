@@ -171,6 +171,66 @@ class MediaAssetOut(_ORMModel):
     last_accessed_at: datetime
 
 
+class LibraryItemOut(_ORMModel):
+    """A ready media asset from the caller's library.
+
+    The row is keyed by the caller's job so a library entry can be hidden
+    without deleting the shared asset or the download history.
+    """
+
+    job_id: UUID
+    asset_id: UUID | None = None
+    title: str = ""
+    file_size_bytes: int | None = None
+    output_ext: str | None = None
+    thumbnail_path: str | None = None
+    created_at: datetime
+    status: JobStatus = "ready"
+    format_selector: str = ""
+    playlist_id: UUID | None = None
+
+
+class LibraryList(_ORMModel):
+    """One page of the caller's library."""
+
+    items: list[LibraryItemOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminJobOut(DownloadJobOut):
+    """An admin-wide job row, including the owner's email address."""
+
+    user_email: str = ""
+
+
+class AdminJobList(_ORMModel):
+    """One page of all users' jobs for the admin inventory."""
+
+    items: list[AdminJobOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminAssetOut(MediaAssetOut):
+    """A global media asset plus how many jobs and users reference it."""
+
+    job_count: int = 0
+    user_count: int = 0
+
+
+class AdminAssetList(_ORMModel):
+    """One page of the asset cache inventory and the current free space."""
+
+    items: list[AdminAssetOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+    disk_free_bytes: int
+
+
 class PlaylistItemOut(_ORMModel):
     """One row from ``public.playlist_items``.
 

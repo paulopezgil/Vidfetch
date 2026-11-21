@@ -8,6 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from backend.app.models.schemas import (
+    AdminAssetList,
+    AdminAssetOut,
+    AdminJobList,
+    AdminJobOut,
     AdminUserList,
     DownloadJobList,
     DownloadJobOut,
@@ -15,6 +19,8 @@ from backend.app.models.schemas import (
     ErrorResponse,
     HealthOut,
     InfoOut,
+    LibraryItemOut,
+    LibraryList,
     MediaAssetOut,
     MediaTokenOut,
     MeOut,
@@ -416,3 +422,87 @@ def test_error_envelope_shape():
 
     assert error.error.code == "approval_required"
     assert "approval" in error.error.message
+
+
+def test_library_models_parse_a_ready_item():
+    job_id = uuid4()
+    asset_id = uuid4()
+    item = LibraryItemOut.model_validate(
+        {
+            "job_id": job_id,
+            "asset_id": asset_id,
+            "title": "Clip",
+            "file_size_bytes": 2048,
+            "output_ext": "mp4",
+            "thumbnail_path": "thumbnails/a.jpg",
+            "created_at": NOW,
+            "status": "ready",
+            "format_selector": "best",
+            "playlist_id": None,
+        }
+    )
+
+    assert item.job_id == job_id
+    assert item.asset_id == asset_id
+    assert item.file_size_bytes == 2048
+    assert item.playlist_id is None
+
+    listing = LibraryList(items=[item], total=1, limit=50, offset=0)
+    assert listing.items[0].title == "Clip"
+    assert listing.total == 1
+
+    with pytest.raises(ValidationError):
+        LibraryItemOut.model_validate(
+            {
+                "job_id": job_id,
+                "created_at": NOW,
+                "status": "exploded",
+            }
+        )
+
+
+def test_admin_job_out_adds_the_owner_email():
+    base = {
+        "id": uuid4(),
+        "user_id": uuid4(),
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+
+    default = AdminJobOut(**base)
+    labelled = AdminJobOut(**base, user_email="owner@example.test")
+    listing = AdminJobList(items=[labelled], total=1, limit=50, offset=0)
+
+    assert default.user_email == ""
+    assert listing.items[0].user_email == "owner@example.test"
+    assert isinstance(listing.items[0], DownloadJobOut)
+
+
+def test_admin_asset_out_adds_usage_counts():
+    asset = AdminAssetOut(
+        id=uuid4(),
+        canonical_id="youtube:abc",
+        options_hash="d" * 64,
+        created_at=NOW,
+        updated_at=NOW,
+        last_accessed_at=NOW,
+    )
+    counted = AdminAssetOut(
+        id=uuid4(),
+        canonical_id="youtube:def",
+        options_hash="e" * 64,
+        job_count=3,
+        user_count=2,
+        created_at=NOW,
+        updated_at=NOW,
+        last_accessed_at=NOW,
+    )
+    listing = AdminAssetList(
+        items=[counted], total=1, limit=50, offset=0, disk_free_bytes=1234
+    )
+
+    assert asset.job_count == 0
+    assert asset.user_count == 0
+    assert counted.job_count == 3
+    assert counted.user_count == 2
+    assert listing.disk_free_bytes == 1234
