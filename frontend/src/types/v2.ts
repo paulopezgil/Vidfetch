@@ -96,6 +96,105 @@ export interface CreateDownloadPayload {
   idempotency_key?: string;
 }
 
+/** Lifecycle of a playlist row (`playlists.status`). */
+export type PlaylistStatus =
+  | "pending"
+  | "downloading"
+  | "ready"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+/** Lifecycle of one item inside a playlist (`playlist_items.status`). */
+export type PlaylistItemStatus =
+  | "pending"
+  | "downloading"
+  | "ready"
+  | "failed"
+  | "cancelled";
+
+/** One ready asset in the caller's library (`GET /api/library`). */
+export interface LibraryItem {
+  job_id: string;
+  asset_id: string;
+  title: string;
+  file_size_bytes: number;
+  output_ext: string;
+  thumbnail_path: string | null;
+  created_at: string;
+  status: DownloadJobStatus;
+  format_selector: string;
+}
+
+/** Paginated response for `GET /api/library`. */
+export interface LibraryList {
+  items: LibraryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** A playlist owned by the caller (`GET /api/playlists`). */
+export interface PlaylistV2 {
+  id: string;
+  user_id: string;
+  canonical_id: string;
+  source_url: string;
+  title: string;
+  channel: string;
+  thumbnail_path: string | null;
+  item_count: number;
+  options_hash: string;
+  format_selector: string;
+  status: PlaylistStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A single video position inside a playlist. */
+export interface PlaylistItemV2 {
+  id: string;
+  playlist_id: string;
+  position: number;
+  canonical_id: string;
+  source_url: string;
+  title: string;
+  duration_seconds: number | null;
+  asset_id: string | null;
+  job_id: string | null;
+  status: PlaylistItemStatus;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/playlists/{playlist_id}` — playlist plus its ordered items. */
+export interface PlaylistDetailV2 extends PlaylistV2 {
+  items: PlaylistItemV2[];
+}
+
+/** Paginated response for `GET /api/playlists`. */
+export interface PlaylistList {
+  items: PlaylistV2[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Short-lived signed media URL (`POST /api/media/{asset_id}/token`).
+ *
+ * `url` streams the asset; `thumbnail_url` is `null` when the asset has no
+ * thumbnail. Refresh before `expires_at` (or `expires_in` seconds) elapse.
+ */
+export interface MediaToken {
+  token: string;
+  url: string;
+  thumbnail_url: string | null;
+  expires_at: string;
+  expires_in: number;
+}
+
 const ACTIVE_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
   "queued",
   "resolving",
