@@ -1,5 +1,10 @@
 # Vidfetch
 
+> **v2 development:** the approved v2 architecture is in
+> [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md), with setup notes in
+> [`docs/V2_SETUP.md`](docs/V2_SETUP.md). This README describes the stable
+> v1.9 application until the v2 implementation ships.
+
 A polished, desktop-first web application that provides a modern graphical
 interface for downloading individual videos and entire playlists. Powered by
 [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) as its download engine.
