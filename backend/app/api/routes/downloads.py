@@ -79,20 +79,14 @@ async def create_download(
     profile: ProfileOut = Depends(require_approved),
     db: Database | None = Depends(get_db),
 ) -> DownloadJobOut:
-    """Queue a single-video download, idempotent on the client's key."""
+    """Queue a video or playlist download, idempotent on the client's key."""
     if db is None:
         raise _unavailable()
-    if payload.kind == "playlist":
-        raise ApiError(
-            501,
-            "playlist_not_implemented",
-            "Playlist downloads are not available yet.",
-        )
     if payload.playlist_id is not None:
         raise ApiError(
             400,
             "invalid_request",
-            "playlist_id is only valid for playlist downloads.",
+            "Per-item playlist retries are not available yet.",
         )
 
     key = (idempotency_header or payload.idempotency_key or "").strip() or None
@@ -107,7 +101,7 @@ async def create_download(
         row = await jobs.create_job(
             db,
             user_id=profile.id,
-            kind="video",
+            kind=payload.kind,
             source_url=payload.url,
             title="",
             options_hash=digest,

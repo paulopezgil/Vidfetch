@@ -16,6 +16,8 @@ import asyncio
 import logging
 import shutil
 import threading
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,9 @@ from ..core.config import Settings
 from ..core.db import Database
 from . import assets as assets_service
 from . import jobs as jobs_service
+from . import playlists as playlists_service
 from . import ytdlp as ytdlp_service
+from .options import options_hash
 from .storage import Storage, StorageError
 
 logger = logging.getLogger("vidfetch.worker")
@@ -32,6 +36,25 @@ TERMINAL_JOB_STATUSES = frozenset({"ready", "failed", "cancelled"})
 DEFAULT_POLL_INTERVAL = 0.5
 DEFAULT_PROGRESS_INTERVAL = 1.0
 MAX_WAIT_SECONDS = 600
+
+
+@dataclass
+class _DownloadOutcome:
+    """Result of one asset download attempt."""
+
+    asset_id: str | None = None
+    error: str = ""
+    cancelled: bool = False
+
+
+@dataclass
+class _PlaylistProgress:
+    """Progress context for one playlist item."""
+
+    total: int
+    completed: int
+    position: int
+    title: str
 
 
 class _ProgressState:
@@ -112,6 +135,7 @@ class Worker:
         ytdlp: Any = None,
         jobs: Any = None,
         assets: Any = None,
+        playlists: Any = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         progress_interval: float = DEFAULT_PROGRESS_INTERVAL,
         lease_renew_seconds: int | None = None,
@@ -123,6 +147,7 @@ class Worker:
         self.ytdlp = ytdlp or ytdlp_service
         self.jobs = jobs or jobs_service
         self.assets = assets or assets_service
+        self.playlists = playlists or playlists_service
         self.poll_interval = max(0.001, float(poll_interval))
         self.progress_interval = max(0.001, float(progress_interval))
         self.lease_renew_seconds = (
@@ -278,9 +303,13 @@ class Worker:
             await self.jobs.mark_cancelled(self.db, key)
             return
 
-        if job.get("kind", "video") != "video":
+        kind = job.get("kind", "video")
+        if kind == "playlist":
+            await self._process_playlist(job, event)
+            return
+        if kind != "video":
             await self.jobs.mark_failed(
-                self.db, key, "Only single-video downloads are supported yet."
+                self.db, key, "Playlist item retries are not available yet."
             )
             return
 
@@ -365,6 +394,668 @@ class Worker:
             job, claim.asset, info, canonical, event
         )
 
+    # -- playlist flow ------------------------------------------------------
+
+    async def _process_playlist(
+        self, job: dict[str, Any], cancel: threading.Event
+    ) -> None:
+        """Resolve a playlist, reconcile its items, and download each asset."""
+        job_id = str(job.get("id"))
+        try:
+            info = await asyncio.to_thread(
+                self.ytdlp.get_info, job.get("source_url", ""), self.settings
+            )
+        except self.ytdlp.DownloadCancelled:
+            await self.jobs.mark_cancelled(self.db, job_id)
+            return
+        except self.ytdlp.DownloadError as exc:
+            await self.jobs.mark_failed(self.db, job_id, exc.message)
+            return
+        except Exception:  # noqa: BLE001 - unexpected extraction failure
+            logger.exception("Playlist extraction failed for job %s", job_id)
+            await self.jobs.mark_failed(
+                self.db,
+                job_id,
+                "Could not retrieve information for this playlist.",
+            )
+            return
+
+        if cancel.is_set():
+            await self.jobs.mark_cancelled(self.db, job_id)
+            return
+
+        if info.get("type") != "playlist":
+            await self.jobs.mark_failed(
+                self.db, job_id, "This URL is not a playlist."
+            )
+            return
+
+        canonical = (info.get("canonical_id") or "").strip()
+        if not canonical:
+            try:
+                canonical = self.assets.canonical_id(
+                    info.get("extractor_key") or "",
+                    str(info.get("id") or ""),
+                )
+            except ValueError:
+                canonical = ""
+        if not canonical:
+            await self.jobs.mark_failed(
+                self.db,
+                job_id,
+                "Could not determine a stable identity for this playlist.",
+            )
+            return
+
+        title = info.get("title") or job.get("title") or "Playlist"
+        channel = info.get("channel") or ""
+        entries = [
+            entry
+            for entry in (info.get("entries") or [])
+            if isinstance(entry, dict)
+        ]
+        fmt, embed_subs = self.ytdlp.parse_intent(
+            job.get("format_selector", "")
+        )
+        playlist_options = (
+            job.get("options_hash")
+            or options_hash(fmt, embed_subs, {"kind": "playlist"})
+        )
+
+        try:
+            playlist = await self.playlists.upsert_playlist(
+                self.db,
+                user_id=job.get("user_id"),
+                canonical_id=canonical,
+                source_url=job.get("source_url", ""),
+                title=title,
+                channel=channel,
+                item_count=len(entries),
+                options_hash=playlist_options,
+                format_selector=job.get("format_selector", ""),
+            )
+        except Exception:  # noqa: BLE001 - DB failure must fail the job cleanly
+            logger.exception("Playlist upsert failed for job %s", job_id)
+            await self.jobs.mark_failed(
+                self.db,
+                job_id,
+                "The playlist could not be saved. Try again.",
+            )
+            return
+
+        playlist_id = playlist.get("id")
+        if playlist_id is None:
+            await self.jobs.mark_failed(
+                self.db,
+                job_id,
+                "The playlist could not be saved. Try again.",
+            )
+            return
+
+        if not cancel.is_set():
+            cover = await self._fetch_playlist_cover(
+                info, playlist_id, cancel
+            )
+            if cover:
+                try:
+                    await self.playlists.update_playlist(
+                        self.db, playlist_id, thumbnail_path=cover
+                    )
+                except Exception:  # noqa: BLE001 - cover is best effort
+                    logger.exception(
+                        "Failed to store playlist cover for %s", playlist_id
+                    )
+
+        try:
+            items = await self.playlists.replace_items(
+                self.db,
+                playlist_id,
+                [
+                    {
+                        "canonical_id": entry.get("canonical_id") or "",
+                        "source_url": entry.get("url") or "",
+                        "title": entry.get("title") or "",
+                        "duration_seconds": entry.get("duration"),
+                    }
+                    for entry in entries
+                ],
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Playlist item reconciliation failed for %s", job_id)
+            await self.jobs.mark_failed(
+                self.db,
+                job_id,
+                "The playlist items could not be saved. Try again.",
+            )
+            return
+
+        total = len(items)
+        try:
+            await self.playlists.update_playlist(
+                self.db, playlist_id, status="downloading", item_count=total
+            )
+            await self.jobs.update_job(
+                self.db,
+                job_id,
+                status="downloading",
+                title=title,
+                error="",
+                progress=0,
+                item_index=0,
+                item_count=total,
+                current_item_title="",
+                current_item_progress=0,
+                playlist_id=playlist_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to initialize playlist job %s", job_id)
+            await self.jobs.mark_failed(
+                self.db, job_id, "The playlist could not be started."
+            )
+            return
+
+        if total == 0:
+            message = "This playlist has no downloadable items."
+            await self._finish_playlist_status(
+                playlist_id, "failed", message
+            )
+            await self.jobs.mark_failed(self.db, job_id, message)
+            return
+
+        flat_thumbnails = {
+            str(entry.get("canonical_id") or ""): entry.get("thumbnail")
+            for entry in entries
+            if entry.get("canonical_id")
+        }
+        successes = 0
+        failures: list[str] = []
+        cancelled = False
+
+        for index, item in enumerate(items):
+            position = int(item.get("position") or index + 1)
+            item_title = item.get("title") or f"Item {position}"
+
+            if cancel.is_set():
+                cancelled = True
+                await self._cancel_remaining_items(
+                    playlist_id, items[index:]
+                )
+                break
+
+            await self.jobs.update_job(
+                self.db,
+                job_id,
+                status="downloading",
+                item_index=position,
+                item_count=total,
+                current_item_title=item_title,
+                current_item_progress=0,
+                progress=round(successes / total * 100, 2),
+            )
+            try:
+                await self.playlists.update_item(
+                    self.db,
+                    playlist_id,
+                    position,
+                    status="downloading",
+                    error="",
+                )
+            except Exception:  # noqa: BLE001 - item status is best effort
+                logger.exception(
+                    "Failed to mark playlist item %s:%s downloading",
+                    playlist_id,
+                    position,
+                )
+
+            try:
+                item_info = await self._resolve_playlist_item(
+                    item,
+                    cancel,
+                    thumbnail=flat_thumbnails.get(
+                        str(item.get("canonical_id") or "")
+                    ),
+                )
+            except self.ytdlp.DownloadCancelled:
+                cancelled = True
+                await self._mark_item_cancelled(playlist_id, position)
+                await self._cancel_remaining_items(
+                    playlist_id, items[index + 1 :]
+                )
+                break
+            except self.ytdlp.DownloadError as exc:
+                message = self.ytdlp.redact_sensitive(exc.message)[:500]
+                failures.append(message)
+                await self._mark_item_failed(playlist_id, position, message)
+                await self._update_playlist_job_progress(
+                    job_id, position, total, successes
+                )
+                continue
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to resolve playlist item %s:%s",
+                    playlist_id,
+                    position,
+                )
+                message = "Could not retrieve information for this video."
+                failures.append(message)
+                await self._mark_item_failed(playlist_id, position, message)
+                await self._update_playlist_job_progress(
+                    job_id, position, total, successes
+                )
+                continue
+
+            if cancel.is_set():
+                cancelled = True
+                await self._mark_item_cancelled(playlist_id, position)
+                await self._cancel_remaining_items(
+                    playlist_id, items[index + 1 :]
+                )
+                break
+
+            item_canonical = (item_info.get("canonical_id") or "").strip()
+            if not item_canonical:
+                try:
+                    item_canonical = self.assets.canonical_id(
+                        item_info.get("extractor_key") or "",
+                        str(item_info.get("id") or ""),
+                    )
+                except ValueError:
+                    item_canonical = ""
+            if not item_canonical:
+                message = "Could not determine a stable identity for this video."
+                failures.append(message)
+                await self._mark_item_failed(playlist_id, position, message)
+                await self._update_playlist_job_progress(
+                    job_id, position, total, successes
+                )
+                continue
+
+            if (
+                not item.get("canonical_id")
+                or not item.get("source_url")
+                or not item.get("title")
+            ):
+                try:
+                    await self.playlists.update_item(
+                        self.db,
+                        playlist_id,
+                        position,
+                        status="downloading",
+                        canonical_id=item_canonical,
+                        source_url=(
+                            item_info.get("webpage_url")
+                            or item.get("source_url")
+                            or ""
+                        ),
+                        title=item_info.get("title") or item_title,
+                        duration_seconds=item_info.get("duration"),
+                    )
+                except Exception:  # noqa: BLE001 - metadata cache is best effort
+                    logger.exception(
+                        "Failed to cache metadata for playlist item %s:%s",
+                        playlist_id,
+                        position,
+                    )
+
+            source_url = (
+                item_info.get("webpage_url")
+                or item.get("source_url")
+                or ""
+            )
+            duration = item_info.get("duration")
+            if duration is None:
+                duration = item.get("duration_seconds")
+            try:
+                duration_seconds = (
+                    int(duration) if duration is not None else None
+                )
+            except (TypeError, ValueError):
+                duration_seconds = None
+
+            video_options = options_hash(
+                fmt, embed_subs, {"kind": "video"}
+            )
+            try:
+                claim = await self.assets.claim_asset(
+                    self.db,
+                    self.storage,
+                    canonical_id=item_canonical,
+                    extractor_key=item_info.get("extractor_key") or "",
+                    source_url=source_url,
+                    title=item_info.get("title") or item_title,
+                    duration_seconds=duration_seconds,
+                    options_hash=video_options,
+                    format_selector=job.get("format_selector", ""),
+                    lease_seconds=self.settings.job_lease_seconds,
+                )
+            except Exception:  # noqa: BLE001 - DB failure fails only this item
+                logger.exception(
+                    "Asset claim failed for playlist item %s:%s",
+                    playlist_id,
+                    position,
+                )
+                message = "The media cache is temporarily unavailable."
+                failures.append(message)
+                await self._mark_item_failed(playlist_id, position, message)
+                await self._update_playlist_job_progress(
+                    job_id, position, total, successes
+                )
+                continue
+
+            if claim.cache_hit:
+                successes += 1
+                await self._mark_item_ready(
+                    playlist_id,
+                    position,
+                    claim.asset.get("id"),
+                    job_id,
+                    total,
+                    successes,
+                )
+                continue
+
+            if claim.wait:
+                await self.jobs.update_job(
+                    self.db, job_id, status="processing"
+                )
+                state, message = await self._await_asset(
+                    claim.asset.get("id"), cancel
+                )
+                if state == "ready":
+                    successes += 1
+                    await self._mark_item_ready(
+                        playlist_id,
+                        position,
+                        claim.asset.get("id"),
+                        job_id,
+                        total,
+                        successes,
+                    )
+                elif state == "cancelled":
+                    cancelled = True
+                    await self._mark_item_cancelled(playlist_id, position)
+                    await self._cancel_remaining_items(
+                        playlist_id, items[index + 1 :]
+                    )
+                    break
+                else:
+                    safe = self.ytdlp.redact_sensitive(message)[:500]
+                    failures.append(safe)
+                    await self._mark_item_failed(
+                        playlist_id, position, safe
+                    )
+                    await self._update_playlist_job_progress(
+                        job_id, position, total, successes
+                    )
+                continue
+
+            progress_context = _PlaylistProgress(
+                total=total,
+                completed=successes,
+                position=position,
+                title=item_title,
+            )
+            outcome = await self._download_claimed(
+                job,
+                claim.asset,
+                item_info,
+                item_canonical,
+                cancel,
+                playlist=progress_context,
+            )
+            if outcome.cancelled:
+                cancelled = True
+                await self._mark_item_cancelled(
+                    playlist_id, position, error=outcome.error
+                )
+                await self._cancel_remaining_items(
+                    playlist_id, items[index + 1 :]
+                )
+                break
+            if outcome.asset_id:
+                successes += 1
+                await self._mark_item_ready(
+                    playlist_id,
+                    position,
+                    outcome.asset_id,
+                    job_id,
+                    total,
+                    successes,
+                )
+            else:
+                message = (
+                    outcome.error or "The video could not be downloaded."
+                )
+                failures.append(message)
+                await self._mark_item_failed(
+                    playlist_id, position, message
+                )
+                await self._update_playlist_job_progress(
+                    job_id, position, total, successes
+                )
+
+        if cancelled:
+            await self._finish_playlist_status(
+                playlist_id, "cancelled", ""
+            )
+            await self.jobs.mark_cancelled(self.db, job_id)
+            return
+
+        if successes == 0:
+            summary = self._failure_summary(failures, total)
+            await self._finish_playlist_status(
+                playlist_id, "failed", summary
+            )
+            await self.jobs.mark_failed(self.db, job_id, summary)
+            return
+
+        playlist_status = "partial" if failures else "ready"
+        note = self._failure_summary(failures, total) if failures else ""
+        await self._finish_playlist_status(
+            playlist_id, playlist_status, note
+        )
+        await self.jobs.update_job(
+            self.db,
+            job_id,
+            status="ready",
+            progress=100,
+            item_index=total,
+            item_count=total,
+            current_item_title="",
+            current_item_progress=100,
+            error=note,
+            completed_at=datetime.now(timezone.utc),
+        )
+
+    async def _resolve_playlist_item(
+        self,
+        item: dict[str, Any],
+        cancel: threading.Event,
+        *,
+        thumbnail: str | None = None,
+    ) -> dict[str, Any]:
+        """Return enough video metadata to claim and download one item.
+
+        Flat entries often already carry their canonical id. In that case no
+        extra network extraction is needed; otherwise the item URL is resolved
+        lazily and the result is cached on the playlist item.
+        """
+        source_url = str(item.get("source_url") or "").strip()
+        canonical = str(item.get("canonical_id") or "").strip()
+
+        if canonical and source_url:
+            extractor_key, _, media_id = canonical.partition(":")
+            return {
+                "type": "video",
+                "id": media_id or None,
+                "title": item.get("title") or "download",
+                "canonical_id": canonical,
+                "extractor_key": extractor_key,
+                "duration": item.get("duration_seconds"),
+                "thumbnail": thumbnail,
+                "webpage_url": source_url,
+            }
+
+        if not source_url:
+            raise self.ytdlp.DownloadError(
+                "This playlist item has no source URL.", code="item_failed"
+            )
+
+        info = await asyncio.to_thread(
+            self.ytdlp.get_info, source_url, self.settings
+        )
+        if cancel.is_set():
+            raise self.ytdlp.DownloadCancelled()
+        if info.get("type") != "video":
+            raise self.ytdlp.DownloadError(
+                "This playlist item is not a video.", code="item_failed"
+            )
+        return info
+
+    async def _mark_item_ready(
+        self,
+        playlist_id: Any,
+        position: int,
+        asset_id: Any,
+        job_id: str,
+        total: int,
+        successes: int,
+    ) -> None:
+        try:
+            await self.playlists.update_item(
+                self.db,
+                playlist_id,
+                position,
+                status="ready",
+                asset_id=asset_id,
+                error="",
+            )
+        except Exception:  # noqa: BLE001 - job completion can still proceed
+            logger.exception(
+                "Failed to mark playlist item %s:%s ready",
+                playlist_id,
+                position,
+            )
+        progress = round(successes / total * 100, 2) if total else 100
+        await self.jobs.update_job(
+            self.db,
+            job_id,
+            progress=progress,
+            item_index=position,
+            item_count=total,
+            current_item_progress=100,
+        )
+
+    async def _mark_item_failed(
+        self, playlist_id: Any, position: int, message: str
+    ) -> None:
+        safe = self.ytdlp.redact_sensitive(message)[:500]
+        try:
+            await self.playlists.update_item(
+                self.db,
+                playlist_id,
+                position,
+                status="failed",
+                error=safe,
+            )
+        except Exception:  # noqa: BLE001 - continue with other items
+            logger.exception(
+                "Failed to mark playlist item %s:%s failed",
+                playlist_id,
+                position,
+            )
+
+    async def _mark_item_cancelled(
+        self, playlist_id: Any, position: int, *, error: str = ""
+    ) -> None:
+        try:
+            await self.playlists.update_item(
+                self.db,
+                playlist_id,
+                position,
+                status="cancelled",
+                error=self.ytdlp.redact_sensitive(error)[:500],
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to mark playlist item %s:%s cancelled",
+                playlist_id,
+                position,
+            )
+
+    async def _cancel_remaining_items(
+        self, playlist_id: Any, items: list[dict[str, Any]]
+    ) -> None:
+        for item in items:
+            if item.get("status") == "ready":
+                continue
+            position = int(item.get("position") or 0)
+            if position <= 0:
+                continue
+            await self._mark_item_cancelled(playlist_id, position)
+
+    async def _update_playlist_job_progress(
+        self, job_id: str, position: int, total: int, successes: int
+    ) -> None:
+        progress = round(successes / total * 100, 2) if total else 0
+        await self.jobs.update_job(
+            self.db,
+            job_id,
+            progress=progress,
+            item_index=position,
+            item_count=total,
+            current_item_progress=0,
+        )
+
+    async def _finish_playlist_status(
+        self, playlist_id: Any, status: str, error: str
+    ) -> None:
+        try:
+            await self.playlists.update_playlist(
+                self.db, playlist_id, status=status
+            )
+        except Exception:  # noqa: BLE001 - job status still matters
+            logger.exception(
+                "Failed to mark playlist %s as %s", playlist_id, status
+            )
+        if error:
+            logger.info("Playlist %s finished %s: %s", playlist_id, status, error)
+
+    @staticmethod
+    def _failure_summary(failures: list[str], total: int) -> str:
+        if not failures:
+            return ""
+        summary = f"{len(failures)} of {total} items failed."
+        first = failures[0].strip()
+        if first:
+            summary = f"{summary} {first}"
+        return summary[:500]
+
+    async def _fetch_playlist_cover(
+        self, info: dict[str, Any], playlist_id: Any, cancel: threading.Event
+    ) -> str | None:
+        url = info.get("thumbnail")
+        if not url or cancel.is_set():
+            return None
+        try:
+            relative = playlists_service.playlist_cover_path(playlist_id)
+            destination = self.storage.validate_relative_path(relative)
+        except (ValueError, StorageError):
+            return None
+        try:
+            downloaded = await asyncio.to_thread(
+                self.ytdlp.download_thumbnail,
+                url,
+                destination,
+                self.settings,
+            )
+        except Exception:  # noqa: BLE001 - covers are optional
+            logger.exception(
+                "Playlist cover download failed for %s", playlist_id
+            )
+            return None
+        return relative if downloaded else None
+
     # -- waiting on another download ---------------------------------------
 
     async def _wait_for_asset(
@@ -376,33 +1067,45 @@ class Worker:
             )
             return
         await self.jobs.update_job(self.db, job_id, status="processing")
+        state, message = await self._await_asset(asset_id, cancel)
+        if state == "ready":
+            await self.jobs.mark_ready(self.db, job_id, asset_id=asset_id)
+        elif state == "cancelled":
+            await self.jobs.mark_cancelled(self.db, job_id)
+        else:
+            await self.jobs.mark_failed(self.db, job_id, message)
+
+    async def _await_asset(
+        self, asset_id: Any, cancel: threading.Event
+    ) -> tuple[str, str]:
+        """Poll a processing asset and report ready/failed/cancelled."""
+        if asset_id is None:
+            return (
+                "failed",
+                "The media cache is temporarily unavailable.",
+            )
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.wait_timeout
         while loop.time() < deadline:
             if cancel.is_set():
-                await self.jobs.mark_cancelled(self.db, job_id)
-                return
+                return "cancelled", "Download cancelled."
             try:
                 asset = await self.assets.get_asset(self.db, asset_id)
             except Exception:  # noqa: BLE001 - retry until the deadline
-                logger.exception("Asset poll failed for job %s", job_id)
+                logger.exception("Asset poll failed for %s", asset_id)
                 asset = None
             status = (asset or {}).get("status")
             if status == "ready":
-                await self.jobs.mark_ready(self.db, job_id, asset_id=asset_id)
-                return
+                return "ready", ""
             if status == "failed":
-                await self.jobs.mark_failed(
-                    self.db,
-                    job_id,
+                return (
+                    "failed",
                     "The existing download of this video failed. Try again.",
                 )
-                return
             await asyncio.sleep(self.poll_interval)
 
-        await self.jobs.mark_failed(
-            self.db,
-            job_id,
+        return (
+            "failed",
             "Timed out waiting for an existing download of this video.",
         )
 
@@ -415,7 +1118,9 @@ class Worker:
         info: dict[str, Any],
         canonical: str,
         cancel: threading.Event,
-    ) -> None:
+        *,
+        playlist: _PlaylistProgress | None = None,
+    ) -> _DownloadOutcome:
         job_id = str(job.get("id"))
         asset_id = str(asset.get("id"))
         fmt, embed_subs = self.ytdlp.parse_intent(
@@ -429,25 +1134,41 @@ class Worker:
         asset_ready = False
         try:
             workdir.mkdir(parents=True, exist_ok=True)
-            await self.jobs.update_job(
-                self.db,
-                job_id,
-                status="downloading",
-                asset_id=asset.get("id"),
-                error="",
-                progress=0,
-                current_item_title=info.get("title") or "",
-            )
+            fields: dict[str, Any] = {
+                "status": "downloading",
+                "error": "",
+                "progress": 0,
+                "current_item_title": info.get("title") or "",
+            }
+            if playlist is None:
+                fields["asset_id"] = asset.get("id")
+            else:
+                fields.update(
+                    {
+                        "item_index": playlist.position,
+                        "item_count": playlist.total,
+                        "current_item_progress": 0,
+                    }
+                )
+            await self.jobs.update_job(self.db, job_id, **fields)
             flusher = asyncio.get_running_loop().create_task(
-                self._flush_progress(job_id, state), name=f"progress-{job_id}"
+                self._flush_progress(job_id, state, playlist),
+                name=f"progress-{job_id}",
             )
             renewer = asyncio.get_running_loop().create_task(
                 self._renew_lease(asset_id), name=f"lease-{asset_id}"
             )
 
+            download_url = job.get("source_url", "")
+            if playlist is not None:
+                download_url = (
+                    info.get("webpage_url")
+                    or info.get("original_url")
+                    or download_url
+                )
             result = await asyncio.to_thread(
                 self.ytdlp.download_video,
-                job.get("source_url", ""),
+                download_url,
                 fmt,
                 embed_subs,
                 workdir,
@@ -461,7 +1182,7 @@ class Worker:
 
             await self._stop_task(flusher)
             flusher = None
-            await self._persist_progress(job_id, state)
+            await self._persist_progress(job_id, state, playlist)
 
             source = Path(result["filepath"])
             title = result.get("title") or info.get("title") or "download"
@@ -491,34 +1212,51 @@ class Worker:
                 thumbnail_path=thumbnail_path,
             )
             asset_ready = True
-            await self.jobs.mark_ready(
-                self.db, job_id, asset_id=asset.get("id")
-            )
+            if playlist is None:
+                await self.jobs.mark_ready(
+                    self.db, job_id, asset_id=asset.get("id")
+                )
+            return _DownloadOutcome(asset_id=asset_id)
         except self.ytdlp.DownloadCancelled:
-            await self._fail_claimed(
-                job_id, asset_id, asset_ready, "Download cancelled.", cancelled=True
+            message = await self._fail_claimed(
+                job_id,
+                asset_id,
+                asset_ready,
+                "Download cancelled.",
+                cancelled=True,
+                fail_job=playlist is None,
             )
+            return _DownloadOutcome(error=message, cancelled=True)
         except self.ytdlp.DownloadError as exc:
-            await self._fail_claimed(
-                job_id, asset_id, asset_ready, exc.message
+            message = await self._fail_claimed(
+                job_id,
+                asset_id,
+                asset_ready,
+                exc.message,
+                fail_job=playlist is None,
             )
+            return _DownloadOutcome(error=message)
         except (OSError, StorageError) as exc:
             logger.warning("Storage failure for job %s: %s", job_id, type(exc).__name__)
-            await self._fail_claimed(
+            message = await self._fail_claimed(
                 job_id,
                 asset_id,
                 asset_ready,
                 "The downloaded file could not be stored. Check server storage "
                 "and try again.",
+                fail_job=playlist is None,
             )
+            return _DownloadOutcome(error=message)
         except Exception:  # noqa: BLE001 - unexpected failure
             logger.exception("Download failed for job %s", job_id)
-            await self._fail_claimed(
+            message = await self._fail_claimed(
                 job_id,
                 asset_id,
                 asset_ready,
                 "The download failed unexpectedly. Try again.",
+                fail_job=playlist is None,
             )
+            return _DownloadOutcome(error=message)
         finally:
             await self._stop_task(flusher)
             await self._stop_task(renewer)
@@ -532,17 +1270,20 @@ class Worker:
         message: str,
         *,
         cancelled: bool = False,
-    ) -> None:
+        fail_job: bool = True,
+    ) -> str:
         safe = self.ytdlp.redact_sensitive(message)[:500]
         if not asset_ready:
             try:
                 await self.assets.mark_failed(self.db, asset_id, safe)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to mark asset %s failed", asset_id)
-        if cancelled:
-            await self.jobs.mark_cancelled(self.db, job_id)
-        else:
-            await self.jobs.mark_failed(self.db, job_id, safe)
+        if fail_job:
+            if cancelled:
+                await self.jobs.mark_cancelled(self.db, job_id)
+            else:
+                await self.jobs.mark_failed(self.db, job_id, safe)
+        return safe
 
     async def _fetch_thumbnail(
         self, info: dict[str, Any], asset_id: str, cancel: threading.Event
@@ -570,17 +1311,23 @@ class Worker:
     # -- progress and leases ------------------------------------------------
 
     async def _flush_progress(
-        self, job_id: str, state: _ProgressState
+        self,
+        job_id: str,
+        state: _ProgressState,
+        playlist: _PlaylistProgress | None = None,
     ) -> None:
         try:
             while True:
                 await asyncio.sleep(self.progress_interval)
-                await self._persist_progress(job_id, state)
+                await self._persist_progress(job_id, state, playlist)
         except asyncio.CancelledError:
             raise
 
     async def _persist_progress(
-        self, job_id: str, state: _ProgressState
+        self,
+        job_id: str,
+        state: _ProgressState,
+        playlist: _PlaylistProgress | None = None,
     ) -> None:
         data, dirty = state.snapshot()
         if not dirty:
@@ -592,6 +1339,24 @@ class Worker:
             "total_bytes": data["total_bytes"],
             "speed": data["speed"],
         }
+        if playlist is not None:
+            item_progress = float(data["progress"])
+            overall = 0.0
+            if playlist.total > 0:
+                overall = (
+                    playlist.completed + item_progress / 100.0
+                ) / playlist.total * 100.0
+            fields.update(
+                {
+                    "progress": round(min(100.0, max(0.0, overall)), 2),
+                    "item_index": playlist.position,
+                    "item_count": playlist.total,
+                    "current_item_title": playlist.title,
+                    "current_item_progress": round(
+                        min(100.0, max(0.0, item_progress)), 2
+                    ),
+                }
+            )
         if data["eta_seconds"] is not None:
             fields["eta_seconds"] = data["eta_seconds"]
         try:

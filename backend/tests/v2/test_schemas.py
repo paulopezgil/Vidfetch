@@ -18,6 +18,10 @@ from backend.app.models.schemas import (
     MediaAssetOut,
     MediaTokenOut,
     MeOut,
+    PlaylistDetailOut,
+    PlaylistItemOut,
+    PlaylistList,
+    PlaylistOut,
     ProfileOut,
     RoleUpdate,
     StorageHealth,
@@ -323,6 +327,81 @@ def test_download_job_list_shape():
 
     assert listing.items[0].id == item.id
     assert listing.total == 1
+
+
+def test_media_token_out_accepts_thumbnail_url():
+    token = MediaTokenOut(
+        token="payload.signature",
+        url="/api/media/abc?token=payload.signature",
+        thumbnail_url="/api/thumbnails/abc?token=payload.signature",
+        expires_at=NOW,
+        expires_in=900,
+    )
+    assert token.thumbnail_url.endswith("payload.signature")
+
+    without_thumbnail = MediaTokenOut(
+        token="payload.signature",
+        url="/api/media/abc?token=payload.signature",
+        expires_at=NOW,
+        expires_in=900,
+    )
+    assert without_thumbnail.thumbnail_url is None
+
+
+def test_playlist_models_parse_schema_rows():
+    playlist_id = uuid4()
+    user_id = uuid4()
+    playlist = PlaylistOut.model_validate(
+        {
+            "id": playlist_id,
+            "user_id": user_id,
+            "canonical_id": "youtube:PL1",
+            "source_url": "https://example.test/list",
+            "title": "List",
+            "channel": "Channel",
+            "thumbnail_path": "playlists/cover.jpg",
+            "item_count": 1,
+            "options_hash": "a" * 64,
+            "format_selector": "best",
+            "status": "ready",
+            "created_at": NOW,
+            "updated_at": NOW,
+        }
+    )
+    item = PlaylistItemOut.model_validate(
+        {
+            "id": uuid4(),
+            "playlist_id": playlist_id,
+            "position": 1,
+            "canonical_id": "youtube:vid1",
+            "source_url": "https://example.test/v1",
+            "title": "One",
+            "duration_seconds": 12,
+            "asset_id": uuid4(),
+            "job_id": None,
+            "status": "ready",
+            "error": "",
+            "created_at": NOW,
+            "updated_at": NOW,
+        }
+    )
+    detail = PlaylistDetailOut.model_validate(
+        {**playlist.model_dump(), "items": [item.model_dump()]}
+    )
+
+    assert detail.items[0].position == 1
+    assert detail.items[0].duration_seconds == 12
+    assert PlaylistList(
+        items=[playlist], total=1, limit=50, offset=0
+    ).items[0].item_count == 1
+
+    with pytest.raises(ValidationError):
+        PlaylistOut.model_validate(
+            {
+                **playlist.model_dump(),
+                "status": "exploded",
+            }
+        )
 
 
 def test_error_envelope_shape():

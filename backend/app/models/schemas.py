@@ -28,6 +28,21 @@ JobStatus = Literal[
 ]
 HealthStatus = Literal["ok", "degraded", "unavailable"]
 DownloadKind = Literal["video", "playlist"]
+PlaylistStatus = Literal[
+    "pending",
+    "downloading",
+    "ready",
+    "partial",
+    "failed",
+    "cancelled",
+]
+PlaylistItemStatus = Literal[
+    "pending",
+    "downloading",
+    "ready",
+    "failed",
+    "cancelled",
+]
 FormatName = Literal["best", "720p", "mp3"]
 
 
@@ -72,6 +87,7 @@ class MediaTokenOut(_ORMModel):
 
     token: str
     url: str
+    thumbnail_url: str | None = None
     expires_at: datetime
     expires_in: int
 
@@ -155,6 +171,61 @@ class MediaAssetOut(_ORMModel):
     last_accessed_at: datetime
 
 
+class PlaylistItemOut(_ORMModel):
+    """One row from ``public.playlist_items``.
+
+    ``id``/``playlist_id`` and timestamps are optional so callers that only
+    need the user-facing item fields can validate a partial mapping.
+    """
+
+    id: UUID | None = None
+    playlist_id: UUID | None = None
+    position: int
+    canonical_id: str = ""
+    source_url: str = ""
+    title: str = ""
+    duration_seconds: int | None = None
+    asset_id: UUID | None = None
+    job_id: UUID | None = None
+    status: PlaylistItemStatus = "pending"
+    error: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PlaylistOut(_ORMModel):
+    """A per-user playlist row."""
+
+    id: UUID
+    user_id: UUID
+    canonical_id: str
+    source_url: str = ""
+    title: str = ""
+    channel: str = ""
+    thumbnail_path: str | None = None
+    item_count: int = 0
+    options_hash: str
+    format_selector: str = ""
+    status: PlaylistStatus = "pending"
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlaylistDetailOut(PlaylistOut):
+    """A playlist plus its ordered items."""
+
+    items: list[PlaylistItemOut] = Field(default_factory=list)
+
+
+class PlaylistList(_ORMModel):
+    """One page of the caller's playlists."""
+
+    items: list[PlaylistOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
 class InfoRequest(BaseModel):
     """Ask the backend to resolve metadata for a video or playlist URL."""
 
@@ -167,7 +238,7 @@ class InfoRequest(BaseModel):
 
 
 class DownloadRequest(BaseModel):
-    """Create a download job (single video; playlists arrive later)."""
+    """Create a video or playlist download job."""
 
     url: str = Field(min_length=1, max_length=2048)
     kind: DownloadKind = "video"

@@ -210,21 +210,65 @@ def test_create_download_is_idempotent_on_header_key(tmp_path):
     assert db.calls[1][2][1] == "key-1"
 
 
-def test_create_download_rejects_playlist_with_501(tmp_path):
+def test_create_playlist_download_queues_a_playlist_job(tmp_path):
     settings = make_settings(tmp_path)
     profile = _approved()
+    inserted = job_row(
+        user_id=profile["id"], kind="playlist", status="queued"
+    )
     db = FakeDatabase()
-    db.queue_fetchrow(profile)
+    db.queue_fetchrow(profile, inserted)
 
     with app_client(settings, db) as (app, client):
         response = client.post(
             "/api/downloads",
-            json={"url": "https://example.test/list", "kind": "playlist"},
+            json={
+                "url": "https://example.test/list",
+                "kind": "playlist",
+                "format": "720p",
+            },
             headers=_headers(profile),
         )
 
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "playlist_not_implemented"
+    assert response.status_code == 200
+    assert response.json()["kind"] == "playlist"
+
+    insert_args = db.calls[1][2]
+    assert insert_args[1] == "playlist"
+    assert insert_args[4] == options_hash(
+        "720p", False, {"kind": "playlist"}
+    )
+    assert insert_args[5] == "720p"
+
+
+def test_create_download_rejects_playlist_id_for_every_kind(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, profile)
+
+    with app_client(settings, db) as (app, client):
+        video = client.post(
+            "/api/downloads",
+            json={
+                "url": "https://example.test/v",
+                "playlist_id": str(uuid4()),
+            },
+            headers=_headers(profile),
+        )
+        playlist = client.post(
+            "/api/downloads",
+            json={
+                "url": "https://example.test/list",
+                "kind": "playlist",
+                "playlist_id": str(uuid4()),
+            },
+            headers=_headers(profile),
+        )
+
+    assert video.status_code == 400
+    assert playlist.status_code == 400
+    assert playlist.json()["error"]["code"] == "invalid_request"
 
 
 def test_create_download_rejects_playlist_id_for_video(tmp_path):
