@@ -7,10 +7,12 @@ The models intentionally mirror the database columns so routers can hand
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from ..core.urls import validate_http_url
 
 AppRole = Literal["user", "admin"]
 AssetStatus = Literal["processing", "ready", "failed"]
@@ -25,6 +27,8 @@ JobStatus = Literal[
     "cancelled",
 ]
 HealthStatus = Literal["ok", "degraded", "unavailable"]
+DownloadKind = Literal["video", "playlist"]
+FormatName = Literal["best", "720p", "mp3"]
 
 
 class _ORMModel(BaseModel):
@@ -104,10 +108,24 @@ class DownloadJobOut(_ORMModel):
     eta_seconds: int | None = None
     error: str = ""
     attempts: int = 0
+    cancel_requested: bool = False
+    item_index: int = 0
+    item_count: int = 0
+    current_item_title: str = ""
+    current_item_progress: float = 0
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class DownloadJobList(_ORMModel):
+    """One page of the caller's download jobs."""
+
+    items: list[DownloadJobOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
 
 
 class MediaAssetOut(_ORMModel):
@@ -124,6 +142,7 @@ class MediaAssetOut(_ORMModel):
     format_selector: str = ""
     output_ext: str | None = None
     file_path: str | None = None
+    thumbnail_path: str | None = None
     file_size_bytes: int | None = None
     file_sha256: str | None = None
     status: AssetStatus = "processing"
@@ -134,6 +153,62 @@ class MediaAssetOut(_ORMModel):
     created_at: datetime
     updated_at: datetime
     last_accessed_at: datetime
+
+
+class InfoRequest(BaseModel):
+    """Ask the backend to resolve metadata for a video or playlist URL."""
+
+    url: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        return validate_http_url(value)
+
+
+class DownloadRequest(BaseModel):
+    """Create a download job (single video; playlists arrive later)."""
+
+    url: str = Field(min_length=1, max_length=2048)
+    kind: DownloadKind = "video"
+    format: FormatName = "best"
+    embed_subs: bool = False
+    playlist_id: UUID | None = None
+    idempotency_key: str | None = Field(default=None, max_length=200)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        return validate_http_url(value)
+
+
+class InfoEntry(_ORMModel):
+    """One flat playlist entry returned by yt-dlp metadata extraction."""
+
+    id: str | None = None
+    title: str = ""
+    url: str | None = None
+    duration: float | None = None
+    thumbnail: str | None = None
+    canonical_id: str = ""
+
+
+class InfoOut(_ORMModel):
+    """Normalized metadata for a single video or a playlist preview."""
+
+    type: Literal["video", "playlist"]
+    id: str | None = None
+    title: str = ""
+    canonical_id: str = ""
+    extractor_key: str = ""
+    duration: float | None = None
+    thumbnail: str | None = None
+    webpage_url: str | None = None
+    channel: str | None = None
+    formats: dict[str, Any] | None = None
+    entries: list[InfoEntry] | None = None
+    item_count: int = 0
+    truncated: bool = False
 
 
 class ErrorDetail(_ORMModel):

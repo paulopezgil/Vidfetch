@@ -143,6 +143,82 @@ def profile_row(
     }
 
 
+def job_row(
+    *,
+    job_id: str | UUID | None = None,
+    user_id: str | UUID | None = None,
+    status: str = "queued",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A complete ``download_jobs`` row for service and API tests."""
+    row: dict[str, Any] = {
+        "id": job_id or uuid4(),
+        "user_id": user_id or uuid4(),
+        "asset_id": None,
+        "playlist_id": None,
+        "kind": "video",
+        "source_url": "https://example.test/video",
+        "title": "",
+        "options_hash": "a" * 64,
+        "format_selector": "best",
+        "idempotency_key": None,
+        "status": status,
+        "progress": 0,
+        "downloaded_bytes": 0,
+        "total_bytes": 0,
+        "speed": 0,
+        "eta_seconds": None,
+        "error": "",
+        "attempts": 0,
+        "created_at": NOW,
+        "updated_at": NOW,
+        "started_at": None,
+        "completed_at": None,
+        "cancel_requested": False,
+        "item_index": 0,
+        "item_count": 0,
+        "current_item_title": "",
+        "current_item_progress": 0,
+    }
+    row.update(overrides)
+    return row
+
+
+def asset_row(
+    *,
+    asset_id: str | UUID | None = None,
+    status: str = "processing",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A complete ``media_assets`` row for service and worker tests."""
+    row: dict[str, Any] = {
+        "id": asset_id or uuid4(),
+        "canonical_id": "youtube:vid1",
+        "extractor_key": "youtube",
+        "source_url": "https://example.test/video",
+        "title": "Clip",
+        "duration_seconds": 12,
+        "options_hash": "b" * 64,
+        "options_schema_version": 1,
+        "format_selector": "best",
+        "output_ext": None,
+        "file_path": None,
+        "thumbnail_path": None,
+        "file_size_bytes": None,
+        "file_sha256": None,
+        "status": status,
+        "error": "",
+        "attempts": 1,
+        "claimed_at": None,
+        "lease_until": None,
+        "created_at": NOW,
+        "updated_at": NOW,
+        "last_accessed_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
 def make_settings(tmp_path, **overrides: Any) -> Settings:
     env = {
         "ENVIRONMENT": "test",

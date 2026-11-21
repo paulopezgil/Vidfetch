@@ -29,6 +29,7 @@ def test_from_env_defaults_are_import_safe():
     assert settings.max_asset_bytes > 0
     assert settings.min_free_disk_mb == 500
     assert settings.job_lease_seconds == 300
+    assert settings.allow_private_urls is False
     assert settings.cors_origins == []
     assert settings.environment == "development"
     assert settings.log_level == "INFO"
@@ -93,6 +94,7 @@ def test_numeric_and_list_settings_parse():
             "MAX_ASSET_BYTES": "12345",
             "MIN_FREE_DISK_MB": "0",
             "JOB_LEASE_SECONDS": "45",
+            "ALLOW_PRIVATE_URLS": "true",
             "CORS_ORIGINS": "https://a.test, https://b.test ,",
             "ENVIRONMENT": "production",
             "LOG_LEVEL": "debug",
@@ -108,6 +110,7 @@ def test_numeric_and_list_settings_parse():
     assert settings.max_asset_bytes == 12345
     assert settings.min_free_disk_mb == 0
     assert settings.job_lease_seconds == 45
+    assert settings.allow_private_urls is True
     assert settings.cors_origins == ["https://a.test", "https://b.test"]
     assert settings.environment == "production"
     assert settings.log_level == "DEBUG"
@@ -136,6 +139,7 @@ def test_frontend_dist_defaults_to_cwd_and_reads_env(tmp_path, monkeypatch):
         ("MAX_PLAYLIST_ITEMS", "zero"),
         ("MIN_FREE_DISK_MB", "-5"),
         ("JOB_LEASE_SECONDS", "1.5"),
+        ("ALLOW_PRIVATE_URLS", "maybe"),
     ],
 )
 def test_invalid_numeric_settings_raise_config_error(name, value):

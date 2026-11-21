@@ -114,10 +114,57 @@ def test_lifespan_creates_and_closes_pool_when_database_configured(
 
     with app_client(settings) as (app, client):
         assert app.state.db is pool
+        assert app.state.worker is None
         assert created and created[0].database_url.startswith("postgresql://")
 
     assert pool.closed is True
     assert app.state.db is None
+
+
+def test_lifespan_starts_and_stops_worker_outside_test_environment(
+    tmp_path, monkeypatch
+):
+    settings = make_settings(
+        tmp_path,
+        ENVIRONMENT="production",
+        DATABASE_URL="postgresql://user:pass@pooler.example/db",
+        SUPABASE_URL="https://proj.supabase.co",
+        MEDIA_TOKEN_SECRET="media-secret",
+    )
+
+    class FakePool:
+        async def close(self) -> None:
+            pass
+
+    async def fake_create_pool(resolved):
+        return FakePool()
+
+    created: list = []
+
+    class FakeWorker:
+        def __init__(self, resolved, db, storage):
+            self.started = False
+            self.stopped = False
+            self.storage = storage
+            created.append(self)
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    monkeypatch.setattr(main_module, "create_pool", fake_create_pool)
+    monkeypatch.setattr(main_module, "Worker", FakeWorker)
+
+    with app_client(settings) as (app, client):
+        worker = app.state.worker
+        assert isinstance(worker, FakeWorker)
+        assert worker.started is True
+        assert worker.storage is app.state.storage
+
+    assert worker.stopped is True
+    assert app.state.worker is None
 
 
 def test_lifespan_skips_pool_without_database_url(tmp_path):
