@@ -5,6 +5,12 @@ import type {
   AppRole,
   Profile,
 } from "../types/auth";
+import type {
+  CreateDownloadPayload,
+  DownloadJob,
+  DownloadJobList,
+  MediaInfo,
+} from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
 
 /** Base URL for the v2 API. Same-origin `/api` by default. */
@@ -176,6 +182,55 @@ export function approveUser(userId: string): Promise<AdminUser> {
 export function revokeUser(userId: string): Promise<AdminUser> {
   return apiFetch<AdminUser>(
     `/admin/users/${encodeURIComponent(userId)}/revoke`,
+    { method: "POST" },
+  );
+}
+
+export interface DownloadQuery {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** `POST /api/info` — resolve video or playlist metadata before downloading. */
+export function getInfo(url: string): Promise<MediaInfo> {
+  return apiFetch<MediaInfo>("/info", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+/** `POST /api/downloads` — create an idempotent download job. */
+export function createDownload(
+  payload: CreateDownloadPayload,
+): Promise<DownloadJob> {
+  return apiFetch<DownloadJob>("/downloads", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** `GET /api/downloads` — list the caller's jobs, newest first. */
+export function listDownloads(
+  params: DownloadQuery = {},
+): Promise<DownloadJobList> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const suffix = query.toString();
+  return apiFetch<DownloadJobList>(`/downloads${suffix ? `?${suffix}` : ""}`);
+}
+
+/** `GET /api/downloads/{job_id}` — job detail and progress. */
+export function getDownload(jobId: string): Promise<DownloadJob> {
+  return apiFetch<DownloadJob>(`/downloads/${encodeURIComponent(jobId)}`);
+}
+
+/** `POST /api/downloads/{job_id}/cancel` — request cancellation. */
+export function cancelDownload(jobId: string): Promise<DownloadJob> {
+  return apiFetch<DownloadJob>(
+    `/downloads/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
   );
 }
