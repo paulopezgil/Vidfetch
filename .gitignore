@@ -8,9 +8,10 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Data / media (persistent at runtime)
-downloads/
-data/
+# Data / media (persistent at runtime; root only, so frontend/src/downloads/
+# remains tracked)
+/downloads/
+/data/
 
 # Local environment and Supabase CLI scratch files
 .env
