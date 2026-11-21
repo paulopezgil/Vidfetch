@@ -33,6 +33,7 @@ def test_from_env_defaults_are_import_safe():
     assert settings.environment == "development"
     assert settings.log_level == "INFO"
     assert isinstance(settings.download_dir, Path)
+    assert settings.frontend_dist == (Path.cwd() / "frontend-dist").resolve()
 
 
 def test_supabase_url_derives_jwks_and_issuer():
@@ -84,6 +85,7 @@ def test_numeric_and_list_settings_parse():
     settings = Settings.from_env(
         {
             "DOWNLOAD_DIR": "/var/lib/vidfetch/media",
+            "FRONTEND_DIST": "/srv/vidfetch/frontend-dist",
             "MEDIA_TOKEN_TTL_SECONDS": "120",
             "MAX_CONCURRENT_DOWNLOADS": "4",
             "MAX_CONCURRENT_JOBS_PER_USER": "3",
@@ -98,6 +100,7 @@ def test_numeric_and_list_settings_parse():
     )
 
     assert settings.download_dir == Path("/var/lib/vidfetch/media").resolve()
+    assert settings.frontend_dist == Path("/srv/vidfetch/frontend-dist").resolve()
     assert settings.media_token_ttl_seconds == 120
     assert settings.max_concurrent_downloads == 4
     assert settings.max_concurrent_jobs_per_user == 3
@@ -112,6 +115,16 @@ def test_numeric_and_list_settings_parse():
 
 def test_cors_wildcard_is_preserved():
     assert Settings.from_env({"CORS_ORIGINS": "*"}).cors_origins == ["*"]
+
+
+def test_frontend_dist_defaults_to_cwd_and_reads_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    default = Settings.from_env({})
+    explicit = Settings.from_env({"FRONTEND_DIST": "static-ui"})
+
+    assert default.frontend_dist == (tmp_path / "frontend-dist").resolve()
+    assert explicit.frontend_dist == (tmp_path / "static-ui").resolve()
 
 
 @pytest.mark.parametrize(
