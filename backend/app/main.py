@@ -15,10 +15,11 @@ from fastapi.staticfiles import StaticFiles
 
 from ..version import APP_VERSION
 from .api.errors import ApiError, register_exception_handlers
-from .api.routes import admin, health, me
+from .api.routes import admin, downloads, health, me
 from .core.config import Settings
 from .core.db import create_pool
 from .services.storage import Storage
+from .services.worker import Worker
 API_PREFIX = "api"
 
 
@@ -37,9 +38,20 @@ def _create_lifespan(resolved: Settings):
             db = await create_pool(resolved)
         app.state.db = db
 
+        # The worker owns the yt-dlp queue. Tests run with environment="test"
+        # and no worker so they never spawn background downloads.
+        worker = None
+        if db is not None and resolved.environment != "test":
+            worker = Worker(resolved, db, app.state.storage)
+            await worker.start()
+        app.state.worker = worker
+
         try:
             yield
         finally:
+            if worker is not None:
+                await worker.stop()
+            app.state.worker = None
             if db is not None:
                 await db.close()
             app.state.db = None
@@ -95,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.storage = Storage(resolved.download_dir)
     app.state.db = None
+    app.state.worker = None
 
     register_exception_handlers(app)
 
@@ -112,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(me.router)
     app.include_router(admin.router)
+    app.include_router(downloads.router)
 
     frontend_dist = resolved.frontend_dist
     if frontend_dist.is_dir():

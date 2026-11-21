@@ -24,6 +24,10 @@ DEFAULT_MAX_PLAYLIST_ITEMS = 200
 DEFAULT_MAX_ASSET_BYTES = 5 * 1024 * 1024 * 1024
 DEFAULT_MIN_FREE_DISK_MB = 500
 DEFAULT_JOB_LEASE_SECONDS = 300
+DEFAULT_ALLOW_PRIVATE_URLS = False
+
+_TRUE_STRINGS = frozenset({"1", "true", "yes", "on"})
+_FALSE_STRINGS = frozenset({"0", "false", "no", "off"})
 
 
 class ConfigError(RuntimeError):
@@ -50,6 +54,20 @@ def _env_int(
     if minimum is not None and value < minimum:
         raise ConfigError(f"{name} must be >= {minimum} (got {value}).")
     return value
+
+
+def _env_bool(
+    env: Mapping[str, str], name: str, default: bool
+) -> bool:
+    raw = env.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE_STRINGS:
+        return True
+    if value in _FALSE_STRINGS:
+        return False
+    raise ConfigError(f"Invalid boolean for {name}: {raw!r}")
 
 
 def _split_csv(raw: str | None) -> list[str]:
@@ -89,6 +107,9 @@ class Settings:
     max_asset_bytes: int = DEFAULT_MAX_ASSET_BYTES
     min_free_disk_mb: int = DEFAULT_MIN_FREE_DISK_MB
     job_lease_seconds: int = DEFAULT_JOB_LEASE_SECONDS
+    # SSRF escape hatch for local development only. Production must keep this
+    # false so yt-dlp can never be pointed at loopback or private networks.
+    allow_private_urls: bool = DEFAULT_ALLOW_PRIVATE_URLS
 
     cors_origins: list[str] = field(default_factory=list)
     environment: str = "development"
@@ -195,6 +216,9 @@ class Settings:
                 "JOB_LEASE_SECONDS",
                 DEFAULT_JOB_LEASE_SECONDS,
                 minimum=1,
+            ),
+            allow_private_urls=_env_bool(
+                env, "ALLOW_PRIVATE_URLS", DEFAULT_ALLOW_PRIVATE_URLS
             ),
             cors_origins=cors_origins,
             environment=env.get("ENVIRONMENT", "development").strip()

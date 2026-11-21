@@ -9,9 +9,12 @@ from pydantic import ValidationError
 
 from backend.app.models.schemas import (
     AdminUserList,
+    DownloadJobList,
     DownloadJobOut,
+    DownloadRequest,
     ErrorResponse,
     HealthOut,
+    InfoOut,
     MediaAssetOut,
     MediaTokenOut,
     MeOut,
@@ -187,6 +190,139 @@ def test_media_asset_out_aligns_with_schema():
             updated_at=NOW,
             last_accessed_at=NOW,
         )
+
+
+def test_download_job_out_has_progress_and_cancel_fields():
+    job = DownloadJobOut(
+        id=uuid4(),
+        user_id=uuid4(),
+        status="downloading",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+    assert job.cancel_requested is False
+    assert job.item_index == 0
+    assert job.item_count == 0
+    assert job.current_item_title == ""
+    assert job.current_item_progress == 0
+
+    parsed = DownloadJobOut(
+        id=uuid4(),
+        user_id=uuid4(),
+        status="downloading",
+        cancel_requested=True,
+        item_index=2,
+        item_count=5,
+        current_item_title="Second",
+        current_item_progress=40.5,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    assert parsed.cancel_requested is True
+    assert parsed.current_item_progress == 40.5
+
+
+def test_media_asset_out_thumbnail_path_is_optional():
+    asset = MediaAssetOut(
+        id=uuid4(),
+        canonical_id="youtube:abc",
+        options_hash="d" * 64,
+        created_at=NOW,
+        updated_at=NOW,
+        last_accessed_at=NOW,
+    )
+    assert asset.thumbnail_path is None
+
+    with_thumb = MediaAssetOut(
+        id=uuid4(),
+        canonical_id="youtube:abc",
+        options_hash="d" * 64,
+        thumbnail_path="thumbnails/abc.jpg",
+        created_at=NOW,
+        updated_at=NOW,
+        last_accessed_at=NOW,
+    )
+    assert with_thumb.thumbnail_path == "thumbnails/abc.jpg"
+
+
+def test_download_request_validates_url_kind_format_and_key():
+    request = DownloadRequest(url="https://example.test/v")
+    assert request.kind == "video"
+    assert request.format == "best"
+    assert request.embed_subs is False
+    assert request.idempotency_key is None
+
+    with pytest.raises(ValidationError):
+        DownloadRequest(url="ftp://example.test/v")
+    with pytest.raises(ValidationError):
+        DownloadRequest(url="https://user:pass@example.test/v")
+    with pytest.raises(ValidationError):
+        DownloadRequest(url="https://example.test/v", format="4k")
+    with pytest.raises(ValidationError):
+        DownloadRequest(url="https://example.test/v", kind="book")
+    with pytest.raises(ValidationError):
+        DownloadRequest(url="https://example.test/v", idempotency_key="k" * 201)
+
+
+def test_info_out_parses_video_and_playlist_payloads():
+    video = InfoOut.model_validate(
+        {
+            "type": "video",
+            "id": "abc",
+            "title": "Clip",
+            "canonical_id": "youtube:abc",
+            "extractor_key": "youtube",
+            "duration": 12,
+            "thumbnail": "https://img.example.test/t.jpg",
+            "formats": {"heights": [720], "has_720p": True, "has_audio": True},
+            "entries": None,
+            "item_count": 1,
+            "truncated": False,
+        }
+    )
+    assert video.canonical_id == "youtube:abc"
+    assert video.entries is None
+    assert video.formats["heights"] == [720]
+
+    playlist = InfoOut.model_validate(
+        {
+            "type": "playlist",
+            "id": "PL1",
+            "title": "List",
+            "canonical_id": "youtube:PL1",
+            "entries": [
+                {
+                    "id": "one",
+                    "title": "One",
+                    "url": "https://example.test/one",
+                    "canonical_id": "youtube:one",
+                }
+            ],
+            "item_count": 1,
+            "truncated": True,
+        }
+    )
+    assert playlist.type == "playlist"
+    assert playlist.entries[0].canonical_id == "youtube:one"
+    assert playlist.truncated is True
+
+    with pytest.raises(ValidationError):
+        InfoOut.model_validate({"type": "stream"})
+
+
+def test_download_job_list_shape():
+    item = DownloadJobOut(
+        id=uuid4(),
+        user_id=uuid4(),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+    listing = DownloadJobList(items=[item], total=1, limit=50, offset=0)
+
+    assert listing.items[0].id == item.id
+    assert listing.total == 1
 
 
 def test_error_envelope_shape():
