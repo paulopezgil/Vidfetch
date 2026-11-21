@@ -68,7 +68,8 @@ the operator documentation until v2 ships.
       signed-token SSE).
 - [ ] Live Supabase integration tests (migrations, trigger, RLS, JWKS).
 - [ ] Dedupe concurrency/crash-recovery tests against Postgres.
-- [ ] Docker build and compose smoke test.
+- [x] Docker image build and container startup smoke test.
+- [ ] `docker compose up` with a real Supabase project.
 - [ ] Real video + playlist + ZIP smoke test.
 - [ ] v1 data backup/fresh-start migration check.
 - [ ] Release readiness and `v2.0.0` tag from `main`.
@@ -82,7 +83,8 @@ the operator documentation until v2 ships.
 | Frontend build | 120 modules, zero TS errors |
 | Mutation checks | media-token expiry, storage symlink escape, approval gate, and cache repair all failed as expected |
 | Live Supabase | Not yet run |
-| Docker build | Not yet run |
+| Docker build | Passed (`vidfetch-v2-test`) |
+| Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
 | Real download smoke test | Not yet run |
 
 ## Commands
