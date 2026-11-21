@@ -148,16 +148,49 @@ backend, or `VITE_API_BASE` can point at `http://localhost:8000/api`.
 
 ## 8. Docker
 
-The v2 Docker layout is being finalized. The intended model is a single
-application origin with a persistent media volume:
+The v2 image is a single application origin with a persistent media volume.
+
+### Build and test without live Supabase
+
+The Vite build only needs the **public** Supabase URL and anon key. This smoke
+test deliberately runs with `ENVIRONMENT=test` so the container starts without
+a database, and verifies the entrypoint, SPA serving, and health endpoint:
 
 ```bash
+sudo docker build \
+  --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
+  --build-arg VITE_SUPABASE_ANON_KEY=test-anon-key \
+  -t vidfetch-v2-test .
+
+sudo docker run --rm -d --name vidfetch-v2-test \
+  -p 18000:8000 \
+  -e ENVIRONMENT=test \
+  -e DOWNLOAD_DIR=/app/downloads \
+  -e FRONTEND_DIST=/app/frontend-dist \
+  vidfetch-v2-test
+
+curl -s http://127.0.0.1:18000/api/health
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18000/
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18000/login
+
+sudo docker rm -f vidfetch-v2-test
+```
+
+Expected during this offline smoke test: `/api/health` returns `200` with
+`status: degraded` and `database: false`; `/` and `/login` return `200`.
+
+### Real run
+
+```bash
+cp .env.example .env   # fill in the real Supabase values
 docker compose up --build
 ```
 
 Then open <http://localhost:8000>. The application container must receive the
 Supabase and database values from `.env` or the host environment; the service
-role key must never be baked into the frontend build.
+role key must never be baked into the frontend build. The Docker build may warn
+about the public `VITE_SUPABASE_ANON_KEY` build argument; that key is public by
+design, unlike the service-role key.
 
 ## 9. Troubleshooting
 
