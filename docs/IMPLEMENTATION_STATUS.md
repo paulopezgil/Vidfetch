@@ -52,20 +52,24 @@ the operator documentation until v2 ships.
   - `POST /api/info`, `POST /api/downloads`, list/get/cancel
 - [x] Frontend v2 download client and polling provider.
 - [x] Dashboard migrated to v2 info/create/cancel and active job polling.
+- [x] Playlist download pipeline: per-item assets, progress, partial failure,
+      cancellation, on-demand ZIP.
+- [x] Signed media and thumbnail streaming with range support.
+- [x] Playlist list/detail/delete endpoints.
+- [x] History page migrated to v2 jobs.
 - [x] Setup/smoke-test guide (`docs/V2_SETUP.md`).
 
 ## In progress
 
-- [ ] Playlist pipeline: per-item assets, retry, on-demand ZIP.
-- [ ] Media streaming with signed URLs and range requests.
-- [ ] Library/history endpoints and frontend page migration.
+- [ ] Backend library/history/admin inventory endpoints.
+- [ ] Frontend Library and PlaylistDetail migration to v2.
 
 ## Pending
 
-- [ ] Admin job/asset inventory and cache/disk visibility.
-- [ ] Frontend library/history/playlist migration to v2 API.
 - [ ] Replace the v1 SSE `ActiveTasksProvider` with v2 polling (or optional
-      signed-token SSE).
+      signed-token SSE) once the last pages are migrated.
+- [ ] Playlist-item retry job creation.
+- [ ] Playlist cover streaming and cache eviction UI.
 - [ ] Live Supabase integration tests (migrations, trigger, RLS, JWKS).
 - [ ] Dedupe concurrency/crash-recovery tests against Postgres.
 - [x] Docker image build and container startup smoke test.
@@ -79,9 +83,9 @@ the operator documentation until v2 ships.
 | Check | Result |
 | --- | --- |
 | Migration SQL parse (`pglast`) | 2 migrations parsed |
-| Backend pytest | 375 passed |
+| Backend pytest | 418 passed |
 | Frontend build | 120 modules, zero TS errors |
-| Mutation checks | media-token expiry, storage symlink escape, approval gate, and cache repair all failed as expected |
+| Mutation checks | media-token expiry, storage symlink escape, approval gate, cache repair, and media approval re-check all failed as expected |
 | Live Supabase | Not yet run |
 | Docker build | Passed (`vidfetch-v2-test`) |
 | Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
