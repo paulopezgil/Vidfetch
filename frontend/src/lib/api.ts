@@ -9,7 +9,12 @@ import type {
   CreateDownloadPayload,
   DownloadJob,
   DownloadJobList,
+  LibraryList,
   MediaInfo,
+  MediaToken,
+  PlaylistDetailV2,
+  PlaylistList,
+  PlaylistStatus,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
 
@@ -233,4 +238,72 @@ export function cancelDownload(jobId: string): Promise<DownloadJob> {
     `/downloads/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
   );
+}
+
+export interface LibraryQuery {
+  limit?: number;
+  offset?: number;
+}
+
+/** `GET /api/library` — the caller's ready assets, newest first. */
+export function listLibrary(
+  params: LibraryQuery = {},
+): Promise<LibraryList> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const suffix = query.toString();
+  return apiFetch<LibraryList>(`/library${suffix ? `?${suffix}` : ""}`);
+}
+
+/** `DELETE /api/library/{job_id}` — remove one asset from the library. */
+export function removeFromLibrary(jobId: string): Promise<void> {
+  return apiFetch<void>(`/library/${encodeURIComponent(jobId)}`, {
+    method: "DELETE",
+  });
+}
+
+export interface PlaylistQuery {
+  status?: PlaylistStatus;
+  limit?: number;
+  offset?: number;
+}
+
+/** `GET /api/playlists` — the caller's playlists, newest first. */
+export function listPlaylists(
+  params: PlaylistQuery = {},
+): Promise<PlaylistList> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const suffix = query.toString();
+  return apiFetch<PlaylistList>(`/playlists${suffix ? `?${suffix}` : ""}`);
+}
+
+/** `GET /api/playlists/{playlist_id}` — playlist detail plus items. */
+export function getPlaylist(playlistId: string): Promise<PlaylistDetailV2> {
+  return apiFetch<PlaylistDetailV2>(
+    `/playlists/${encodeURIComponent(playlistId)}`,
+  );
+}
+
+/** `DELETE /api/playlists/{playlist_id}` — remove the caller's playlist. */
+export function deletePlaylist(playlistId: string): Promise<void> {
+  return apiFetch<void>(`/playlists/${encodeURIComponent(playlistId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** `POST /api/media/{asset_id}/token` — mint a short-lived signed URL. */
+export function getMediaToken(assetId: string): Promise<MediaToken> {
+  return apiFetch<MediaToken>(
+    `/media/${encodeURIComponent(assetId)}/token`,
+    { method: "POST" },
+  );
+}
+
+/** Stream URL for a playlist ZIP (`GET /api/playlists/{playlist_id}/zip`). */
+export function playlistZipUrl(playlistId: string): string {
+  return buildUrl(`/playlists/${encodeURIComponent(playlistId)}/zip`);
 }

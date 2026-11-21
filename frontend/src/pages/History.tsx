@@ -1,55 +1,60 @@
 import { useCallback, useEffect, useState } from "react";
-import type { FormatName, HistoryEntry, OperationType } from "../types";
-import { formatDate } from "../lib";
-import { fileUrl, listHistory, startDownload } from "../api";
+import type { DownloadJob, DownloadJobStatus } from "../types/v2";
+import { isActiveJob } from "../types/v2";
+import { formatBytes, formatDate } from "../lib";
+import { listDownloads } from "../lib/api";
 import Button from "../components/Button";
 import StatusChip from "../components/StatusChip";
+import ProgressBar from "../components/ProgressBar";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
-import IconButton from "../components/IconButton";
 import Icon from "../components/Icon";
 import Card from "../components/Card";
 import FilterChip from "../components/FilterChip";
 import SearchBar from "../components/SearchBar";
 import Spinner from "../components/Spinner";
-import { useToast } from "../components/Toast";
 
 const PAGE = 25;
 
-const filters = [
+type StatusFilter = "" | DownloadJobStatus;
+
+const filters: { value: StatusFilter; label: string }[] = [
   { value: "", label: "Tot" },
-  { value: "completed", label: "Completades" },
+  { value: "queued", label: "En cua" },
+  { value: "resolving", label: "Resolent" },
+  { value: "downloading", label: "Descarregant" },
+  { value: "processing", label: "Processant" },
+  { value: "ready", label: "A punt" },
   { value: "failed", label: "Fallides" },
+  { value: "cancelled", label: "Cancel·lades" },
 ];
 
-const formatLabels: Record<string, string> = {
-  best: "Millor",
-  "720p": "720p",
-  mp3: "MP3",
-};
+/** Human label for the kind of job in a history row. */
+function kindLabel(job: DownloadJob): string {
+  if (job.kind === "playlist") return "Llista de reproducció";
+  if (job.kind === "playlist_item") return "Vídeo de la llista";
+  return "Vídeo";
+}
 
 export default function History() {
-  const toast = useToast();
-  const [items, setItems] = useState<HistoryEntry[]>([]);
+  const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState<string | null>(null);
 
   const load = useCallback(
-    async (newOffset = offset, newStatus = status, newSearch = search) => {
+    async (newOffset = offset, newStatus = status) => {
       setLoading(true);
       try {
-        const page = await listHistory({
+        const page = await listDownloads({
+          status: newStatus || undefined,
           limit: PAGE,
           offset: newOffset,
-          status: newStatus || undefined,
-          search: newSearch || undefined,
         });
-        setItems(page.items);
+        setJobs(page.items);
         setTotal(page.total);
         setError(null);
       } catch (e) {
@@ -60,36 +65,30 @@ export default function History() {
         setLoading(false);
       }
     },
-    [offset, status, search],
+    [offset, status],
   );
 
   useEffect(() => {
-    load(0, status, search);
+    load(0, status);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   function runSearch() {
     setOffset(0);
-    load(0, status, search);
+    load(0, status);
   }
 
-  async function retry(entry: HistoryEntry) {
-    setRetrying(entry.task_id);
-    try {
-      await startDownload({
-        url: entry.url,
-        operation_type: entry.operation_type as OperationType,
-        format: entry.format as FormatName,
-        embed_subs: entry.embed_subs,
-        playlist_id: entry.playlist_id || undefined,
-      });
-      toast("Nou intent iniciat: segueix-lo a l’Inici", "info");
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "No s’ha pogut reintentar", "error");
-    } finally {
-      setRetrying(null);
-    }
-  }
+  // The v2 downloads endpoint filters by status and paginates, but has no
+  // free-text query. Search is therefore client-side over the current page
+  // only (`title` / `current_item_title`); older matches need paging.
+  const query = search.trim().toLocaleLowerCase("ca-ES");
+  const visibleJobs = query
+    ? jobs.filter((job) =>
+        [job.title, job.current_item_title]
+          .filter(Boolean)
+          .some((text) => text.toLocaleLowerCase("ca-ES").includes(query)),
+      )
+    : jobs;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -121,86 +120,27 @@ export default function History() {
           <Spinner /> S’està carregant l’historial…
         </div>
       ) : error ? (
-        <ErrorBanner
-          message={error}
-          onRetry={() => load(offset, status, search)}
-        />
-      ) : items.length === 0 ? (
+        <ErrorBanner message={error} onRetry={() => load(offset, status)} />
+      ) : jobs.length === 0 ? (
         <EmptyState
           icon="history"
           title="Encara no hi ha historial"
-          description="Les descàrregues completades i les que hagin fallat es registraran aquí."
+          description="Les descàrregues que iniciïs es registraran aquí, amb el seu estat i progrés."
+        />
+      ) : visibleJobs.length === 0 ? (
+        <EmptyState
+          icon="search_off"
+          title="Cap resultat en aquesta pàgina"
+          description="La cerca només recorre la pàgina actual. Prova una altra pàgina o buida la cerca."
         />
       ) : (
         <Card
           variant="outlined"
           className="divide-y divide-outline-variant overflow-hidden"
         >
-          {items.map((entry) => {
-            const icon =
-              entry.operation_type === "playlist" ? "playlist_play" : "movie";
-            const canDownload = entry.file_exists && entry.output_filename;
-            return (
-              <div key={entry.task_id} className="flex items-start gap-3 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant">
-                  <Icon name={icon} className="text-[20px]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-body-large text-on-surface">
-                      {entry.title || entry.url}
-                    </p>
-                    <StatusChip status={entry.status} />
-                  </div>
-                  <p className="mt-0.5 text-label-medium text-on-surface-variant">
-                    {formatDate(entry.created_at)}
-                    {" · "}
-                    {entry.operation_type === "playlist"
-                      ? "Llista de reproducció"
-                      : entry.operation_type === "playlist_item"
-                        ? "Element de la llista"
-                        : "Vídeo"}
-                    {" · "}
-                    {formatLabels[entry.format] ?? entry.format}
-                    {entry.output_filename
-                      ? ` · ${entry.output_filename}`
-                      : ""}
-                  </p>
-                  {entry.status === "failed" && entry.error ? (
-                    <p className="mt-1 text-body-small text-error">
-                      {entry.error}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {canDownload ? (
-                    <IconButton
-                      href={fileUrl(entry.output_filename)}
-                      variant="tonal"
-                      label="Descarrega el fitxer"
-                    >
-                      <Icon name="download" className="text-[20px]" />
-                    </IconButton>
-                  ) : null}
-                  {entry.status === "failed" ? (
-                    <Button
-                      variant="outlined"
-                      size="sm"
-                      onClick={() => retry(entry)}
-                      disabled={retrying === entry.task_id}
-                    >
-                      {retrying === entry.task_id ? (
-                        <Spinner />
-                      ) : (
-                        <Icon name="refresh" className="text-[18px]" />
-                      )}
-                      Torna-ho a provar
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
+          {visibleJobs.map((job) => (
+            <JobRow key={job.id} job={job} />
+          ))}
         </Card>
       )}
 
@@ -217,7 +157,7 @@ export default function History() {
               onClick={() => {
                 const next = Math.max(0, offset - PAGE);
                 setOffset(next);
-                load(next, status, search);
+                load(next, status);
               }}
             >
               Anterior
@@ -229,7 +169,7 @@ export default function History() {
               onClick={() => {
                 const next = offset + PAGE;
                 setOffset(next);
-                load(next, status, search);
+                load(next, status);
               }}
             >
               Següent
@@ -237,6 +177,84 @@ export default function History() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function JobRow({ job }: { job: DownloadJob }) {
+  const active = isActiveJob(job.status);
+  const waiting =
+    (job.status === "queued" || job.status === "resolving") &&
+    job.progress === 0;
+  const title = job.title || job.source_url || "Descàrrega sense títol";
+  const icon = job.kind === "playlist" ? "playlist_play" : "movie";
+  const itemLabel =
+    job.kind === "playlist" && job.current_item_title
+      ? `Vídeo ${Math.max(job.item_index, 1)}${
+          job.item_count > 0 ? ` de ${job.item_count}` : ""
+        } — ${job.current_item_title}`
+      : "";
+
+  return (
+    <div className="flex items-start gap-3 p-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant">
+        <Icon name={icon} className="text-[20px]" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">{title}</p>
+          <StatusChip status={job.status} />
+        </div>
+        <p className="mt-0.5 text-label-medium text-on-surface-variant">
+          {formatDate(job.created_at)}
+          {" · "}
+          {kindLabel(job)}
+          {job.kind === "playlist" && job.item_count > 0
+            ? ` · ${job.item_count} vídeos`
+            : ""}
+        </p>
+
+        {active ? (
+          <div className="mt-2 space-y-1">
+            <ProgressBar
+              value={job.progress}
+              indeterminate={waiting}
+              label={`Progrés de la descàrrega de ${title}`}
+            />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-label-medium text-on-surface-variant">
+              {waiting ? (
+                <span>En curs…</span>
+              ) : (
+                <span className="tabular-nums">
+                  {job.progress.toFixed(0)}%
+                </span>
+              )}
+              {job.downloaded_bytes > 0 ? (
+                <span className="tabular-nums">
+                  {formatBytes(job.downloaded_bytes)}
+                  {job.total_bytes
+                    ? ` / ${formatBytes(job.total_bytes)}`
+                    : ""}
+                </span>
+              ) : null}
+            </div>
+            {itemLabel ? (
+              <p className="truncate text-body-small text-on-surface-variant">
+                {itemLabel}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {job.status === "failed" && job.error ? (
+          <p
+            role="alert"
+            className="mt-1 line-clamp-3 text-body-small text-error"
+          >
+            {job.error}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
