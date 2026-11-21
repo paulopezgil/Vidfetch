@@ -20,7 +20,7 @@ function toInfoResult(info: MediaInfo): InfoResult {
     thumbnail: info.thumbnail,
     duration: info.duration,
     formats: info.formats,
-    video_count: info.video_count,
+    video_count: info.video_count ?? info.item_count,
     entries: info.entries,
     ext: info.ext,
     webpage_url: info.webpage_url,

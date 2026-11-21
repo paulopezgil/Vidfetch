@@ -26,6 +26,8 @@ export interface MediaInfo {
   thumbnail?: string | null;
   formats?: MediaFormats;
   video_count?: number;
+  item_count?: number;
+  truncated?: boolean;
   entries?: InfoEntry[];
   ext?: string;
   webpage_url?: string;
