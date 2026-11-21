@@ -903,6 +903,8 @@ Proposed policy:
 | `SUPABASE_JWT_AUDIENCE` | backend | Defaults to `authenticated` |
 | `DATABASE_URL` | backend | Postgres connection string (pooler recommended) |
 | `DOWNLOAD_DIR` | backend | Persistent media root |
+| `FRONTEND_DIST` | backend | Built SPA assets (set by the image) |
+| `ALLOW_PRIVATE_URLS` | backend | Allow private/loopback media URLs; false in production |
 | `MAX_CONCURRENT_DOWNLOADS` | backend | Global download concurrency |
 | `MAX_CONCURRENT_JOBS_PER_USER` | backend | Per-user concurrency |
 | `MAX_PLAYLIST_ITEMS` | backend | Playlist size cap |
