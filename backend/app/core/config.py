@@ -76,6 +76,9 @@ class Settings:
 
     database_url: str = ""
     download_dir: Path = field(default_factory=lambda: (Path.cwd() / "downloads").resolve())
+    frontend_dist: Path = field(
+        default_factory=lambda: (Path.cwd() / "frontend-dist").resolve()
+    )
 
     media_token_secret: str = ""
     media_token_ttl_seconds: int = DEFAULT_MEDIA_TOKEN_TTL_SECONDS
@@ -119,6 +122,13 @@ class Settings:
             else (Path.cwd() / "downloads").resolve()
         )
 
+        frontend_raw = env.get("FRONTEND_DIST", "").strip()
+        frontend_dist = (
+            Path(frontend_raw).expanduser().resolve()
+            if frontend_raw
+            else (Path.cwd() / "frontend-dist").resolve()
+        )
+
         cors_raw = env.get("CORS_ORIGINS")
         if cors_raw is not None and cors_raw.strip() == "*":
             cors_origins = ["*"]
@@ -142,6 +152,7 @@ class Settings:
             supabase_jwt_secret=env.get("SUPABASE_JWT_SECRET", "").strip(),
             database_url=database_url,
             download_dir=download_dir,
+            frontend_dist=frontend_dist,
             media_token_secret=env.get("MEDIA_TOKEN_SECRET", "").strip(),
             media_token_ttl_seconds=_env_int(
                 env,
