@@ -1,0 +1,25 @@
+-- Progress, cancellation, and thumbnails for the v2 worker/UI.
+
+alter table public.media_assets
+    add column if not exists thumbnail_path text;
+
+alter table public.media_assets
+    drop constraint if exists media_assets_thumbnail_path_relative;
+alter table public.media_assets
+    add constraint media_assets_thumbnail_path_relative
+    check (
+        thumbnail_path is null
+        or (thumbnail_path <> '' and thumbnail_path not like '/%')
+    );
+
+alter table public.download_jobs
+    add column if not exists cancel_requested boolean not null default false;
+alter table public.download_jobs
+    add column if not exists item_index integer not null default 0;
+alter table public.download_jobs
+    add column if not exists item_count integer not null default 0;
+alter table public.download_jobs
+    add column if not exists current_item_title text not null default '';
+alter table public.download_jobs
+    add column if not exists current_item_progress numeric(5, 2) not null default 0
+    check (current_item_progress >= 0 and current_item_progress <= 100);
