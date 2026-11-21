@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..version import APP_VERSION
 from .api.errors import ApiError, register_exception_handlers
-from .api.routes import admin, downloads, health, media, me, playlists
+from .api.routes import admin, downloads, health, library, media, me, playlists
 from .core.config import Settings
 from .core.db import create_pool
 from .services.storage import Storage
@@ -126,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me.router)
     app.include_router(admin.router)
     app.include_router(downloads.router)
+    app.include_router(library.router)
     app.include_router(media.router)
     app.include_router(playlists.router)
 
