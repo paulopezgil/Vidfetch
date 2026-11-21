@@ -281,7 +281,7 @@ A fresh deployment has no approved users. Bootstrap must be explicit:
 
 1. The first user signs in with Google; a pending profile is created.
 2. An operator runs a documented one-time SQL statement or CLI command:
-   - `python -m backend.scripts.promote_admin --email <email>`
+   - `DATABASE_URL=... python3 scripts/promote_admin.py --email <email>`
    - or the equivalent `UPDATE profiles ...` in the Supabase SQL editor.
 3. The command sets `is_approved = true`, `app_role = 'admin'`, and records
    `approved_at`/`approved_by` where applicable.
@@ -913,7 +913,6 @@ Proposed policy:
 | `MEDIA_TOKEN_TTL_SECONDS` | backend | Signed URL lifetime |
 | `JOB_LEASE_SECONDS` | backend | Worker/asset lease duration |
 | `CORS_ORIGINS` | backend | Explicit origins if split-origin is ever used |
-| `ADMIN_BOOTSTRAP_EMAIL` | backend/CLI | Optional first-admin bootstrap helper |
 
 Notes:
 
