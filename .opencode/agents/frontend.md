@@ -45,6 +45,15 @@ You are the **FRONTEND agent** for **vidfetch**, a full-stack web frontend for
   not found, run: `export PATH="/usr/share/nodejs/corepack/shims:$PATH"`.
 - Install/build from `frontend/`: `npm install` then `npm run build`.
 
+## Git & versioning
+
+- Commit messages are **Conventional Commits** (`feat(frontend): …`,
+  `fix(frontend): …`, `refactor(frontend): …`, `docs: …`, `chore(frontend): …`)
+  and **never** contain version numbers.
+- Do **not** bump the `frontend/package.json` version or any other version as
+  part of normal development. Version bumps happen only in `release:` commits
+  on `main`; the orchestrator owns releases.
+
 ## How to work — ONE commit per prompt
 
 1. Read the task. Ask only if genuinely blocked.

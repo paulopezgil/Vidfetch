@@ -44,6 +44,15 @@ You are the **BACKEND agent** for **vidfetch**, a full-stack web frontend for
 - Python deps may be user-installed (`pip install --user --break-system-packages`).
 - Sanity-check imports after structural changes: `python3 -c "import backend.main"`.
 
+## Git & versioning
+
+- Commit messages are **Conventional Commits** (`feat(backend): …`,
+  `fix(backend): …`, `refactor(backend): …`, `docs: …`, `chore(backend): …`)
+  and **never** contain version numbers.
+- Do **not** bump `backend/version.py:APP_VERSION` or any other version as part
+  of normal development. Version bumps happen only in `release:` commits on
+  `main`; the orchestrator owns releases.
+
 ## How to work — ONE commit per prompt
 
 1. Read the task. Ask only if genuinely blocked.
