@@ -248,8 +248,6 @@ async def delete_asset(
             return None
         deleted_row = dict(deleted)
 
-        _remove_asset_files(storage, asset)
-
         await connection.execute(
             "insert into public.admin_audit_log "
             "(actor_id, action, metadata) "
@@ -264,4 +262,9 @@ async def delete_asset(
                 sort_keys=True,
             ),
         )
-        return deleted_row
+
+    # Remove files only after the row deletion and audit insert committed. A
+    # failed transaction must not leave a live database row pointing at a file
+    # that was already unlinked.
+    _remove_asset_files(storage, asset)
+    return deleted_row
