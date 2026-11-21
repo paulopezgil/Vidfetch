@@ -12,6 +12,16 @@ venv/
 downloads/
 data/
 
+# Local environment and Supabase CLI scratch files
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+supabase/.temp/
+supabase/.branches/
+
 # Frontend
 node_modules/
 frontend/dist/
