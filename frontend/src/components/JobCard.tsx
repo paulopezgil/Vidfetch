@@ -31,9 +31,17 @@ function formatLabel(job: DownloadJob): string {
 export default function JobCard({ job, onCancel }: JobCardProps) {
   const [cancelling, setCancelling] = useState(false);
   const active = isActiveJob(job.status);
-  const isPlaylist = job.kind !== "video";
+  const isPlaylistItem = job.kind === "playlist_item";
+  const isPlaylist = job.kind === "playlist";
   const itemCount = job.item_count || (isPlaylist ? 0 : 1);
   const showItemProgress = isPlaylist && itemCount > 1;
+  const itemLabel =
+    (isPlaylist && itemCount > 1) ||
+    (isPlaylistItem && (job.item_index > 0 || Boolean(job.current_item_title)))
+      ? `Vídeo ${Math.max(job.item_index, 1)}${
+          itemCount > 0 ? ` de ${itemCount}` : ""
+        }`
+      : "";
   const waiting =
     indeterminateStatuses.has(job.status) && job.progress === 0;
   const progressStatus = job.status === "ready" ? "completed" : job.status;
@@ -55,7 +63,11 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
         <div className="min-w-0">
           <p className="truncate text-title-small text-on-surface">{title}</p>
           <p className="mt-0.5 text-body-small text-on-surface-variant">
-            {isPlaylist ? "Llista de reproducció" : "Vídeo"}
+            {isPlaylist
+              ? "Llista de reproducció"
+              : isPlaylistItem
+                ? "Vídeo de la llista"
+                : "Vídeo"}
             {" · "}
             {formatLabel(job)}
             {isPlaylist && itemCount > 0 ? ` · ${itemCount} vídeos` : ""}
@@ -84,9 +96,9 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
         </div>
       </div>
 
-      {showItemProgress && active ? (
+      {itemLabel && active ? (
         <p className="mt-2 text-body-small text-on-surface-variant">
-          {`Vídeo ${Math.max(job.item_index, 1)} de ${itemCount}`}
+          {itemLabel}
           {job.current_item_title ? ` — ${job.current_item_title}` : ""}
         </p>
       ) : null}
