@@ -45,24 +45,25 @@ the operator documentation until v2 ships.
   - Supabase client and authenticated API helper
   - `AuthProvider`, route guards
   - login, pending, and admin pages
+- [x] Backend video dedupe pipeline:
+  - SSRF-aware yt-dlp wrapper, canonical ids, options hashing
+  - atomic asset claim and leases
+  - durable job worker, progress, cancellation
+  - `POST /api/info`, `POST /api/downloads`, list/get/cancel
+- [x] Frontend v2 download client and polling provider.
+- [x] Dashboard migrated to v2 info/create/cancel and active job polling.
 - [x] Setup/smoke-test guide (`docs/V2_SETUP.md`).
 
 ## In progress
 
-- [ ] Backend video dedupe pipeline:
-  - yt-dlp wrapper, canonical ids, options hashing
-  - atomic asset claim and leases
-  - durable job worker, progress, cancellation
-  - `POST /api/info`, `POST /api/downloads`, list/get/cancel
-- [ ] Frontend v2 download client and polling provider.
-
-## Pending
-
 - [ ] Playlist pipeline: per-item assets, retry, on-demand ZIP.
 - [ ] Media streaming with signed URLs and range requests.
 - [ ] Library/history endpoints and frontend page migration.
+
+## Pending
+
 - [ ] Admin job/asset inventory and cache/disk visibility.
-- [ ] Frontend dashboard/library/history/playlist migration to v2 API.
+- [ ] Frontend library/history/playlist migration to v2 API.
 - [ ] Replace the v1 SSE `ActiveTasksProvider` with v2 polling (or optional
       signed-token SSE).
 - [ ] Live Supabase integration tests (migrations, trigger, RLS, JWKS).
@@ -77,9 +78,9 @@ the operator documentation until v2 ships.
 | Check | Result |
 | --- | --- |
 | Migration SQL parse (`pglast`) | 2 migrations parsed |
-| Backend pytest | 268 passed (before the download pipeline) |
-| Frontend build | 117 modules, zero TS errors |
-| Mutation checks | media-token expiry, storage symlink escape, approval gate all failed as expected |
+| Backend pytest | 375 passed |
+| Frontend build | 120 modules, zero TS errors |
+| Mutation checks | media-token expiry, storage symlink escape, approval gate, and cache repair all failed as expected |
 | Live Supabase | Not yet run |
 | Docker build | Not yet run |
 | Real download smoke test | Not yet run |
