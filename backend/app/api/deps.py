@@ -12,6 +12,7 @@ from ..core.db import Database
 from ..core.security import AuthError, decode_supabase_token, extract_bearer_token
 from ..models.schemas import ProfileOut
 from ..services import profiles
+from ..services.storage import Storage
 
 # Database failures that mean "try again later" rather than "bad request".
 _DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
@@ -25,6 +26,11 @@ def get_settings(request: Request) -> Settings:
 def get_db(request: Request) -> Database | None:
     """Return the application's database wrapper, if one is configured."""
     return getattr(request.app.state, "db", None)
+
+
+def get_storage(request: Request) -> Storage:
+    """Return the application's path-safe media storage."""
+    return request.app.state.storage
 
 
 async def get_current_profile(

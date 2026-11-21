@@ -219,6 +219,61 @@ def asset_row(
     return row
 
 
+def playlist_row(
+    *,
+    playlist_id: str | UUID | None = None,
+    user_id: str | UUID | None = None,
+    status: str = "pending",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A complete ``playlists`` row for service and API tests."""
+    row: dict[str, Any] = {
+        "id": playlist_id or uuid4(),
+        "user_id": user_id or uuid4(),
+        "canonical_id": "youtube:PL1",
+        "source_url": "https://example.test/list",
+        "title": "My playlist",
+        "channel": "A channel",
+        "thumbnail_path": None,
+        "item_count": 0,
+        "options_hash": "c" * 64,
+        "format_selector": "best",
+        "status": status,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
+def playlist_item_row(
+    *,
+    item_id: str | UUID | None = None,
+    playlist_id: str | UUID | None = None,
+    position: int = 1,
+    status: str = "pending",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A complete ``playlist_items`` row for service and worker tests."""
+    row: dict[str, Any] = {
+        "id": item_id or uuid4(),
+        "playlist_id": playlist_id or uuid4(),
+        "position": position,
+        "canonical_id": f"youtube:vid{position}",
+        "source_url": f"https://example.test/v{position}",
+        "title": f"Clip {position}",
+        "duration_seconds": 10,
+        "asset_id": None,
+        "job_id": None,
+        "status": status,
+        "error": "",
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
 def make_settings(tmp_path, **overrides: Any) -> Settings:
     env = {
         "ENVIRONMENT": "test",
