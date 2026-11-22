@@ -108,14 +108,18 @@ def _asset_file_valid(storage: Any, asset: dict[str, Any]) -> bool:
 
 
 async def _touch_locked(
-    connection: Any, asset: dict[str, Any], now: datetime
+    connection: Any,
+    schema_sql: str,
+    asset: dict[str, Any],
+    now: datetime,
 ) -> dict[str, Any]:
     """Update ``last_accessed_at`` inside a claim, at most once per minute."""
     last = _as_aware(asset.get("last_accessed_at"))
     if last is not None and (now - last).total_seconds() < ACCESS_TOUCH_THROTTLE_SECONDS:
         return asset
     record = await connection.fetchrow(
-        f"update public.media_assets set last_accessed_at = $2, updated_at = now() "
+        f"update {schema_sql}.media_assets "
+        f"set last_accessed_at = $2, updated_at = now() "
         f"where id = $1 returning {ASSET_COLUMNS}",
         asset["id"],
         now,
@@ -144,10 +148,11 @@ async def claim_asset(
     lease = max(1, int(lease_seconds))
     now = _now()
     lease_until = now + timedelta(seconds=lease)
+    schema_sql = db.schema_sql
 
     async with db.transaction() as connection:
         record = await connection.fetchrow(
-            f"select {ASSET_COLUMNS} from public.media_assets "
+            f"select {ASSET_COLUMNS} from {schema_sql}.media_assets "
             f"where canonical_id = $1 and options_hash = $2 "
             f"for update",
             canonical_id,
@@ -155,7 +160,7 @@ async def claim_asset(
         )
         if record is None:
             inserted = await connection.fetchrow(
-                f"insert into public.media_assets "
+                f"insert into {schema_sql}.media_assets "
                 f"(canonical_id, extractor_key, source_url, title, "
                 f"duration_seconds, options_hash, format_selector, status, "
                 f"attempts, claimed_at, lease_until, last_accessed_at) "
@@ -178,7 +183,9 @@ async def claim_asset(
 
         if status == "ready":
             if _asset_file_valid(storage, asset):
-                touched = await _touch_locked(connection, asset, now)
+                touched = await _touch_locked(
+                    connection, schema_sql, asset, now
+                )
                 return AssetClaim(asset=touched, cache_hit=True)
             # Missing or corrupt file: repair by re-claiming.
 
@@ -188,7 +195,7 @@ async def claim_asset(
                 return AssetClaim(asset=asset, wait=True)
 
         claimed = await connection.fetchrow(
-            f"update public.media_assets "
+            f"update {schema_sql}.media_assets "
             f"set status = 'processing', error = '', attempts = attempts + 1, "
             f"claimed_at = $2, lease_until = $3, updated_at = now() "
             f"where id = $1 returning {ASSET_COLUMNS}",
@@ -217,7 +224,7 @@ async def mark_ready(
         else None
     )
     record = await db.fetchrow(
-        f"update public.media_assets "
+        f"update {db.schema_sql}.media_assets "
         f"set status = 'ready', error = '', file_path = $2, "
         f"file_size_bytes = $3, output_ext = $4, thumbnail_path = $5, "
         f"file_sha256 = $6, lease_until = null, claimed_at = null, "
@@ -238,7 +245,7 @@ async def mark_failed(
 ) -> dict[str, Any] | None:
     """Mark an asset as failed with a safe message, releasing its lease."""
     record = await db.fetchrow(
-        f"update public.media_assets "
+        f"update {db.schema_sql}.media_assets "
         f"set status = 'failed', error = $2, lease_until = null, "
         f"claimed_at = null, updated_at = now() "
         f"where id = $1 returning {ASSET_COLUMNS}",
@@ -253,7 +260,7 @@ async def renew_lease(
 ) -> dict[str, Any] | None:
     """Extend a processing asset's lease."""
     record = await db.fetchrow(
-        f"update public.media_assets "
+        f"update {db.schema_sql}.media_assets "
         f"set lease_until = $2, updated_at = now() "
         f"where id = $1 and status = 'processing' returning {ASSET_COLUMNS}",
         _as_uuid(asset_id),
@@ -266,7 +273,7 @@ async def get_asset(
     db: Database, asset_id: str | UUID
 ) -> dict[str, Any] | None:
     record = await db.fetchrow(
-        f"select {ASSET_COLUMNS} from public.media_assets where id = $1",
+        f"select {ASSET_COLUMNS} from {db.schema_sql}.media_assets where id = $1",
         _as_uuid(asset_id),
     )
     return _row(record)
@@ -284,7 +291,7 @@ async def touch_accessed(
     """
     cutoff = _now() - timedelta(seconds=max(0, int(throttle_seconds)))
     status = await db.execute(
-        "update public.media_assets set last_accessed_at = now() "
+        f"update {db.schema_sql}.media_assets set last_accessed_at = now() "
         "where id = $1 and (last_accessed_at is null or last_accessed_at <= $2)",
         _as_uuid(asset_id),
         cutoff,

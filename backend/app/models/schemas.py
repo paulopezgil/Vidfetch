@@ -232,7 +232,7 @@ class AdminAssetList(_ORMModel):
 
 
 class PlaylistItemOut(_ORMModel):
-    """One row from ``public.playlist_items``.
+    """One row from the configured schema's ``playlist_items`` table.
 
     ``id``/``playlist_id`` and timestamps are optional so callers that only
     need the user-facing item fields can validate a partial mapping.

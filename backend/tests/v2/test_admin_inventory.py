@@ -56,8 +56,8 @@ def test_list_jobs_joins_profiles_filters_and_paginates():
     assert total == 1
 
     count_query, count_args = db.calls[0][1], db.calls[0][2]
-    assert "from public.download_jobs j" in count_query
-    assert "join public.profiles p on p.id = j.user_id" in count_query
+    assert 'from "public".download_jobs j' in count_query
+    assert 'join "public".profiles p on p.id = j.user_id' in count_query
     assert "j.user_id = $1" in count_query
     assert "j.status = $2" in count_query
     assert "lower(p.email) like" in count_query
@@ -124,7 +124,7 @@ def test_list_assets_includes_usage_counts_and_clamps():
     assert total == 1
 
     count_query, count_args = db.calls[0][1], db.calls[0][2]
-    assert "from public.media_assets a" in count_query
+    assert 'from "public".media_assets a' in count_query
     assert "a.status = $1" in count_query
     assert "lower(a.title) like" in count_query
     assert "lower(a.canonical_id) like" in count_query
@@ -215,11 +215,11 @@ def test_delete_asset_removes_row_files_and_writes_audit(tmp_path):
     assert not storage.validate_relative_path(thumbnail_path).exists()
 
     assert "for update" in db.calls[0][1]
-    assert "delete from public.media_assets" in db.calls[2][1]
+    assert 'delete from "public".media_assets' in db.calls[2][1]
     assert db.calls[2][2] == (asset_id,)
 
     audit = db.calls[3]
-    assert "insert into public.admin_audit_log" in audit[1]
+    assert 'insert into "public".admin_audit_log' in audit[1]
     assert audit[2][0] == actor_id
     assert audit[2][1] == "delete_asset"
     assert json.loads(audit[2][2]) == {

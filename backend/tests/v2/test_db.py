@@ -152,6 +152,46 @@ def test_database_requires_a_pool():
         Database(None)
 
 
+def test_database_schema_defaults_to_public():
+    database = Database(FakePool())
+
+    assert database.schema == "public"
+    assert database.schema_sql == '"public"'
+
+
+def test_database_schema_is_validated_and_quoted():
+    database = Database(FakePool(), "vidfetch")
+
+    assert database.schema == "vidfetch"
+    assert database.schema_sql == '"vidfetch"'
+
+
+@pytest.mark.parametrize("schema", ["pg_catalog", "auth", "Bad", "vid-fetch"])
+def test_database_rejects_invalid_schema(schema):
+    with pytest.raises(ConfigError):
+        Database(FakePool(), schema)
+
+
+def test_create_pool_rejects_invalid_schema_before_connecting(monkeypatch):
+    called = False
+
+    async def fake_create_pool(**kwargs):
+        nonlocal called
+        called = True
+        return FakePool()
+
+    monkeypatch.setattr(db_module.asyncpg, "create_pool", fake_create_pool)
+    settings = Settings.from_env(
+        {"DATABASE_URL": "postgresql://user:pass@pooler.example.test:6543/postgres"}
+    )
+    settings.db_schema = "information_schema"
+
+    with pytest.raises(ConfigError):
+        run(create_pool(settings))
+
+    assert called is False
+
+
 def test_create_pool_requires_database_url():
     with pytest.raises(ConfigError):
         run(create_pool(Settings.from_env({})))
@@ -177,3 +217,25 @@ def test_create_pool_sets_pooler_safe_options(monkeypatch):
     assert captured["max_size"] == 4
     assert captured["statement_cache_size"] == 0
     assert database.pool is pool
+    assert database.schema == "public"
+    assert database.schema_sql == '"public"'
+
+
+def test_create_pool_passes_configured_schema(monkeypatch):
+    pool = FakePool()
+
+    async def fake_create_pool(**kwargs):
+        return pool
+
+    monkeypatch.setattr(db_module.asyncpg, "create_pool", fake_create_pool)
+    settings = Settings.from_env(
+        {
+            "DATABASE_URL": "postgresql://user:pass@pooler.example.test:6543/postgres",
+            "DB_SCHEMA": "vidfetch",
+        }
+    )
+
+    database = run(create_pool(settings))
+
+    assert database.schema == "vidfetch"
+    assert database.schema_sql == '"vidfetch"'

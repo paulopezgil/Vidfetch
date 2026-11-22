@@ -140,7 +140,7 @@ def test_delete_playlist_removes_rows_only(tmp_path):
 
     assert response.status_code == 204
     assert response.content == b""
-    assert "delete from public.playlists" in db.calls[1][1]
+    assert 'delete from "public".playlists' in db.calls[1][1]
 
 
 def test_playlist_zip_contains_ready_files_and_is_deleted_after_streaming(

@@ -62,7 +62,7 @@ def test_list_library_returns_the_callers_visible_items(tmp_path):
     assert count_args == (profile["id"],)
 
     page_query, page_args = db.calls[2][1], db.calls[2][2]
-    assert "join public.media_assets a on j.asset_id = a.id" in page_query
+    assert 'join "public".media_assets a on j.asset_id = a.id' in page_query
     assert "order by j.created_at desc, j.id desc" in page_query
     assert page_args == (profile["id"], 10, 0)
 
@@ -82,7 +82,7 @@ def test_delete_library_item_hides_a_ready_owned_job(tmp_path):
     assert response.status_code == 204
     assert response.content == b""
     query, args = db.calls[1][1], db.calls[1][2]
-    assert "update public.download_jobs" in query
+    assert 'update "public".download_jobs' in query
     assert "set library_hidden = true" in query
     assert "delete from" not in query.lower()
     assert args == (job_id, profile["id"])
@@ -173,7 +173,7 @@ def test_history_returns_jobs_including_hidden_library_entries(tmp_path):
     assert body["items"][0]["title"] == "Still in history"
 
     page_query, page_args = db.calls[2][1], db.calls[2][2]
-    assert "from public.download_jobs" in page_query
+    assert 'from "public".download_jobs' in page_query
     assert "library_hidden" not in page_query
     assert "status = $2" in page_query
     assert page_args == (profile["id"], "ready", 25, 5)

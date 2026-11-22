@@ -63,7 +63,7 @@ def _row(record: Any) -> dict[str, Any] | None:
 async def get_profile(db: Database, user_id: str | UUID) -> dict[str, Any] | None:
     """Return a single profile row, or ``None`` when it does not exist."""
     record = await db.fetchrow(
-        f"select {_PROFILE_COLUMNS} from public.profiles where id = $1",
+        f"select {_PROFILE_COLUMNS} from {db.schema_sql}.profiles where id = $1",
         _as_uuid(user_id),
     )
     return _row(record)
@@ -108,7 +108,7 @@ async def list_profiles(
     where = f" where {' and '.join(conditions)}" if conditions else ""
 
     total_row = await db.fetchrow(
-        f"select count(*) as total from public.profiles{where}", *args
+        f"select count(*) as total from {db.schema_sql}.profiles{where}", *args
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
@@ -118,7 +118,7 @@ async def list_profiles(
     limit_ph = placeholder(limit)
     offset_ph = placeholder(offset)
     rows = await db.fetch(
-        f"select {_PROFILE_COLUMNS} from public.profiles{where} "
+        f"select {_PROFILE_COLUMNS} from {db.schema_sql}.profiles{where} "
         f"order by {sort_expression} {direction}, id asc "
         f"limit {limit_ph} offset {offset_ph}",
         *args,
@@ -126,14 +126,16 @@ async def list_profiles(
     return [dict(row) for row in rows], total
 
 
-async def approved_admin_ids(connection: Any) -> list[Any]:
+async def approved_admin_ids(connection: Any, schema_sql: str) -> list[Any]:
     """Lock and return the ids of currently approved admins.
 
     ``FOR UPDATE`` serializes concurrent revoke/demote transactions so the
     last-admin guard cannot be bypassed by two simultaneous requests.
+    ``schema_sql`` is the already-validated quoted schema from the caller's
+    :class:`~backend.app.core.db.Database`.
     """
     rows = await connection.fetch(
-        "select id from public.profiles "
+        f"select id from {schema_sql}.profiles "
         "where app_role = 'admin' and is_approved = true "
         "for update"
     )
@@ -142,13 +144,14 @@ async def approved_admin_ids(connection: Any) -> list[Any]:
 
 async def _audit(
     connection: Any,
+    schema_sql: str,
     actor_id: str | UUID,
     action: str,
     target_user_id: str | UUID,
     metadata: dict[str, Any] | None = None,
 ) -> None:
     await connection.execute(
-        "insert into public.admin_audit_log "
+        f"insert into {schema_sql}.admin_audit_log "
         "(actor_id, action, target_user_id, metadata) "
         "values ($1, $2, $3, $4::jsonb)",
         _as_uuid(actor_id),
@@ -163,9 +166,10 @@ async def approve_profile(
 ) -> dict[str, Any] | None:
     """Approve a profile and record the action. ``None`` means no such user."""
     target_id = _as_uuid(user_id)
+    schema_sql = db.schema_sql
     async with db.transaction() as connection:
         record = await connection.fetchrow(
-            f"update public.profiles "
+            f"update {schema_sql}.profiles "
             f"set is_approved = true, approved_at = now(), approved_by = $2, "
             f"updated_at = now() "
             f"where id = $1 "
@@ -177,6 +181,7 @@ async def approve_profile(
             return None
         await _audit(
             connection,
+            schema_sql,
             actor_id,
             "approve_profile",
             target_id,
@@ -190,10 +195,11 @@ async def revoke_profile(
 ) -> dict[str, Any] | None:
     """Revoke approval, refusing to remove the last approved administrator."""
     target_id = _as_uuid(user_id)
+    schema_sql = db.schema_sql
     async with db.transaction() as connection:
-        admin_ids = await approved_admin_ids(connection)
+        admin_ids = await approved_admin_ids(connection, schema_sql)
         target = await connection.fetchrow(
-            f"select {_PROFILE_COLUMNS} from public.profiles "
+            f"select {_PROFILE_COLUMNS} from {schema_sql}.profiles "
             f"where id = $1 for update",
             target_id,
         )
@@ -210,7 +216,7 @@ async def revoke_profile(
             )
 
         record = await connection.fetchrow(
-            f"update public.profiles "
+            f"update {schema_sql}.profiles "
             f"set is_approved = false, approved_at = null, approved_by = null, "
             f"updated_at = now() "
             f"where id = $1 "
@@ -221,6 +227,7 @@ async def revoke_profile(
             return None
         await _audit(
             connection,
+            schema_sql,
             actor_id,
             "revoke_profile",
             target_id,
@@ -239,10 +246,11 @@ async def set_profile_role(
     if app_role not in ("user", "admin"):
         raise ValueError("Invalid application role.")
     target_id = _as_uuid(user_id)
+    schema_sql = db.schema_sql
     async with db.transaction() as connection:
-        admin_ids = await approved_admin_ids(connection)
+        admin_ids = await approved_admin_ids(connection, schema_sql)
         target = await connection.fetchrow(
-            f"select {_PROFILE_COLUMNS} from public.profiles "
+            f"select {_PROFILE_COLUMNS} from {schema_sql}.profiles "
             f"where id = $1 for update",
             target_id,
         )
@@ -260,7 +268,7 @@ async def set_profile_role(
             )
 
         record = await connection.fetchrow(
-            f"update public.profiles set app_role = $2, updated_at = now() "
+            f"update {schema_sql}.profiles set app_role = $2, updated_at = now() "
             f"where id = $1 "
             f"returning {_PROFILE_COLUMNS}",
             target_id,
@@ -270,6 +278,7 @@ async def set_profile_role(
             return None
         await _audit(
             connection,
+            schema_sql,
             actor_id,
             "set_profile_role",
             target_id,
@@ -281,7 +290,7 @@ async def set_profile_role(
 async def count_admins(db: Database) -> int:
     """Count currently approved administrators."""
     record = await db.fetchrow(
-        "select count(*) as total from public.profiles "
+        f"select count(*) as total from {db.schema_sql}.profiles "
         "where app_role = 'admin' and is_approved = true"
     )
     return int(record["total"]) if record is not None else 0

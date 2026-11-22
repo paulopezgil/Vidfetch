@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 import jwt
 from fastapi.testclient import TestClient
 
-from backend.app.core.config import Settings
+from backend.app.core.config import Settings, validate_schema_name
 from backend.app.main import create_app
 
 TEST_JWT_SECRET = "test-jwt-secret-not-for-production"
@@ -94,10 +94,20 @@ class FakeDatabase:
         fail_with: BaseException | None = None,
         *,
         fail_after: int | None = None,
+        schema: str = "public",
     ) -> None:
         self.connection = FakeConnection()
         self.fail_with = fail_with
         self.fail_after = fail_after
+        self._schema = validate_schema_name(schema)
+
+    @property
+    def schema(self) -> str:
+        return self._schema
+
+    @property
+    def schema_sql(self) -> str:
+        return f'"{self._schema}"'
 
     def _maybe_fail(self) -> None:
         if self.fail_with is not None and (

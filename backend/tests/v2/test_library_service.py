@@ -29,8 +29,8 @@ def test_list_library_scopes_filters_hidden_and_clamps_pagination():
     assert total == 2
 
     count_query, count_args = db.calls[0][1], db.calls[0][2]
-    assert "from public.download_jobs j" in count_query
-    assert "join public.media_assets a on j.asset_id = a.id" in count_query
+    assert 'from "public".download_jobs j' in count_query
+    assert 'join "public".media_assets a on j.asset_id = a.id' in count_query
     assert "j.user_id = $1" in count_query
     assert "j.status = 'ready'" in count_query
     assert "j.library_hidden = false" in count_query
@@ -54,7 +54,7 @@ def test_hide_library_item_updates_only_the_callers_ready_job():
 
     assert hidden is True
     query, args = db.calls[0][1], db.calls[0][2]
-    assert "update public.download_jobs" in query
+    assert 'update "public".download_jobs' in query
     assert "set library_hidden = true" in query
     assert "where id = $1 and user_id = $2 and status = 'ready'" in query
     assert "delete from" not in query.lower()
@@ -96,7 +96,7 @@ def test_list_history_delegates_and_keeps_hidden_rows():
     assert page == [row]
     assert total == 1
     query, args = db.calls[1][1], db.calls[1][2]
-    assert "from public.download_jobs" in query
+    assert 'from "public".download_jobs' in query
     assert "library_hidden" not in query
     assert "user_id = $1" in query
     assert "status = $2" in query

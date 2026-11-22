@@ -57,19 +57,19 @@ ADMIN_JOB_COLUMNS = (
     + ", coalesce(p.email, '') as user_email"
 )
 
-_ADMIN_ASSET_FROM = (
-    "from public.media_assets a "
-    "where 1 = 1"
-)
+def _admin_asset_from(schema_sql: str) -> str:
+    return f"from {schema_sql}.media_assets a where 1 = 1"
 
-ADMIN_ASSET_COLUMNS = (
-    _prefix_columns(assets.ASSET_COLUMNS, "a")
-    + ", "
-    + "(select count(*) from public.download_jobs j "
-    + "where j.asset_id = a.id) as job_count, "
-    + "(select count(distinct j.user_id) from public.download_jobs j "
-    + "where j.asset_id = a.id) as user_count"
-)
+
+def _admin_asset_columns(schema_sql: str) -> str:
+    return (
+        _prefix_columns(assets.ASSET_COLUMNS, "a")
+        + ", "
+        + f"(select count(*) from {schema_sql}.download_jobs j "
+        + "where j.asset_id = a.id) as job_count, "
+        + f"(select count(distinct j.user_id) from {schema_sql}.download_jobs j "
+        + "where j.asset_id = a.id) as user_count"
+    )
 
 
 async def list_jobs(
@@ -111,9 +111,10 @@ async def list_jobs(
 
     where = f" where {' and '.join(conditions)}" if conditions else ""
 
+    schema_sql = db.schema_sql
     total_row = await db.fetchrow(
-        "select count(*) as total from public.download_jobs j "
-        f"join public.profiles p on p.id = j.user_id{where}",
+        f"select count(*) as total from {schema_sql}.download_jobs j "
+        f"join {schema_sql}.profiles p on p.id = j.user_id{where}",
         *args,
     )
     total = int(total_row["total"]) if total_row is not None else 0
@@ -121,8 +122,8 @@ async def list_jobs(
     limit_ph = placeholder(limit)
     offset_ph = placeholder(offset)
     rows = await db.fetch(
-        f"select {ADMIN_JOB_COLUMNS} from public.download_jobs j "
-        f"join public.profiles p on p.id = j.user_id{where} "
+        f"select {ADMIN_JOB_COLUMNS} from {schema_sql}.download_jobs j "
+        f"join {schema_sql}.profiles p on p.id = j.user_id{where} "
         f"order by j.created_at desc, j.id desc "
         f"limit {limit_ph} offset {offset_ph}",
         *args,
@@ -165,16 +166,18 @@ async def list_assets(
         )
 
     where = "".join(f" and {condition}" for condition in conditions)
+    schema_sql = db.schema_sql
+    admin_asset_from = _admin_asset_from(schema_sql)
 
     total_row = await db.fetchrow(
-        f"select count(*) as total {_ADMIN_ASSET_FROM}{where}", *args
+        f"select count(*) as total {admin_asset_from}{where}", *args
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     limit_ph = placeholder(limit)
     offset_ph = placeholder(offset)
     rows = await db.fetch(
-        f"select {ADMIN_ASSET_COLUMNS} {_ADMIN_ASSET_FROM}{where} "
+        f"select {_admin_asset_columns(schema_sql)} {admin_asset_from}{where} "
         f"order by a.created_at desc, a.id desc "
         f"limit {limit_ph} offset {offset_ph}",
         *args,
@@ -217,10 +220,11 @@ async def delete_asset(
     """
     identifier = _as_uuid(asset_id)
     actor = _as_uuid(actor_id)
+    schema_sql = db.schema_sql
 
     async with db.transaction() as connection:
         record = await connection.fetchrow(
-            f"select {assets.ASSET_COLUMNS} from public.media_assets "
+            f"select {assets.ASSET_COLUMNS} from {schema_sql}.media_assets "
             f"where id = $1 for update",
             identifier,
         )
@@ -229,7 +233,7 @@ async def delete_asset(
         asset = dict(record)
 
         active = await connection.fetchrow(
-            "select count(*) as total from public.download_jobs "
+            f"select count(*) as total from {schema_sql}.download_jobs "
             f"where asset_id = $1 and status in ({_ACTIVE_STATUS_SQL})",
             identifier,
         )
@@ -240,7 +244,7 @@ async def delete_asset(
             )
 
         deleted = await connection.fetchrow(
-            f"delete from public.media_assets where id = $1 "
+            f"delete from {schema_sql}.media_assets where id = $1 "
             f"returning {assets.ASSET_COLUMNS}",
             identifier,
         )
@@ -249,7 +253,7 @@ async def delete_asset(
         deleted_row = dict(deleted)
 
         await connection.execute(
-            "insert into public.admin_audit_log "
+            f"insert into {schema_sql}.admin_audit_log "
             "(actor_id, action, metadata) "
             "values ($1, $2, $3::jsonb)",
             actor,

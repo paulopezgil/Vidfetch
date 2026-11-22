@@ -114,7 +114,7 @@ def test_admin_approve_records_audit_and_returns_profile(tmp_path):
     assert db.connection.rollbacks == 0
 
     audit = _query_calls(db, "execute")[0]
-    assert "insert into public.admin_audit_log" in audit[1]
+    assert 'insert into "public".admin_audit_log' in audit[1]
     assert audit[2][1] == "approve_profile"
     assert audit[2][2] == target["id"]
     assert json.loads(audit[2][3]) == {"is_approved": True}

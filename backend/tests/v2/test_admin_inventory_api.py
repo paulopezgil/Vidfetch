@@ -66,7 +66,7 @@ def test_admin_jobs_returns_all_users_with_email_and_clamped_filters(tmp_path):
     assert body["items"][0]["id"] == str(row["id"])
 
     count_query, count_args = db.calls[1][1], db.calls[1][2]
-    assert "join public.profiles p on p.id = j.user_id" in count_query
+    assert 'join "public".profiles p on p.id = j.user_id' in count_query
     assert count_args == (owner, "ready", "owner", "owner")
     page_query, page_args = db.calls[2][1], db.calls[2][2]
     assert "coalesce(p.email, '') as user_email" in page_query

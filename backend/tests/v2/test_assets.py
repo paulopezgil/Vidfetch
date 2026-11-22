@@ -70,7 +70,7 @@ def test_claim_inserts_processing_asset_with_aware_lease(tmp_path):
 
     method, query, args = db.calls[1]
     assert method == "fetchrow"
-    assert "insert into public.media_assets" in query
+    assert 'insert into "public".media_assets' in query
     assert "'processing'" in query
     assert args[0] == "youtube:vid1"
     assert args[1] == "youtube"
@@ -103,7 +103,7 @@ def test_claim_returns_cache_hit_and_touches_old_access(tmp_path):
     assert claim.claimed is False
     assert claim.wait is False
     assert db.calls[0][1].endswith("for update")
-    assert "update public.media_assets set last_accessed_at" in db.calls[1][1]
+    assert 'update "public".media_assets set last_accessed_at' in db.calls[1][1]
     assert db.calls[1][2][0] == asset_id
 
 

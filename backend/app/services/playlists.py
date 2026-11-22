@@ -115,8 +115,9 @@ async def upsert_playlist(
     except (TypeError, ValueError) as exc:
         raise ValueError("item_count must be an integer.") from exc
 
+    schema_sql = db.schema_sql
     record = await db.fetchrow(
-        f"insert into public.playlists "
+        f"insert into {schema_sql}.playlists "
         f"(user_id, canonical_id, source_url, title, channel, thumbnail_path, "
         f"item_count, options_hash, format_selector) "
         f"values ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
@@ -125,7 +126,7 @@ async def upsert_playlist(
         f"title = excluded.title, "
         f"channel = excluded.channel, "
         f"thumbnail_path = coalesce(excluded.thumbnail_path, "
-        f"public.playlists.thumbnail_path), "
+        f"{schema_sql}.playlists.thumbnail_path), "
         f"item_count = excluded.item_count, "
         f"format_selector = excluded.format_selector, "
         f"updated_at = now() "
@@ -154,12 +155,13 @@ async def get_playlist(
     identifier = _as_uuid(playlist_id)
     if user_id is None:
         record = await db.fetchrow(
-            f"select {PLAYLIST_COLUMNS} from public.playlists where id = $1",
+            f"select {PLAYLIST_COLUMNS} from {db.schema_sql}.playlists "
+            f"where id = $1",
             identifier,
         )
     else:
         record = await db.fetchrow(
-            f"select {PLAYLIST_COLUMNS} from public.playlists "
+            f"select {PLAYLIST_COLUMNS} from {db.schema_sql}.playlists "
             f"where id = $1 and user_id = $2",
             identifier,
             _as_uuid(user_id),
@@ -179,13 +181,14 @@ async def list_playlists(
     owner = _as_uuid(user_id)
 
     total_row = await db.fetchrow(
-        "select count(*) as total from public.playlists where user_id = $1",
+        f"select count(*) as total from {db.schema_sql}.playlists "
+        f"where user_id = $1",
         owner,
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     rows = await db.fetch(
-        f"select {PLAYLIST_COLUMNS} from public.playlists "
+        f"select {PLAYLIST_COLUMNS} from {db.schema_sql}.playlists "
         f"where user_id = $1 "
         f"order by created_at desc, id desc "
         f"limit $2 offset $3",
@@ -201,7 +204,7 @@ async def list_items(
 ) -> list[dict[str, Any]]:
     """Return a playlist's items in source order."""
     rows = await db.fetch(
-        f"select {PLAYLIST_ITEM_COLUMNS} from public.playlist_items "
+        f"select {PLAYLIST_ITEM_COLUMNS} from {db.schema_sql}.playlist_items "
         f"where playlist_id = $1 order by position asc, id asc",
         _as_uuid(playlist_id),
     )
@@ -257,10 +260,11 @@ async def replace_items(
     """
     identifier = _as_uuid(playlist_id)
     normalized = _dedupe_entries(entries)
+    schema_sql = db.schema_sql
 
     async with db.transaction() as connection:
         existing = await connection.fetch(
-            f"select {PLAYLIST_ITEM_COLUMNS} from public.playlist_items "
+            f"select {PLAYLIST_ITEM_COLUMNS} from {schema_sql}.playlist_items "
             f"where playlist_id = $1 order by position asc for update",
             identifier,
         )
@@ -271,8 +275,8 @@ async def replace_items(
             # unique constraint is checked per statement, so this lets rows
             # swap positions without a transient duplicate.
             await connection.execute(
-                "update public.playlist_items set position = -position "
-                "where playlist_id = $1",
+                f"update {schema_sql}.playlist_items "
+                "set position = -position where playlist_id = $1",
                 identifier,
             )
 
@@ -294,7 +298,7 @@ async def replace_items(
             if match is not None and match["id"] not in matched:
                 matched.add(match["id"])
                 updated = await connection.fetchrow(
-                    f"update public.playlist_items set "
+                    f"update {schema_sql}.playlist_items set "
                     f"position = $3, canonical_id = $4, source_url = $5, "
                     f"title = $6, duration_seconds = $7, "
                     f"asset_id = case when canonical_id = $4 then asset_id "
@@ -320,7 +324,7 @@ async def replace_items(
                 continue
 
             inserted = await connection.fetchrow(
-                f"insert into public.playlist_items "
+                f"insert into {schema_sql}.playlist_items "
                 f"(playlist_id, position, canonical_id, source_url, title, "
                 f"duration_seconds) "
                 f"values ($1, $2, $3, $4, $5, $6) "
@@ -338,7 +342,7 @@ async def replace_items(
         if existing_rows:
             # Anything still parked at a negative position is stale.
             await connection.execute(
-                "delete from public.playlist_items "
+                f"delete from {schema_sql}.playlist_items "
                 "where playlist_id = $1 and position < 0",
                 identifier,
             )
@@ -392,7 +396,7 @@ async def update_item(
         add("duration_seconds", _duration(duration_seconds))
 
     record = await db.fetchrow(
-        f"update public.playlist_items set {', '.join(assignments)} "
+        f"update {db.schema_sql}.playlist_items set {', '.join(assignments)} "
         f"where playlist_id = $1 and position = $2 "
         f"returning {PLAYLIST_ITEM_COLUMNS}",
         *args,
@@ -415,7 +419,7 @@ async def update_playlist(
         assignments.append(f"{key} = ${len(args)}")
 
     record = await db.fetchrow(
-        f"update public.playlists set {', '.join(assignments)} "
+        f"update {db.schema_sql}.playlists set {', '.join(assignments)} "
         f"where id = $1 returning {PLAYLIST_COLUMNS}",
         *args,
     )
@@ -427,7 +431,8 @@ async def delete_playlist(
 ) -> bool:
     """Delete a playlist and (by cascade) its items. Media assets remain."""
     record = await db.fetchrow(
-        "delete from public.playlists where id = $1 and user_id = $2 "
+        f"delete from {db.schema_sql}.playlists "
+        "where id = $1 and user_id = $2 "
         "returning id",
         _as_uuid(playlist_id),
         _as_uuid(user_id),

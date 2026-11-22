@@ -114,7 +114,7 @@ async def create_job(
 
     if key is not None:
         existing = await db.fetchrow(
-            f"select {JOB_COLUMNS} from public.download_jobs "
+            f"select {JOB_COLUMNS} from {db.schema_sql}.download_jobs "
             f"where user_id = $1 and idempotency_key = $2",
             owner,
             key,
@@ -124,7 +124,7 @@ async def create_job(
 
     try:
         record = await db.fetchrow(
-            f"insert into public.download_jobs "
+            f"insert into {db.schema_sql}.download_jobs "
             f"(user_id, kind, source_url, title, options_hash, format_selector, "
             f"idempotency_key, playlist_id) "
             f"values ($1, $2, $3, $4, $5, $6, $7, $8) "
@@ -142,7 +142,7 @@ async def create_job(
         # A concurrent request won the idempotency race; return its job.
         if key is not None:
             existing = await db.fetchrow(
-                f"select {JOB_COLUMNS} from public.download_jobs "
+                f"select {JOB_COLUMNS} from {db.schema_sql}.download_jobs "
                 f"where user_id = $1 and idempotency_key = $2",
                 owner,
                 key,
@@ -164,12 +164,12 @@ async def get_job(
     identifier = _as_uuid(job_id)
     if user_id is None:
         record = await db.fetchrow(
-            f"select {JOB_COLUMNS} from public.download_jobs where id = $1",
+            f"select {JOB_COLUMNS} from {db.schema_sql}.download_jobs where id = $1",
             identifier,
         )
     else:
         record = await db.fetchrow(
-            f"select {JOB_COLUMNS} from public.download_jobs "
+            f"select {JOB_COLUMNS} from {db.schema_sql}.download_jobs "
             f"where id = $1 and user_id = $2",
             identifier,
             _as_uuid(user_id),
@@ -199,14 +199,15 @@ async def list_jobs(
     where = " where " + " and ".join(conditions)
 
     total_row = await db.fetchrow(
-        f"select count(*) as total from public.download_jobs{where}", *args
+        f"select count(*) as total from {db.schema_sql}.download_jobs{where}",
+        *args,
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     page_args = list(args)
     page_args.extend([limit, offset])
     rows = await db.fetch(
-        f"select {JOB_COLUMNS} from public.download_jobs{where} "
+        f"select {JOB_COLUMNS} from {db.schema_sql}.download_jobs{where} "
         f"order by created_at desc, id desc "
         f"limit ${len(args) + 1} offset ${len(args) + 2}",
         *page_args,
@@ -216,9 +217,10 @@ async def list_jobs(
 
 async def claim_next_job(db: Database) -> dict[str, Any] | None:
     """Atomically claim the oldest queued job and move it to ``resolving``."""
+    schema_sql = db.schema_sql
     async with db.transaction() as connection:
         record = await connection.fetchrow(
-            f"select {JOB_COLUMNS} from public.download_jobs "
+            f"select {JOB_COLUMNS} from {schema_sql}.download_jobs "
             f"where status = 'queued' "
             f"order by created_at asc, id asc "
             f"for update skip locked limit 1"
@@ -226,7 +228,7 @@ async def claim_next_job(db: Database) -> dict[str, Any] | None:
         if record is None:
             return None
         updated = await connection.fetchrow(
-            f"update public.download_jobs "
+            f"update {schema_sql}.download_jobs "
             f"set status = 'resolving', started_at = now(), updated_at = now(), "
             f"error = '' where id = $1 returning {JOB_COLUMNS}",
             record["id"],
@@ -247,7 +249,7 @@ async def update_job(
         assignments.append(f"{key} = ${len(args)}")
 
     record = await db.fetchrow(
-        f"update public.download_jobs set {', '.join(assignments)} "
+        f"update {db.schema_sql}.download_jobs set {', '.join(assignments)} "
         f"where id = $1 returning {JOB_COLUMNS}",
         *args,
     )
@@ -304,7 +306,7 @@ async def request_cancel(
 ) -> dict[str, Any] | None:
     """Flag a job for cancellation; queued jobs are cancelled immediately."""
     record = await db.fetchrow(
-        f"update public.download_jobs "
+        f"update {db.schema_sql}.download_jobs "
         f"set cancel_requested = true, "
         f"status = case when status = 'queued' then 'cancelled' else status end, "
         f"completed_at = case when status = 'queued' then now() else completed_at end, "
@@ -324,7 +326,7 @@ async def recover_stale_jobs(db: Database, lease_seconds: int) -> int:
     """
     record = await db.fetchrow(
         "with stale as ("
-        "  update public.download_jobs "
+        f"  update {db.schema_sql}.download_jobs "
         "  set status = 'queued', attempts = attempts + 1, started_at = null, "
         "      error = '', updated_at = now() "
         "  where status in ('resolving', 'downloading', 'processing') "
