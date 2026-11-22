@@ -5,31 +5,34 @@ scope and worktree details live in `.opencode/agents/*.md`.
 
 ## Current state
 
-- `main` — stable production releases only.
-- `dev` — integration for v1.9.x maintenance.
-- `v2` — approved v2 architectural rewrite integration branch.
-- v2 target: `v2.0.0` (React + FastAPI + Supabase Auth/Postgres + media cache).
+- `main` — stable production releases only. Current release: `v2.0.2`.
+- `dev` — active development and integration for the next release.
+- The v2 rewrite is released; there is no long-lived `v2` branch anymore.
+- v2 stack: React + FastAPI + Supabase Auth/Postgres + shared media cache.
 
-The approved v2 design is `docs/ARCHITECTURE_V2.md`. `docs/V2_SETUP.md` explains
+The v2 design is `docs/ARCHITECTURE_V2.md`. `docs/V2_SETUP.md` explains
 local/production setup, and `docs/IMPLEMENTATION_STATUS.md` tracks progress.
-Do not describe unbuilt v2 behavior as shipped in the root `README.md`.
+The root `README.md` documents the shipped application.
 
 ## Branches and worktrees
+
+Worktrees live inside the main checkout under `.worktrees/` (gitignored).
 
 | Branch | Worktree | Owner |
 | --- | --- | --- |
 | `main` | main checkout, during release only | Orchestrator |
 | `dev` | main checkout | Orchestrator |
-| `v2` | `../yt-dlp-frontend-v2` | Orchestrator |
-| `v2-backend` | `../yt-dlp-frontend-v2-backend` | Backend agent |
-| `v2-frontend` | `../yt-dlp-frontend-v2-frontend` | Frontend agent |
+| `dev-backend` | `.worktrees/backend` | Backend agent |
+| `dev-frontend` | `.worktrees/frontend` | Frontend agent |
 
 - One branch per worktree.
 - Merge into a branch from the worktree that has it checked out.
 - Backend agent edits only `backend/**`; frontend agent edits only
   `frontend/**`. Supabase migrations, root Docker/CI, and docs are orchestrated
-  at the `v2` level.
-- Keep `dev` releasable for v1.9.x while v2 is in progress.
+  at the `dev` level.
+- After changing agent files on `dev`, sync the worktrees with
+  `git -C .worktrees/backend merge dev` and
+  `git -C .worktrees/frontend merge dev`.
 
 ## Versioning and commits
 
@@ -41,7 +44,7 @@ Do not describe unbuilt v2 behavior as shipped in the root `README.md`.
   `test:`, `build:`, `ci:`. `release: vX.Y.Z` is only for `main`.
 - Never put version numbers in development or merge commit messages.
 - One commit per bounded agent prompt; leave the tree clean.
-- Merge feature branches into `v2` with `--no-ff` and a conventional message.
+- Merge feature branches into `dev` with `--no-ff` and a conventional message.
 
 ## v2 architecture guardrails
 

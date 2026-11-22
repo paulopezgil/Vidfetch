@@ -13,6 +13,7 @@ frontend/dist
 frontend-dist
 downloads
 data
+.worktrees
 *.log
 Dockerfile
 docker-compose.yml

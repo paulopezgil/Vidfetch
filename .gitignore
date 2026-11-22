@@ -12,6 +12,7 @@ venv/
 # remains tracked)
 /downloads/
 /data/
+/.worktrees/
 
 # Local environment and Supabase CLI scratch files
 .env
