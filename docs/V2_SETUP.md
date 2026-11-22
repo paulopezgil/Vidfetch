@@ -37,7 +37,10 @@ production deployment uses the same values with production redirect URLs.
 
 ## 3. Apply the database migrations
 
-### Hosted project
+The committed `supabase/migrations/*.sql` target `public` and are generated from
+`supabase/templates/*.sql.template`. `DB_SCHEMA` selects the application schema.
+
+### Hosted project — default `public`
 
 ```bash
 npx supabase login
@@ -45,10 +48,9 @@ npx supabase link --project-ref <project-ref>
 npx supabase db push
 ```
 
-Or paste `supabase/migrations/20261121090000_init.sql` into the Supabase SQL
-editor and run it.
+Or run the committed migrations in the Supabase SQL editor.
 
-### Local Supabase (recommended for tests)
+### Local Supabase — default `public`
 
 ```bash
 npx supabase start
@@ -56,7 +58,47 @@ npx supabase db reset
 ```
 
 The local API URL and keys are printed by `supabase status`. The local database
-is disposable; `db reset` reapplies migrations and `seed.sql`.
+is disposable; `db reset` reapplies the public migrations and `seed.sql`.
+
+### Dedicated schema such as `vidfetch`
+
+Render the templates for the schema and apply them. The backend must use the
+same `DB_SCHEMA` value.
+
+```bash
+DB_SCHEMA=vidfetch python scripts/render_migrations.py \
+  --output /tmp/vidfetch-migrations
+
+DATABASE_URL=postgresql://... \
+  python scripts/apply_migrations.py \
+  --migrations-dir /tmp/vidfetch-migrations
+```
+
+For local Supabase, reset the stack from a temporary workdir that contains the
+rendered migrations. This replaces the public tables with the dedicated schema:
+
+```bash
+mkdir -p /tmp/vidfetch-supabase/supabase
+cp supabase/config.toml supabase/seed.sql /tmp/vidfetch-supabase/supabase/
+DB_SCHEMA=vidfetch python scripts/render_migrations.py \
+  --output /tmp/vidfetch-supabase/supabase/migrations
+
+# start the stack once from the repo (pinned CLI 3.2.0)
+npx supabase --version
+npx supabase start
+
+# apply the custom-schema migrations to the local database
+npx supabase --workdir /tmp/vidfetch-supabase db reset
+```
+
+Then set `DB_SCHEMA=vidfetch` in `.env` before starting the backend. Verify:
+
+```bash
+curl -s http://127.0.0.1:8000/api/health
+```
+
+The migration renderer validates the schema with the same rules as the backend
+and rejects Supabase-managed schemas (`auth`, `storage`, `pg_*`, etc.).
 
 > The repository intentionally does not seed an administrator. See section 5.
 
@@ -73,6 +115,7 @@ SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 DATABASE_URL=...
+DB_SCHEMA=public   # or vidfetch when using rendered custom migrations
 MEDIA_TOKEN_SECRET=<long random string>
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...

@@ -64,18 +64,21 @@ the operator documentation until v2 ships.
       default `public`.
 - [x] Supabase RLS and auth-trigger pgTAP coverage (56 assertions passing
       against local Supabase).
+- [x] Templated Supabase migrations with renderer/applier tooling:
+      default `public`, custom schemas such as `vidfetch`.
+- [x] End-to-end custom-schema validation (`DB_SCHEMA=vidfetch`):
+      migrations, auth trigger, backend API, real download, dedupe, media
+      streaming, library, and history.
 - [x] Setup/smoke-test guide (`docs/V2_SETUP.md`).
-
-## In progress
-
-- [ ] Templated Supabase migrations and renderer/apply tooling for custom
-      schemas such as `vidfetch`.
 
 ## Pending
 
-- [ ] Custom-schema end-to-end verification (`DB_SCHEMA=vidfetch`).
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming and cache eviction UI.
+- [ ] Real playlist + ZIP smoke test.
+- [ ] Hosted Supabase + Google OAuth setup and live smoke test.
+- [ ] v1 data backup/fresh-start confirmation.
+- [ ] Release readiness and `v2.0.0` tag from `main`.
 - [ ] Live Supabase integration tests (migrations, trigger, RLS, JWKS).
 - [ ] Dedupe concurrency/crash-recovery tests against Postgres.
 - [x] Docker image build and container startup smoke test.
@@ -95,7 +98,12 @@ the operator documentation until v2 ships.
 | Local Supabase migrations | Applied cleanly (`supabase db reset`) |
 | Supabase pgTAP/RLS | 56 assertions passed |
 | Local auth/API integration | Health, profile trigger, JWT `/api/me`, pending 403, admin approval, admin 403, and real YouTube `/api/info` passed |
-| Local download job | Rerun pending (interrupted by a concurrent schema reset) |
+| Custom schema (`vidfetch`) | Migrations applied; trigger wrote `vidfetch.profiles`; backend health/me/admin/info passed |
+| Real video download | `ready`, 21 MB MP4 on disk |
+| Dedupe | Second identical job reused the same asset; one file on disk |
+| Media streaming | Full 200, range 206, thumbnail JPEG, download disposition |
+| Library/history | Both returned the ready jobs with asset metadata |
+| Real playlist + ZIP | Not yet run |
 | Docker build | Passed (`vidfetch-v2-test`) |
 | Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
 | Real download smoke test | Not yet run |
