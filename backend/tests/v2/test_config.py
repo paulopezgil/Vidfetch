@@ -39,7 +39,7 @@ def test_from_env_defaults_are_import_safe():
     assert settings.environment == "development"
     assert settings.log_level == "INFO"
     assert isinstance(settings.download_dir, Path)
-    assert settings.frontend_dist == (Path.cwd() / "frontend-dist").resolve()
+    assert settings.public_api_url == ""
 
 
 def test_supabase_url_derives_jwks_and_issuer():
@@ -173,11 +173,28 @@ def test_validate_runtime_rejects_invalid_db_schema():
     assert "DB_SCHEMA" in str(excinfo.value)
 
 
+def test_validate_runtime_rejects_invalid_public_api_url():
+    settings = Settings.from_env(
+        {
+            "SUPABASE_URL": "https://proj.supabase.co",
+            "DATABASE_URL": "postgresql://user:pass@pooler/db",
+            "MEDIA_TOKEN_SECRET": "media-secret",
+        }
+    )
+    # Simulate a directly constructed Settings that bypassed from_env.
+    settings.public_api_url = "ftp://api.vidfetch.example"
+
+    with pytest.raises(ConfigError) as excinfo:
+        settings.validate_runtime()
+
+    assert "PUBLIC_API_URL" in str(excinfo.value)
+
+
 def test_numeric_and_list_settings_parse():
     settings = Settings.from_env(
         {
             "DOWNLOAD_DIR": "/var/lib/vidfetch/media",
-            "FRONTEND_DIST": "/srv/vidfetch/frontend-dist",
+            "PUBLIC_API_URL": "https://api.vidfetch.example/",
             "MEDIA_TOKEN_TTL_SECONDS": "120",
             "MAX_CONCURRENT_DOWNLOADS": "4",
             "MAX_CONCURRENT_JOBS_PER_USER": "3",
@@ -193,7 +210,7 @@ def test_numeric_and_list_settings_parse():
     )
 
     assert settings.download_dir == Path("/var/lib/vidfetch/media").resolve()
-    assert settings.frontend_dist == Path("/srv/vidfetch/frontend-dist").resolve()
+    assert settings.public_api_url == "https://api.vidfetch.example"
     assert settings.media_token_ttl_seconds == 120
     assert settings.max_concurrent_downloads == 4
     assert settings.max_concurrent_jobs_per_user == 3
@@ -211,14 +228,41 @@ def test_cors_wildcard_is_preserved():
     assert Settings.from_env({"CORS_ORIGINS": "*"}).cors_origins == ["*"]
 
 
-def test_frontend_dist_defaults_to_cwd_and_reads_env(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_public_api_url_defaults_to_empty_and_is_normalised():
+    disabled = Settings.from_env({})
+    enabled = Settings.from_env(
+        {"PUBLIC_API_URL": "  https://api.vidfetch.example///  "}
+    )
+    with_path = Settings.from_env(
+        {"PUBLIC_API_URL": "https://vidfetch.example/backend"}
+    )
 
-    default = Settings.from_env({})
-    explicit = Settings.from_env({"FRONTEND_DIST": "static-ui"})
+    assert disabled.public_api_url == ""
+    assert enabled.public_api_url == "https://api.vidfetch.example"
+    assert with_path.public_api_url == "https://vidfetch.example/backend"
 
-    assert default.frontend_dist == (tmp_path / "frontend-dist").resolve()
-    assert explicit.frontend_dist == (tmp_path / "static-ui").resolve()
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://api.vidfetch.example",
+        "api.vidfetch.example",
+        "https://user:secret-password@api.vidfetch.example",
+        "https://api.vidfetch.example/?debug=1",
+        "https://api.vidfetch.example/#frag",
+        "https://",
+        "https://api.vidfetch.example:notaport",
+        "has space",
+        "https://api.vidfetch.example/" + "a" * 2100,
+    ],
+)
+def test_invalid_public_api_url_is_rejected_without_echoing_credentials(value):
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"PUBLIC_API_URL": value})
+
+    message = str(excinfo.value)
+    assert "PUBLIC_API_URL" in message
+    assert "secret-password" not in message
 
 
 @pytest.mark.parametrize(
