@@ -117,6 +117,18 @@ async def _approved_token_user(
     return claims
 
 
+def _public_url(settings: Settings, path: str) -> str:
+    """Prefix an API path with ``PUBLIC_API_URL`` when one is configured.
+
+    Split deployments (frontend on Vercel, backend on a VPS) need absolute
+    media links so the browser downloads straight from the backend. With no
+    base URL the path stays relative, which keeps same-origin and test setups
+    working unchanged.
+    """
+    base = settings.public_api_url
+    return f"{base}{path}" if base else path
+
+
 @router.post(
     "/api/media/{asset_id}/token",
     response_model=MediaTokenOut,
@@ -163,11 +175,13 @@ async def issue_media_token(
     except (OSError, StorageError):
         thumbnail_url = None
     else:
-        thumbnail_url = f"/api/thumbnails/{asset_id}?token={token}"
+        thumbnail_url = _public_url(
+            settings, f"/api/thumbnails/{asset_id}?token={token}"
+        )
 
     return MediaTokenOut(
         token=token,
-        url=f"/api/media/{asset_id}?token={token}",
+        url=_public_url(settings, f"/api/media/{asset_id}?token={token}"),
         thumbnail_url=thumbnail_url,
         expires_at=expires_at,
         expires_in=settings.media_token_ttl_seconds,

@@ -93,6 +93,42 @@ def test_token_issuance_returns_media_and_thumbnail_urls(tmp_path):
     assert body["expires_at"]
 
 
+def test_token_issuance_uses_absolute_urls_when_public_api_url_is_set(tmp_path):
+    settings = make_settings(
+        tmp_path,
+        MEDIA_TOKEN_SECRET=MEDIA_SECRET,
+        PUBLIC_API_URL="https://api.vidfetch.example/",
+    )
+    profile = _approved()
+    asset = _seed_asset(settings)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, asset, profile, asset)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/media/{asset['id']}/token",
+            headers=_headers(profile),
+        )
+        body = response.json()
+        # The token is unchanged by the base URL: it still authorizes the
+        # API's own streaming path.
+        streamed = client.get(
+            f"/api/media/{asset['id']}?token={body['token']}"
+        )
+
+    assert response.status_code == 200
+    token = body["token"]
+    assert body["url"] == (
+        f"https://api.vidfetch.example/api/media/{asset['id']}?token={token}"
+    )
+    assert body["thumbnail_url"] == (
+        "https://api.vidfetch.example"
+        f"/api/thumbnails/{asset['id']}?token={token}"
+    )
+    assert streamed.status_code == 200
+    assert streamed.content == b"media-bytes"
+
+
 def test_token_issuance_omits_thumbnail_when_missing(tmp_path):
     settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
     profile = _approved()

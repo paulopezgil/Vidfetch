@@ -1,0 +1,28 @@
+# Build context is backend/; keep the image to runtime code and dependencies.
+tests/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Environment files never belong in an image.
+.env
+.env.*
+!.env.example
+
+# Local media/cache and logs.
+downloads/
+data/
+*.log
+
+# Development-only inputs (the runtime copies requirements.txt explicitly).
+requirements-dev.txt
+Dockerfile
+.dockerignore

@@ -16,6 +16,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
+
+from .urls import UrlValidationError, validate_http_url
 
 DEFAULT_JWT_AUDIENCE = "authenticated"
 DEFAULT_DB_SCHEMA = "public"
@@ -124,6 +127,31 @@ def _clean_url(raw: str | None) -> str:
     return (raw or "").strip().rstrip("/")
 
 
+def validate_public_api_url(value: str) -> str:
+    """Return a normalised public base URL, or ``""`` when disabled.
+
+    Media links are only made absolute when this is set. The value must be an
+    absolute ``http(s)`` URL without embedded credentials, query string, or
+    fragment: it is prepended to API paths, so anything else would produce
+    broken (or leaking) links. Error messages never echo the raw value because
+    it may contain credentials.
+    """
+    candidate = (value or "").strip()
+    if not candidate:
+        return ""
+    try:
+        validate_http_url(candidate)
+    except UrlValidationError as exc:
+        raise ConfigError(f"Invalid PUBLIC_API_URL: {exc}") from None
+    parts = urlsplit(candidate)
+    if parts.query or parts.fragment:
+        raise ConfigError(
+            "Invalid PUBLIC_API_URL: a base URL may not include a query "
+            "string or fragment."
+        )
+    return candidate.rstrip("/")
+
+
 @dataclass
 class Settings:
     """All v2 runtime settings with safe, import-time-free defaults."""
@@ -139,9 +167,13 @@ class Settings:
     database_url: str = ""
     db_schema: str = DEFAULT_DB_SCHEMA
     download_dir: Path = field(default_factory=lambda: (Path.cwd() / "downloads").resolve())
-    frontend_dist: Path = field(
-        default_factory=lambda: (Path.cwd() / "frontend-dist").resolve()
-    )
+
+    # Absolute base URL for links returned to browsers (media, thumbnails).
+    # Empty means "same origin" and links stay relative, which is what tests
+    # and single-origin deployments want. A split deployment (frontend on
+    # Vercel, backend on a VPS) must set this to the backend's public origin,
+    # for example ``https://api.vidfetch.example``.
+    public_api_url: str = ""
 
     media_token_secret: str = ""
     media_token_ttl_seconds: int = DEFAULT_MEDIA_TOKEN_TTL_SECONDS
@@ -156,6 +188,12 @@ class Settings:
     # false so yt-dlp can never be pointed at loopback or private networks.
     allow_private_urls: bool = DEFAULT_ALLOW_PRIVATE_URLS
 
+    # Explicit browser origins allowed to call the JSON API with credentials.
+    # Local development uses the Vite dev server (http://localhost:5173);
+    # production uses the deployed Vercel origin (for example
+    # https://vidfetch.vercel.app). ``*`` is accepted as a public, credential-
+    # free fallback only; the application never combines a wildcard with
+    # ``allow_credentials``.
     cors_origins: list[str] = field(default_factory=list)
     environment: str = "development"
     log_level: str = "INFO"
@@ -191,12 +229,7 @@ class Settings:
             else (Path.cwd() / "downloads").resolve()
         )
 
-        frontend_raw = env.get("FRONTEND_DIST", "").strip()
-        frontend_dist = (
-            Path(frontend_raw).expanduser().resolve()
-            if frontend_raw
-            else (Path.cwd() / "frontend-dist").resolve()
-        )
+        public_api_url = validate_public_api_url(env.get("PUBLIC_API_URL", ""))
 
         cors_raw = env.get("CORS_ORIGINS")
         if cors_raw is not None and cors_raw.strip() == "*":
@@ -222,7 +255,7 @@ class Settings:
             database_url=database_url,
             db_schema=db_schema,
             download_dir=download_dir,
-            frontend_dist=frontend_dist,
+            public_api_url=public_api_url,
             media_token_secret=env.get("MEDIA_TOKEN_SECRET", "").strip(),
             media_token_ttl_seconds=_env_int(
                 env,
@@ -281,6 +314,9 @@ class Settings:
         Called from the application lifespan, never at import time.
         """
         validate_schema_name(self.db_schema)
+        # Also re-check here so a directly constructed Settings (tests, tools)
+        # cannot start with a malformed absolute media base URL.
+        validate_public_api_url(self.public_api_url)
         missing: list[str] = []
         if not self.supabase_url:
             missing.append("SUPABASE_URL")
