@@ -3,38 +3,39 @@
 **A self-hosted web app that makes [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 usable by real people.**
 
-Vidfetch gives you a clean browser interface for downloading videos and
-playlists, with Google sign-in, administrator approval, a personal library, and
-a shared cache that stops the same file being downloaded twice.
+Vidfetch gives you a browser interface for downloading videos and playlists,
+with Google sign-in, administrator approval, a personal library, and a shared
+cache that stops the same file being downloaded twice.
 
-It is built for a home server, a small team, or a family. The backend does the
-heavy lifting with `yt-dlp` and FFmpeg; the frontend is a standalone React app.
+It is built around two deployment modes:
 
-Vidfetch is designed to run in two ways:
-
-- **Local development:** a two-service Docker Compose stack (frontend + backend)
-- **Production:** the frontend on **Vercel**, the backend on a **VPS container**,
-  and **Supabase Cloud** for auth, Postgres, and the approval workflow
-
-> **Deployment status:** the current tagged release still ships as a single
-> multi-stage image with one origin. The split `frontend/Dockerfile`,
-> `backend/Dockerfile`, two-service Compose file, and Vercel configuration
-> described below are the **approved next step** and are not implemented yet.
-> No application code was changed for this README revision.
+- **Local:** one `docker compose up` starts the Vite frontend, the FastAPI
+  backend, and a complete local Supabase stack. No cloud account is required.
+- **Production:** the frontend runs on **Vercel**, the backend runs as a
+  container on a **VPS**, and both use **Supabase Cloud**.
 
 > ⚠️ **Use it responsibly.** Vidfetch is only a frontend for `yt-dlp`. Download
 > content you are authorized to download, and follow the laws and terms of
 > service that apply to you and your sources.
 
+### Choose your path
+
+| Goal | Start here | What you need |
+| --- | --- | --- |
+| Try it locally / develop | [Quick start — local](#quick-start--local) | Docker + Compose only |
+| Run it for real | [Production deployment](#production-deployment) | Supabase Cloud, Vercel, a VPS, Google OAuth |
+
+Both modes use the same frontend, backend, database schema, migrations, and API.
+Only the packaging and hosting differ.
+
 ---
 
 ## Contents
 
-- [Quick start](#quick-start)
+- [Quick start — local](#quick-start--local)
+- [Production deployment](#production-deployment)
 - [The problem Vidfetch solves](#the-problem-vidfetch-solves)
-- [What v2 adds](#what-v2-adds)
 - [How it works](#how-it-works)
-- [Deployment models](#deployment-models)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Project layout](#project-layout)
@@ -45,150 +46,182 @@ Vidfetch is designed to run in two ways:
 
 ---
 
-## Quick start
+## Quick start — local
 
 ### What you need
 
 - **Docker** and **Docker Compose** v2+
-- A **Supabase** project (free tier is fine to start)
-- A **Google Cloud OAuth 2.0 client**
-- The **Supabase CLI** (`npx supabase`) if you want to apply migrations from
-  the terminal
+- That is it for the default local stack.
 
-Everything else — Python, Node.js, `yt-dlp`, FFmpeg — is inside the containers.
+You do **not** need a Supabase Cloud project, the Supabase CLI installed on the
+host, Python, Node.js, FFmpeg, or Google OAuth credentials to run the local app.
+The local Compose stack provides:
 
-### 1. Create the Supabase project and enable Google login
+| Service | Purpose | Address |
+| --- | --- | --- |
+| `frontend` | Vite dev server with hot reload | <http://localhost:5173> |
+| `backend` | FastAPI + `yt-dlp` + FFmpeg + worker | <http://localhost:8000> |
+| `supabase` | Official Supabase CLI local stack | API `:54321`, DB `:54322` |
+| `local-bootstrap` | Creates and approves a local admin | one-shot container |
+| Studio | Supabase web UI | <http://localhost:54323> |
 
-1. Create a project at <https://supabase.com>.
-2. In **Authentication → Providers → Google**, enable Google and paste your
-   Google OAuth client ID and secret.
-3. In your Google Cloud OAuth client, add this authorized redirect URI:
+### Start everything
 
-   ```text
-   https://<project-ref>.supabase.co/auth/v1/callback
-   ```
-
-4. In **Authentication → URL Configuration**, set:
-   - **Site URL:** `http://localhost:8000`
-   - **Redirect URLs:** `http://localhost:8000` and
-     `http://localhost:5173`
-
-### 2. Configure the app
-
-```bash
-cp .env.example .env
-```
-
-Fill in these values from **Project Settings → API** and
-**Project Settings → Database**:
-
-```dotenv
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-DATABASE_URL=postgresql://...
-
-DB_SCHEMA=public
-
-MEDIA_TOKEN_SECRET=<a long random secret>
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=...
-```
-
-Generate the media secret with:
-
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-> `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `MEDIA_TOKEN_SECRET` are
-> backend secrets. Never put them in the frontend or commit them.
-
-### 3. Create the database tables
-
-Link the project and push the migrations:
-
-```bash
-npx supabase login
-npx supabase link --project-ref <project-ref>
-npx supabase db push
-```
-
-You can also run the SQL files from `supabase/migrations/` in the Supabase SQL
-editor.
-
-> Want a dedicated schema such as `vidfetch` instead of `public`? See
-> [Database schema](#database-schema).
-
-### 4. Start Vidfetch locally
-
-Vidfetch supports two Docker layouts. The current release uses the first; the
-second is the target split deployment described in
-[Deployment models](#deployment-models).
-
-#### Option A — current release: one all-in-one image
+From the repository root:
 
 ```bash
 docker compose up --build
 ```
 
-Open **http://localhost:8000**.
+The first run builds the images and starts the Supabase stack, so it can take a
+few minutes. On later runs it is much faster.
 
-The root `Dockerfile` builds the React app in a Node stage, copies the static
-output into the Python runtime stage, and FastAPI serves both the SPA and
-`/api` from the same origin. This is the simplest local setup and is what the
-current tagged release uses.
+Open **<http://localhost:5173>**.
 
-#### Option B — split frontend and backend containers (target)
-
-This is the deployment refactor. It is not implemented in the current release
-yet, but the target layout is:
+Sign in with the local development account:
 
 ```text
-frontend/Dockerfile   React build + nginx, proxies /api to backend:8000
-backend/Dockerfile    Python + yt-dlp + FFmpeg, runs uvicorn
-docker-compose.yml    frontend + backend services; Supabase stays external
+email:    admin@local.test
+password: password123
 ```
 
-The intended local flow is:
+The local login form is enabled only when `VITE_ENABLE_LOCAL_AUTH=true`, which
+the local Compose file sets. Production builds leave it unset and use Google
+OAuth only.
+
+### Local tips
+
+- **Supabase Studio:** <http://localhost:54323>
+- **Local mail catcher:** <http://localhost:54324>
+- **Backend health:** <http://localhost:8000/api/health>
+- **Stop everything:** `docker compose down`
+- **Rebuild after dependency changes:** `docker compose up --build`
+- **Reset the local database:** while the stack is running:
+  ```bash
+  docker compose exec supabase supabase db reset
+  ```
+  Then restart the local bootstrap if needed:
+  ```bash
+  docker compose up local-bootstrap
+  ```
+- If ports `5173`, `8000`, `54321`, `54322`, or `54323` are already in use,
+  stop the competing service first.
+- Docker may require `sudo` on Linux depending on how it is installed.
+
+### What the local stack is doing
+
+The local `supabase` service runs the official Supabase CLI inside a small
+container. It uses the mounted Docker socket to start the official local
+Supabase containers, and host networking so the CLI’s health checks can reach
+the host-published Postgres and Auth ports. The repository is mounted at the
+same absolute path inside and outside the wrapper so Docker path references stay
+valid.
+
+`docker compose down` stops the wrapper, and the wrapper’s signal handler runs
+`supabase stop --no-backup` to clean up the local Supabase containers.
+
+---
+
+## Production deployment
+
+Production is decoupled:
+
+```text
+Vercel frontend  ──HTTPS + JWT──►  VPS backend container  ──►  Supabase Cloud
+      │                                                           │
+      └──────────────── Google OAuth ─────────────────────────────┘
+```
+
+### 1. Supabase Cloud
+
+1. Create a project at <https://supabase.com>.
+2. Enable **Authentication → Providers → Google** and add your Google OAuth
+   client ID and secret.
+3. In the Google Cloud OAuth client, authorize:
+   `https://<project-ref>.supabase.co/auth/v1/callback`
+4. In Supabase **Authentication → URL Configuration**, set:
+   - Site URL: `https://your-app.vercel.app`
+   - Redirect URLs: `https://your-app.vercel.app` and
+     `http://localhost:5173`
+5. Apply the migrations (default `public` schema):
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <project-ref>
+   npx supabase db push
+   ```
+   Or run `supabase/migrations/*.sql` in the Supabase SQL editor.
+
+For a dedicated schema such as `vidfetch`, render and apply the migrations with
+`DB_SCHEMA=vidfetch`, then set the same `DB_SCHEMA` on the backend. See
+[Database schema](#database-schema).
+
+### 2. Frontend on Vercel
+
+Create a Vercel project with:
+
+- **Root Directory:** `frontend`
+- **Framework:** Vite (auto-detected; `frontend/vercel.json` is included)
+- **Build command:** `npm run build`
+- **Output directory:** `dist`
+
+Set these environment variables in Vercel:
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_API_BASE=https://api.example.com/api
+```
+
+Do **not** set `VITE_ENABLE_LOCAL_AUTH` in production. Do **not** put the
+service-role key or `DATABASE_URL` in Vercel.
+
+### 3. Backend on a VPS
+
+On the VPS, copy the repository and create `.env` from `.env.example`:
+
+```dotenv
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+DATABASE_URL=postgresql://...
+DB_SCHEMA=public
+
+PUBLIC_API_URL=https://api.example.com
+CORS_ORIGINS=https://your-app.vercel.app
+MEDIA_TOKEN_SECRET=<long random secret>
+```
+
+Start the backend image:
 
 ```bash
-# after the split is implemented
-docker compose up --build
-# frontend: http://localhost:3000
-# backend API: http://localhost:8000
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-The frontend container serves the SPA and proxies `/api` to the backend
-container, keeping browser requests same-origin locally. Only the backend
-receives `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `MEDIA_TOKEN_SECRET`.
+Put Caddy or nginx in front of port 8000 for HTTPS. The media volume is a named
+Docker volume (`vidfetch_downloads`); back it up if cached media matters.
 
-### 5. Make yourself the first administrator
+### 4. First administrator
 
-Sign in with Google. Your account will land on **`/pending`** because new
-accounts are not approved automatically.
-
-Promote yourself in the Supabase SQL editor:
-
-```sql
-update public.profiles
-   set is_approved = true,
-       app_role = 'admin',
-       approved_at = now(),
-       approved_by = id
- where lower(email) = lower('you@example.com');
-```
-
-Or use the helper script:
+Sign in once with Google; the account lands on `/pending`. Promote it:
 
 ```bash
 DATABASE_URL=... DB_SCHEMA=public \
   python3 scripts/promote_admin.py --email you@example.com
 ```
 
-The script needs the `asyncpg` Python package (`pip install asyncpg`).
+Or run the equivalent `update public.profiles ...` in the Supabase SQL editor.
+Refresh the app and approve other users at `/admin`.
 
-Refresh the app. You can now approve other users from **`/admin`**.
+### Production checklist
+
+- [ ] Supabase migrations applied to the hosted project.
+- [ ] Google OAuth redirect URLs configured.
+- [ ] Vercel env has the Supabase URL/anon key and the backend API URL.
+- [ ] VPS `.env` has backend secrets and `PUBLIC_API_URL`.
+- [ ] `CORS_ORIGINS` contains the Vercel origin.
+- [ ] TLS is terminated in front of the backend.
+- [ ] The media volume is persistent and backed up.
+- [ ] The first admin is promoted.
 
 ---
 
@@ -219,43 +252,17 @@ Supabase project, and the access list.
 
 ---
 
-## What v2 adds
-
-The v2 rewrite turns the original single-user interface into a small multiuser
-service:
-
-- **Google sign-in through Supabase**, so there are no passwords to manage.
-- **Manual administrator approval.** A new account can sign in but cannot
-  download or view media until an admin approves it.
-- **Admin panel** for approving, revoking, and promoting users. The backend
-  enforces the result immediately, not just the buttons in the UI.
-- **Supabase Postgres** for profiles, jobs, playlists, and the media registry.
-- **Shared media cache.** Two users asking for the same video and format get the
-  same file; the server downloads it once.
-- **Durable download queue** stored in Postgres, with progress, cancellation,
-  restart recovery, and per-user history.
-- **Playlists and on-demand ZIPs**, including per-item status and partial
-  failures.
-- **Signed media URLs** for preview and download, so `<video>` and `<img>` can
-  work without exposing the database or filesystem.
-- **Configurable database schema.** Great for forks; a deployment can use
-  `public` (default) or a dedicated schema such as `vidfetch`.
-- **A simple single-image deployment today**, with a split
-  frontend/backend layout as the next deployment step.
-
----
-
 ## How it works
 
 ```mermaid
 flowchart LR
-    U[Browser<br/>React SPA] -->|Google OAuth| SA[Supabase Auth]
+    U[Browser<br/>React + Vite] -->|Google OAuth| SA[Supabase Auth]
     U -->|Bearer JWT<br/>JSON API| API[FastAPI backend]
     API -->|profiles, jobs,<br/>assets, playlists| DB[(Supabase Postgres)]
     API --> W[Download worker]
     W --> YT[yt-dlp + FFmpeg]
     W --> VOL[(Persistent media volume)]
-    U -->|short-lived<br/>signed URL| API
+    U -->|absolute signed URL| API
     API -->|stream media| VOL
 ```
 
@@ -267,12 +274,13 @@ flowchart LR
 | **Backend** | FastAPI, Python, `asyncpg`, Pydantic, PyJWT | JWT verification, approval checks, job API, media streaming, admin API |
 | **Download engine** | `yt-dlp` + FFmpeg | Metadata extraction, downloads, merging, MP3 conversion, subtitles |
 | **Data & auth** | Supabase Auth + Postgres | Google OAuth, profiles, approval, jobs, cache registry, playlists |
-| **Storage** | Docker volume | Media files, thumbnails, temporary work directories |
-| **Deployment** | Docker + Compose / Vercel + VPS | Single-origin today; split deployment next |
+| **Local infrastructure** | Docker Compose + Supabase CLI | Frontend, backend, and a complete local Supabase stack |
+| **Production** | Vercel + VPS container | Static frontend CDN + long-running API/worker |
 
 ### The download lifecycle
 
-1. A user signs in with Google; Supabase issues a JWT.
+1. A user signs in with Google (or the local development form); Supabase issues
+   a JWT.
 2. Every API request carries that JWT. The backend verifies it and loads the
    user’s `profiles` row.
 3. If the account is not approved, protected endpoints return `403`.
@@ -284,161 +292,56 @@ flowchart LR
    - **missing or failed** → claim it and enqueue one download.
 6. A background worker runs `yt-dlp`/FFmpeg and updates progress in Postgres.
 7. The finished file is stored under the media volume and registered as ready.
-8. The browser receives a short-lived signed URL for preview or download.
+8. The browser receives a short-lived **absolute** signed URL for preview or
+   download.
 
-The cache is the part that makes Vidfetch different from putting a download
-button on top of `yt-dlp`: the second user asking for the same file costs no
-bandwidth and no extra disk.
-
----
-
-## Deployment models
-
-The application code and API are the same in every mode; packaging, origins, and
-environment variables differ. The split layouts below are the **target** for
-the next deployment refactor and are not in the current tagged release yet.
-
-| Mode | Frontend | Backend | Database/Auth | Status |
-| --- | --- | --- | --- | --- |
-| **Local all-in-one** | Built SPA served by FastAPI | Same container | Supabase Cloud | Current release |
-| **Local split** | `frontend/Dockerfile` (nginx) | `backend/Dockerfile` | Supabase Cloud | Target |
-| **Production** | Vercel | VPS container behind TLS | Supabase Cloud | Target |
-
-### Current release: single-origin image
-
-```text
-Dockerfile
-  stage 1: node:22-alpine  -> npm ci && npm run build
-  stage 2: python:3.11-slim -> FastAPI + ffmpeg + node
-                              copies frontend/dist to /app/frontend-dist
-
-docker-compose.yml
-  app:
-    build: .
-    ports: "8000:8000"
-    env_file: .env
-    volumes: ./downloads:/app/downloads
-```
-
-FastAPI serves both the SPA and `/api` on port 8000. Because everything is on
-one origin, the browser needs no CORS configuration and the frontend uses
-relative API paths.
-
-### Target local split: two containers
-
-```text
-frontend/Dockerfile
-  stage 1: node:22-alpine -> npm ci && npm run build
-  stage 2: nginx:alpine   -> static files + SPA fallback
-                             location /api/ { proxy_pass http://backend:8000; }
-
-backend/Dockerfile
-  python:3.11-slim + ffmpeg + node
-  pip install -r requirements.txt
-  uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-  VOLUME /app/downloads
-
-docker-compose.yml
-  frontend: build ./frontend, ports "3000:80", depends_on backend
-  backend:  build ./backend,  ports "8000:8000", volume ./downloads
-```
-
-Local split details:
-
-- The frontend image contains only public `VITE_*` values.
-- The backend image contains `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
-  `MEDIA_TOKEN_SECRET`.
-- Local browser requests stay same-origin because nginx proxies `/api` to the
-  backend.
-- Supabase Cloud remains external; auth redirect URLs include
-  `http://localhost:3000`.
-- The frontend does not serve media itself; signed media URLs point at the
-  backend (proxied through nginx or absolute in production).
-
-### Target production: Vercel + VPS
-
-**Frontend on Vercel**
-
-- Root directory: `frontend`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Environment:
-  - `VITE_SUPABASE_URL`
-  - `VITE_SUPABASE_ANON_KEY`
-  - `VITE_API_BASE=https://api.example.com/api`
-- A `vercel.json` SPA rewrite sends client-side routes such as `/library` and
-  `/admin` to `index.html`.
-
-**Backend on a VPS**
-
-- Build `backend/Dockerfile` and run the container behind Caddy/nginx with TLS.
-- Persist `/app/downloads` as a host volume or managed disk.
-- Environment includes the Supabase service-role key, database URL, JWT
-  verification settings, `MEDIA_TOKEN_SECRET`, and explicit
-  `CORS_ORIGINS=https://app.example.com`.
-- The worker runs inside the backend container; keep it on a single instance
-  until shared storage and a shared queue are introduced.
-
-**Cross-origin concerns**
-
-- The backend must allow the Vercel origin (and `Authorization` headers) via
-  `CORS_ORIGINS`; wildcard origins are not appropriate for credentialed
-  production traffic.
-- Supabase Auth must allow the Vercel domain and localhost redirect URLs.
-- Signed media URLs must be usable from the Vercel origin. The backend can
-  return absolute URLs based on a configured public API URL, or the frontend can
-  prefix relative URLs with `VITE_API_BASE`. Absolute URLs are clearer for
-  media, ZIPs, and `<video>` elements.
-- Cookies are not used; the JSON API uses Bearer JWTs and media uses
-  short-lived signed URLs.
-
-### Which option should I use?
-
-- **Single machine, simplest setup:** current all-in-one image.
-- **Local development with production-like separation:** two-service Compose.
-- **Public production deployment:** Vercel frontend + VPS backend + Supabase
-  Cloud, with explicit CORS and absolute API/media URLs.
+The cache is what makes Vidfetch different from putting a download button on
+top of `yt-dlp`: the second user asking for the same file costs no bandwidth and
+no extra disk.
 
 ---
 
 ## Configuration
 
-All settings live in `.env`; `.env.example` documents every variable.
+### Local
 
-### Core
+The local stack is configured in `docker-compose.yml` and works without a
+`.env` file. It uses fixed, public, disposable local Supabase keys and starts
+`admin@local.test` automatically.
+
+### Production backend (`.env`)
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SUPABASE_URL` | — | Supabase project URL |
 | `SUPABASE_ANON_KEY` | — | Public Supabase key |
 | `SUPABASE_SERVICE_ROLE_KEY` | — | Backend-only Auth admin key |
-| `DATABASE_URL` | — | Postgres connection string (pooler recommended) |
-| `DB_SCHEMA` | `public` | Schema holding the application tables |
+| `DATABASE_URL` | — | Supabase Postgres connection string |
+| `DB_SCHEMA` | `public` | Application table schema |
+| `PUBLIC_API_URL` | — | Absolute backend origin for media/ZIP URLs |
+| `CORS_ORIGINS` | — | Comma-separated frontend origins |
 | `MEDIA_TOKEN_SECRET` | — | HMAC secret for signed media URLs |
 | `MEDIA_TOKEN_TTL_SECONDS` | `900` | Signed URL lifetime |
 | `DOWNLOAD_DIR` | `/app/downloads` | Media storage root |
-| `FRONTEND_DIST` | `/app/frontend-dist` | Built SPA assets (single-image mode) |
-| `CORS_ORIGINS` | empty | Comma-separated frontend origins for split deployment |
-
-### Download limits
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Global worker concurrency |
 | `MAX_CONCURRENT_JOBS_PER_USER` | `2` | Per-user job concurrency |
 | `MAX_PLAYLIST_ITEMS` | `200` | Playlist item cap |
 | `MAX_ASSET_BYTES` | `5368709120` | Per-file size cap |
-| `MIN_FREE_DISK_MB` | `500` | Refuse downloads below this free space |
+| `MIN_FREE_DISK_MB` | `500` | Disk-space safety floor |
 | `JOB_LEASE_SECONDS` | `300` | Worker/asset lease duration |
-| `ALLOW_PRIVATE_URLS` | `false` | Permit private/loopback URLs (tests only) |
+| `ALLOW_PRIVATE_URLS` | `false` | Private/loopback URLs (tests only) |
 
-### Frontend
+### Production frontend (Vercel)
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | — | Supabase URL embedded at build time |
-| `VITE_SUPABASE_ANON_KEY` | — | Public anon key embedded at build time |
-| `VITE_API_BASE` | `/api` | API base path |
+| Variable | Purpose |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Public anon key |
+| `VITE_API_BASE` | Absolute backend API URL, e.g. `https://api.example.com/api` |
+| `VITE_ENABLE_LOCAL_AUTH` | Leave unset in production |
+
+Never expose `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, or
+`MEDIA_TOKEN_SECRET` to the frontend.
 
 ### Database schema
 
@@ -454,14 +357,16 @@ DATABASE_URL=postgresql://... \
   --migrations-dir /tmp/vidfetch-migrations
 ```
 
-Then set `DB_SCHEMA=vidfetch` in `.env` and restart the app. The migrations are
-generated from `supabase/templates/`; `scripts/render_migrations.py --check`
-verifies the committed `public` migrations are in sync.
+Then set `DB_SCHEMA=vidfetch` on the backend. The migrations are generated from
+`supabase/templates/`; `scripts/render_migrations.py --check` verifies the
+committed `public` migrations are in sync.
 
 ### Persistent data
 
-- `./downloads` → media, thumbnails, temporary work directories.
+- Docker volume `vidfetch_downloads` → media, thumbnails, temporary work
+  directories.
 - Supabase Postgres → profiles, approval, jobs, cache registry, playlists.
+- Local Supabase CLI volumes → local database, Auth, Storage, and Studio data.
 
 Removing an item from a library only hides the user’s job. It never deletes a
 shared media file that another user may still need.
@@ -470,16 +375,31 @@ shared media file that another user may still need.
 
 ## Development
 
-### Backend
+### Local full stack
+
+```bash
+docker compose up --build
+# frontend: http://localhost:5173
+# backend:  http://localhost:8000
+```
+
+Vite runs in the container with the source directory bind-mounted, so edits hot
+reload. The backend image does not auto-reload; rebuild it after backend changes:
+
+```bash
+docker compose up -d --build backend
+```
+
+### Backend without Docker
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
-### Frontend
+### Frontend without Docker
 
 ```bash
 cd frontend
@@ -487,23 +407,23 @@ npm install
 npm run dev
 ```
 
-The Vite dev server is expected on `http://localhost:5173`; it uses `/api` by
-default, or `VITE_API_BASE` if the backend is on another origin.
+Set `VITE_API_BASE` and `VITE_SUPABASE_URL` in `frontend/.env.local` when
+running outside the local Compose stack.
 
 ### Tests and checks
 
 ```bash
-# Backend unit/integration tests
+# Backend
 python3 -m pytest backend/tests -q
 
-# Frontend production build
+# Frontend
 cd frontend && npm run build
 
-# Backend tests + frontend build + migration render/parse
+# Backend + frontend + migration render/parse
 ./scripts/check_v2.sh
 ```
 
-Supabase RLS and auth-trigger tests:
+Supabase RLS/auth-trigger tests:
 
 ```bash
 npx supabase start
@@ -511,37 +431,55 @@ npx supabase db reset
 npx supabase test db
 ```
 
+### Docker images
+
+```bash
+docker build -t vidfetch-backend ./backend
+docker build -t vidfetch-frontend ./frontend   # local Vite image
+docker compose config                           # validate local stack
+```
+
+The frontend image is intentionally a development/Vite image. Vercel builds the
+production frontend.
+
 ---
 
 ## Project layout
 
 ```text
 backend/
+  Dockerfile             standalone FastAPI + yt-dlp + FFmpeg image
+  requirements.txt       backend runtime dependencies
   app/
     api/                 HTTP routes (auth, downloads, media, playlists, library, admin)
     core/                config, async database, JWT security, URL validation
     models/              Pydantic request/response models
     services/            yt-dlp, asset cache, jobs, worker, storage, playlists
-  tests/                 v1 and v2 test suites
+  tests/                 test suite
+
 frontend/
+  Dockerfile             local Vite dev-server image
+  vercel.json            Vercel/Vite + SPA rewrite
   src/
     auth/                Supabase session provider and route guards
     downloads/           polling provider
     pages/               Login, Pending, Dashboard, Library, History, Playlist, Admin
     lib/                 Supabase client, API client, media-token hook
+
 supabase/
+  config.toml            local Supabase CLI configuration
   templates/             schema-templated migrations
   migrations/            generated public migrations
   tests/                 pgTAP RLS/auth-trigger tests
-scripts/                 render/apply migrations, promote admin, local checks
-docs/                    architecture, setup, implementation status
-Dockerfile               current all-in-one multi-stage image
-docker-compose.yml       single-origin deployment + media volume (current)
 
-# Target split deployment (not implemented yet)
-frontend/Dockerfile      React build + nginx + /api proxy
-backend/Dockerfile       FastAPI + yt-dlp + FFmpeg
-vercel.json              SPA rewrite for Vercel
+docker/
+  supabase/              CLI wrapper used by local Compose
+  local-bootstrap/       local admin bootstrap
+
+docker-compose.yml       local frontend + backend + Supabase
+docker-compose.prod.yml  VPS backend-only production stack
+scripts/                 migrations, admin promotion, local checks
+docs/                    architecture, setup, implementation status
 ```
 
 ---
@@ -550,8 +488,8 @@ vercel.json              SPA rewrite for Vercel
 
 - The frontend is not the security boundary. Approval and admin checks run in
   the backend on every protected request.
-- JWTs are verified with Supabase’s keys; approval and role come from
-  `profiles`, never from user-editable metadata.
+- JWTs are verified with Supabase’s keys (JWKS/HS256); approval and role come
+  from `profiles`, never from user-editable metadata.
 - The service-role key and database credentials stay on the backend.
 - Media URLs are short-lived and signed for one asset and one user.
 - Downloads reject private/loopback URLs by default and apply size, playlist,
@@ -560,6 +498,7 @@ vercel.json              SPA rewrite for Vercel
   is revoked.
 - Shared media is never deleted by a normal user action; admin deletion and
   cache eviction own physical files.
+- The local bootstrap admin and fixed local Supabase keys are development-only.
 
 ---
 
@@ -567,21 +506,25 @@ vercel.json              SPA rewrite for Vercel
 
 | Symptom | Check |
 | --- | --- |
+| Local stack is slow to start | First run pulls Supabase and app images; wait for the `supabase` health check |
+| `local-bootstrap` exits with an error | `docker compose logs local-bootstrap`; Auth may still be starting |
+| Login form does not appear locally | `VITE_ENABLE_LOCAL_AUTH=true` in the frontend container env |
 | Google login redirects to an error | Supabase Site/Redirect URLs and the Google OAuth redirect URI |
 | Account stuck on `/pending` | `profiles.is_approved`; promote the first admin |
-| `401` on API calls | Supabase URL/keys, JWT issuer/audience, server clock |
+| `401` on API calls | Supabase URL/keys, JWKS/issuer/audience, server clock |
 | `403 approval_required` | The account is not approved |
 | `403 admin_required` | The account is approved but not an admin |
-| `relation "profiles" does not exist` | Migrations not applied, or `DB_SCHEMA` differs from the schema you migrated |
-| Media link returns `401` | The signed URL expired; request a fresh token |
-| YouTube returns `403` | Update `yt-dlp`, wait/retry, or use a different network; YouTube rate limits and bot checks are common |
-| Downloads do not start | Check the Docker logs and `/api/health` |
+| `CORS` errors in production | `CORS_ORIGINS` must equal the Vercel origin |
+| Media URL fails from Vercel | `PUBLIC_API_URL` must be the public HTTPS backend origin |
+| `relation "profiles" does not exist` | Migrations not applied, or `DB_SCHEMA` differs from the migrated schema |
+| Local Supabase containers remain after `down` | The wrapper trap should stop them; if not, run `npx supabase stop --no-backup` |
+| Ports already in use | Stop the old app/Supabase stack before `docker compose up` |
 
 ---
 
 ## Known limitations
 
-- The backend is designed for **one instance with a local persistent volume**.
+- The backend is designed for **one instance with a persistent volume**.
   Horizontal scaling would need shared storage and a shared worker deployment.
 - Playlist item retry creates a new video job; there is no dedicated per-item
   retry endpoint yet.
@@ -591,17 +534,17 @@ vercel.json              SPA rewrite for Vercel
   archive is deleted after streaming.
 - Hosted Supabase and Google OAuth must be configured with real credentials
   before production use.
-- The split `frontend/Dockerfile`, `backend/Dockerfile`, two-service Compose
-  file, and Vercel configuration are the target deployment refactor and are not
-  part of the current tagged release yet.
 - `apply_migrations.py` reapplies every file on a fresh database; it is not a
   ledger-based production migration runner.
+- The local Supabase wrapper relies on the Docker socket and host networking;
+  it is intended for Linux/WSL2 development. On Docker Desktop platforms where
+  host networking is restricted, use the Supabase CLI on the host instead.
 
 ---
 
 ## Documentation
 
-- [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) — full design, data model,
+- [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) — design, data model,
   security model, and trade-offs
 - [`docs/V2_SETUP.md`](docs/V2_SETUP.md) — detailed Supabase, Google OAuth,
   local, and Docker setup
