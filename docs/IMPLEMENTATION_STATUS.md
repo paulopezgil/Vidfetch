@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.0.1` released** |
+| Status | **`v2.0.2` released** |
 | Baseline | `v1.9.0` |
 | Integration branch | `v2` |
-| Release | `v2.0.1` (documentation patch) |
+| Release | `v2.0.2` (CI dependency patch) |
 | Last updated | 2026-11-22 |
 
 This is the implementation checklist for the v2 release. The root `README.md`
