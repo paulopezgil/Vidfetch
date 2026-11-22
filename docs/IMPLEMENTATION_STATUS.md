@@ -58,18 +58,22 @@ the operator documentation until v2 ships.
 - [x] Playlist list/detail/delete endpoints.
 - [x] History page migrated to v2 jobs.
 - [x] Backend library/history endpoints and admin job/asset inventory.
+- [x] Frontend Library and PlaylistDetail migration to v2.
+- [x] Removed the v1 SSE `ActiveTasksProvider` and unused v1 task card.
+- [x] Backend `DB_SCHEMA` support: validated schema, schema-aware queries,
+      default `public`.
 - [x] Supabase RLS and auth-trigger pgTAP coverage (56 assertions passing
       against local Supabase).
 - [x] Setup/smoke-test guide (`docs/V2_SETUP.md`).
 
 ## In progress
 
-- [ ] Frontend Library and PlaylistDetail migration to v2.
+- [ ] Templated Supabase migrations and renderer/apply tooling for custom
+      schemas such as `vidfetch`.
 
 ## Pending
 
-- [ ] Replace the v1 SSE `ActiveTasksProvider` with v2 polling (or optional
-      signed-token SSE) once the last pages are migrated.
+- [ ] Custom-schema end-to-end verification (`DB_SCHEMA=vidfetch`).
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming and cache eviction UI.
 - [ ] Live Supabase integration tests (migrations, trigger, RLS, JWKS).
@@ -85,12 +89,13 @@ the operator documentation until v2 ships.
 | Check | Result |
 | --- | --- |
 | Migration SQL parse (`pglast`) | 2 migrations parsed |
-| Backend pytest | 457 passed |
-| Frontend build | 120 modules, zero TS errors |
-| Mutation checks | media-token expiry, storage symlink escape, approval gate, cache repair, media approval re-check, and library-hidden filtering all failed as expected |
+| Backend pytest | 508 passed |
+| Frontend build | 119 modules, zero TS errors |
+| Mutation checks | media-token expiry, storage symlink escape, approval gate, cache repair, media approval re-check, library-hidden filtering, and schema qualification all failed as expected |
 | Local Supabase migrations | Applied cleanly (`supabase db reset`) |
 | Supabase pgTAP/RLS | 56 assertions passed |
-| Live JWKS/API integration | Not yet run |
+| Local auth/API integration | Health, profile trigger, JWT `/api/me`, pending 403, admin approval, admin 403, and real YouTube `/api/info` passed |
+| Local download job | Rerun pending (interrupted by a concurrent schema reset) |
 | Docker build | Passed (`vidfetch-v2-test`) |
 | Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
 | Real download smoke test | Not yet run |
