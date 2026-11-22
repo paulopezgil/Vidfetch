@@ -180,6 +180,7 @@ def test_cache_hit_marks_job_ready_without_downloading(tmp_path):
 
     assert jobs.rows[str(job["id"])]["status"] == "ready"
     assert jobs.rows[str(job["id"])]["asset_id"] == asset["id"]
+    assert jobs.rows[str(job["id"])]["title"] == "Clip"
     assert download_calls == []
     assert assets.claim_kwargs["canonical_id"] == "youtube:vid1"
     assert assets.claim_kwargs["options_hash"] == job["options_hash"]

@@ -356,6 +356,10 @@ class Worker:
         extractor_key = info.get("extractor_key") or ""
         duration = info.get("duration")
         try:
+            await self.jobs.update_job(self.db, key, title=title)
+        except Exception:  # noqa: BLE001 - title persistence is best effort
+            logger.exception("Failed to persist the title for job %s", key)
+        try:
             duration_seconds = int(duration) if duration is not None else None
         except (TypeError, ValueError):
             duration_seconds = None
