@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.0.0` released** |
+| Status | **`v2.0.1` released** |
 | Baseline | `v1.9.0` |
 | Integration branch | `v2` |
-| Release | `v2.0.0` |
+| Release | `v2.0.1` (documentation patch) |
 | Last updated | 2026-11-22 |
 
 This is the implementation checklist for the v2 release. The root `README.md`
@@ -18,7 +18,7 @@ now documents the shipped v2 application.
 | `v2` | `../yt-dlp-frontend-v2` | Integration branch |
 | `v2-backend` | `../yt-dlp-frontend-v2-backend` | Backend agent |
 | `v2-frontend` | `../yt-dlp-frontend-v2-frontend` | Frontend agent |
-| `dev` | main checkout | Stable v1.9.x maintenance |
+| `dev` | main checkout | Active development for the next release |
 
 ## Completed
 
