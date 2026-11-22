@@ -75,7 +75,6 @@ the operator documentation until v2 ships.
 
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming and cache eviction UI.
-- [ ] Real playlist + ZIP smoke test.
 - [ ] Hosted Supabase + Google OAuth setup and live smoke test.
 - [ ] v1 data backup/fresh-start confirmation.
 - [ ] Release readiness and `v2.0.0` tag from `main`.
@@ -103,7 +102,9 @@ the operator documentation until v2 ships.
 | Dedupe | Second identical job reused the same asset; one file on disk |
 | Media streaming | Full 200, range 206, thumbnail JPEG, download disposition |
 | Library/history | Both returned the ready jobs with asset metadata |
-| Real playlist + ZIP | Not yet run |
+| Real playlist download | 2-item channel playlist reached `ready`; both assets on disk |
+| Playlist detail/list | Returned the playlist and both ready items |
+| Playlist ZIP | Streamed 72.9 MB archive containing both MP4s |
 | Docker build | Passed (`vidfetch-v2-test`) |
 | Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
 | Real download smoke test | Not yet run |
