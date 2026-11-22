@@ -7,9 +7,20 @@ Vidfetch gives you a clean browser interface for downloading videos and
 playlists, with Google sign-in, administrator approval, a personal library, and
 a shared cache that stops the same file being downloaded twice.
 
-It is built for a home server, a small team, or a family: one Docker container,
-one web address, and a backend that does the heavy lifting with `yt-dlp` and
-FFmpeg.
+It is built for a home server, a small team, or a family. The backend does the
+heavy lifting with `yt-dlp` and FFmpeg; the frontend is a standalone React app.
+
+Vidfetch is designed to run in two ways:
+
+- **Local development:** a two-service Docker Compose stack (frontend + backend)
+- **Production:** the frontend on **Vercel**, the backend on a **VPS container**,
+  and **Supabase Cloud** for auth, Postgres, and the approval workflow
+
+> **Deployment status:** the current tagged release still ships as a single
+> multi-stage image with one origin. The split `frontend/Dockerfile`,
+> `backend/Dockerfile`, two-service Compose file, and Vercel configuration
+> described below are the **approved next step** and are not implemented yet.
+> No application code was changed for this README revision.
 
 > ⚠️ **Use it responsibly.** Vidfetch is only a frontend for `yt-dlp`. Download
 > content you are authorized to download, and follow the laws and terms of
@@ -23,6 +34,7 @@ FFmpeg.
 - [The problem Vidfetch solves](#the-problem-vidfetch-solves)
 - [What v2 adds](#what-v2-adds)
 - [How it works](#how-it-works)
+- [Deployment models](#deployment-models)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Project layout](#project-layout)
@@ -43,7 +55,7 @@ FFmpeg.
 - The **Supabase CLI** (`npx supabase`) if you want to apply migrations from
   the terminal
 
-Everything else — Python, Node.js, `yt-dlp`, FFmpeg — is inside the image.
+Everything else — Python, Node.js, `yt-dlp`, FFmpeg — is inside the containers.
 
 ### 1. Create the Supabase project and enable Google login
 
@@ -108,13 +120,48 @@ editor.
 > Want a dedicated schema such as `vidfetch` instead of `public`? See
 > [Database schema](#database-schema).
 
-### 4. Start Vidfetch
+### 4. Start Vidfetch locally
+
+Vidfetch supports two Docker layouts. The current release uses the first; the
+second is the target split deployment described in
+[Deployment models](#deployment-models).
+
+#### Option A — current release: one all-in-one image
 
 ```bash
 docker compose up --build
 ```
 
 Open **http://localhost:8000**.
+
+The root `Dockerfile` builds the React app in a Node stage, copies the static
+output into the Python runtime stage, and FastAPI serves both the SPA and
+`/api` from the same origin. This is the simplest local setup and is what the
+current tagged release uses.
+
+#### Option B — split frontend and backend containers (target)
+
+This is the deployment refactor. It is not implemented in the current release
+yet, but the target layout is:
+
+```text
+frontend/Dockerfile   React build + nginx, proxies /api to backend:8000
+backend/Dockerfile    Python + yt-dlp + FFmpeg, runs uvicorn
+docker-compose.yml    frontend + backend services; Supabase stays external
+```
+
+The intended local flow is:
+
+```bash
+# after the split is implemented
+docker compose up --build
+# frontend: http://localhost:3000
+# backend API: http://localhost:8000
+```
+
+The frontend container serves the SPA and proxies `/api` to the backend
+container, keeping browser requests same-origin locally. Only the backend
+receives `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `MEDIA_TOKEN_SECRET`.
 
 ### 5. Make yourself the first administrator
 
@@ -193,7 +240,8 @@ service:
   work without exposing the database or filesystem.
 - **Configurable database schema.** Great for forks; a deployment can use
   `public` (default) or a dedicated schema such as `vidfetch`.
-- **One Docker image and one origin** for a simple deployment.
+- **A simple single-image deployment today**, with a split
+  frontend/backend layout as the next deployment step.
 
 ---
 
@@ -220,7 +268,7 @@ flowchart LR
 | **Download engine** | `yt-dlp` + FFmpeg | Metadata extraction, downloads, merging, MP3 conversion, subtitles |
 | **Data & auth** | Supabase Auth + Postgres | Google OAuth, profiles, approval, jobs, cache registry, playlists |
 | **Storage** | Docker volume | Media files, thumbnails, temporary work directories |
-| **Deployment** | Docker + Docker Compose | One origin, one container, persistent volume |
+| **Deployment** | Docker + Compose / Vercel + VPS | Single-origin today; split deployment next |
 
 ### The download lifecycle
 
@@ -244,6 +292,115 @@ bandwidth and no extra disk.
 
 ---
 
+## Deployment models
+
+The application code and API are the same in every mode; packaging, origins, and
+environment variables differ. The split layouts below are the **target** for
+the next deployment refactor and are not in the current tagged release yet.
+
+| Mode | Frontend | Backend | Database/Auth | Status |
+| --- | --- | --- | --- | --- |
+| **Local all-in-one** | Built SPA served by FastAPI | Same container | Supabase Cloud | Current release |
+| **Local split** | `frontend/Dockerfile` (nginx) | `backend/Dockerfile` | Supabase Cloud | Target |
+| **Production** | Vercel | VPS container behind TLS | Supabase Cloud | Target |
+
+### Current release: single-origin image
+
+```text
+Dockerfile
+  stage 1: node:22-alpine  -> npm ci && npm run build
+  stage 2: python:3.11-slim -> FastAPI + ffmpeg + node
+                              copies frontend/dist to /app/frontend-dist
+
+docker-compose.yml
+  app:
+    build: .
+    ports: "8000:8000"
+    env_file: .env
+    volumes: ./downloads:/app/downloads
+```
+
+FastAPI serves both the SPA and `/api` on port 8000. Because everything is on
+one origin, the browser needs no CORS configuration and the frontend uses
+relative API paths.
+
+### Target local split: two containers
+
+```text
+frontend/Dockerfile
+  stage 1: node:22-alpine -> npm ci && npm run build
+  stage 2: nginx:alpine   -> static files + SPA fallback
+                             location /api/ { proxy_pass http://backend:8000; }
+
+backend/Dockerfile
+  python:3.11-slim + ffmpeg + node
+  pip install -r requirements.txt
+  uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+  VOLUME /app/downloads
+
+docker-compose.yml
+  frontend: build ./frontend, ports "3000:80", depends_on backend
+  backend:  build ./backend,  ports "8000:8000", volume ./downloads
+```
+
+Local split details:
+
+- The frontend image contains only public `VITE_*` values.
+- The backend image contains `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
+  `MEDIA_TOKEN_SECRET`.
+- Local browser requests stay same-origin because nginx proxies `/api` to the
+  backend.
+- Supabase Cloud remains external; auth redirect URLs include
+  `http://localhost:3000`.
+- The frontend does not serve media itself; signed media URLs point at the
+  backend (proxied through nginx or absolute in production).
+
+### Target production: Vercel + VPS
+
+**Frontend on Vercel**
+
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment:
+  - `VITE_SUPABASE_URL`
+  - `VITE_SUPABASE_ANON_KEY`
+  - `VITE_API_BASE=https://api.example.com/api`
+- A `vercel.json` SPA rewrite sends client-side routes such as `/library` and
+  `/admin` to `index.html`.
+
+**Backend on a VPS**
+
+- Build `backend/Dockerfile` and run the container behind Caddy/nginx with TLS.
+- Persist `/app/downloads` as a host volume or managed disk.
+- Environment includes the Supabase service-role key, database URL, JWT
+  verification settings, `MEDIA_TOKEN_SECRET`, and explicit
+  `CORS_ORIGINS=https://app.example.com`.
+- The worker runs inside the backend container; keep it on a single instance
+  until shared storage and a shared queue are introduced.
+
+**Cross-origin concerns**
+
+- The backend must allow the Vercel origin (and `Authorization` headers) via
+  `CORS_ORIGINS`; wildcard origins are not appropriate for credentialed
+  production traffic.
+- Supabase Auth must allow the Vercel domain and localhost redirect URLs.
+- Signed media URLs must be usable from the Vercel origin. The backend can
+  return absolute URLs based on a configured public API URL, or the frontend can
+  prefix relative URLs with `VITE_API_BASE`. Absolute URLs are clearer for
+  media, ZIPs, and `<video>` elements.
+- Cookies are not used; the JSON API uses Bearer JWTs and media uses
+  short-lived signed URLs.
+
+### Which option should I use?
+
+- **Single machine, simplest setup:** current all-in-one image.
+- **Local development with production-like separation:** two-service Compose.
+- **Public production deployment:** Vercel frontend + VPS backend + Supabase
+  Cloud, with explicit CORS and absolute API/media URLs.
+
+---
+
 ## Configuration
 
 All settings live in `.env`; `.env.example` documents every variable.
@@ -260,7 +417,8 @@ All settings live in `.env`; `.env.example` documents every variable.
 | `MEDIA_TOKEN_SECRET` | — | HMAC secret for signed media URLs |
 | `MEDIA_TOKEN_TTL_SECONDS` | `900` | Signed URL lifetime |
 | `DOWNLOAD_DIR` | `/app/downloads` | Media storage root |
-| `FRONTEND_DIST` | `/app/frontend-dist` | Built SPA assets |
+| `FRONTEND_DIST` | `/app/frontend-dist` | Built SPA assets (single-image mode) |
+| `CORS_ORIGINS` | empty | Comma-separated frontend origins for split deployment |
 
 ### Download limits
 
@@ -377,8 +535,13 @@ supabase/
   tests/                 pgTAP RLS/auth-trigger tests
 scripts/                 render/apply migrations, promote admin, local checks
 docs/                    architecture, setup, implementation status
-Dockerfile               multi-stage frontend + backend image
-docker-compose.yml       single-origin deployment + media volume
+Dockerfile               current all-in-one multi-stage image
+docker-compose.yml       single-origin deployment + media volume (current)
+
+# Target split deployment (not implemented yet)
+frontend/Dockerfile      React build + nginx + /api proxy
+backend/Dockerfile       FastAPI + yt-dlp + FFmpeg
+vercel.json              SPA rewrite for Vercel
 ```
 
 ---
@@ -428,6 +591,9 @@ docker-compose.yml       single-origin deployment + media volume
   archive is deleted after streaming.
 - Hosted Supabase and Google OAuth must be configured with real credentials
   before production use.
+- The split `frontend/Dockerfile`, `backend/Dockerfile`, two-service Compose
+  file, and Vercel configuration are the target deployment refactor and are not
+  part of the current tagged release yet.
 - `apply_migrations.py` reapplies every file on a fresh database; it is not a
   ledger-based production migration runner.
 
