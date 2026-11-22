@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.1.0` deployment refactor in progress** |
+| Status | **`v2.1.0` released** |
 | Baseline | `v1.9.0` |
-| Current released version | `v2.0.2` |
-| Branch | `dev` (main checkout) |
+| Current released version | `v2.1.0` |
+| Branch | `main` |
 | Last updated | 2026-11-22 |
 
 This is the implementation checklist for the current development cycle. The root
@@ -51,7 +51,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 
 ## Pending
 
-- [ ] Final release checks and `v2.1.0` release/tag from `main`.
+- [x] Final release checks and `v2.1.0` release/tag from `main`.
 - [ ] Live production smoke test on Vercel + VPS + Supabase Cloud.
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming endpoint.
