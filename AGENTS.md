@@ -46,6 +46,10 @@ Do not describe unbuilt v2 behavior as shipped in the root `README.md`.
 ## v2 architecture guardrails
 
 - Supabase Postgres is the application database; local SQLite is v1 only.
+- All application tables live in the schema named by `DB_SCHEMA` (default
+  `public`; a dedicated schema such as `vidfetch` is supported). Backend SQL
+  must use the validated schema helper, never a hardcoded `public.` prefix.
+  Migrations are rendered from `supabase/templates/` with the same schema.
 - Every protected endpoint verifies the Supabase JWT via JWKS/HS256 and loads
   `profiles` from the database. Never trust `user_metadata` for approval/role.
 - `profiles.is_approved` and `profiles.app_role` are the authorization source of
