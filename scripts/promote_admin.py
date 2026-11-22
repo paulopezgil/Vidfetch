@@ -16,9 +16,36 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import sys
 
 import asyncpg
+
+_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+_RESERVED = {
+    "auth",
+    "storage",
+    "extensions",
+    "graphql",
+    "graphql_public",
+    "information_schema",
+    "realtime",
+    "vault",
+}
+
+
+def application_schema() -> str:
+    schema = (os.getenv("DB_SCHEMA") or "public").strip()
+    if (
+        not _SCHEMA_RE.fullmatch(schema)
+        or schema.startswith("pg_")
+        or schema.startswith("supabase_")
+        or schema in _RESERVED
+    ):
+        raise SystemExit(
+            "DB_SCHEMA must be a safe lowercase identifier such as public or vidfetch."
+        )
+    return schema
 
 
 async def promote(email: str) -> int:
@@ -30,11 +57,12 @@ async def promote(email: str) -> int:
         )
         return 2
 
+    schema = application_schema()
     connection = await asyncpg.connect(database_url)
     try:
         row = await connection.fetchrow(
-            """
-            update public.profiles
+            f"""
+            update "{schema}".profiles
                set is_approved = true,
                    app_role = 'admin',
                    approved_at = now(),
