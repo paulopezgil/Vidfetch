@@ -124,6 +124,8 @@ export interface LibraryItem {
   created_at: string;
   status: DownloadJobStatus;
   format_selector: string;
+  /** Set when the asset was produced by a playlist item job. */
+  playlist_id?: string | null;
 }
 
 /** Paginated response for `GET /api/library`. */
@@ -143,6 +145,8 @@ export interface PlaylistV2 {
   title: string;
   channel: string;
   thumbnail_path: string | null;
+  /** Optional signed cover URL when the API can mint one for playlists. */
+  thumbnail_url?: string | null;
   item_count: number;
   options_hash: string;
   format_selector: string;
@@ -164,6 +168,8 @@ export interface PlaylistItemV2 {
   job_id: string | null;
   status: PlaylistItemStatus;
   error: string;
+  /** Optional signed thumbnail URL when the API can mint one for items. */
+  thumbnail_url?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -37,6 +37,9 @@ export class ApiError extends Error {
 function buildUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   const base = API_BASE.replace(/\/+$/, "");
+  // Accept paths that already include the API base (for example the result of
+  // `playlistZipUrl`) without prefixing it twice.
+  if (base && (path === base || path.startsWith(`${base}/`))) return path;
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -98,16 +101,15 @@ async function readBody<T>(res: Response): Promise<T> {
 }
 
 /**
- * Authenticated JSON fetch.
+ * Authenticated fetch that returns the raw response.
  *
  * The current Supabase access token is attached automatically. A `401`
- * triggers exactly one session refresh and one retry; if the retry still fails
- * the parsed API error is thrown.
+ * triggers exactly one session refresh and one retry.
  */
-export async function apiFetch<T>(
+async function authorizedFetch(
   path: string,
   init: RequestInit = {},
-): Promise<T> {
+): Promise<Response> {
   if (!supabase) {
     throw new ApiError(
       supabaseConfigError ?? "Supabase no està configurat.",
@@ -131,8 +133,100 @@ export async function apiFetch<T>(
     }
   }
 
+  return res;
+}
+
+/**
+ * Authenticated JSON fetch.
+ *
+ * Non-2xx responses are parsed into an `ApiError`.
+ */
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const res = await authorizedFetch(path, init);
   if (!res.ok) throw await parseError(res);
   return readBody<T>(res);
+}
+
+/** A binary response plus the filename suggested by the server, if any. */
+export interface BlobDownload {
+  blob: Blob;
+  filename: string | null;
+}
+
+function filenameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(value);
+  if (encoded?.[1]) {
+    const candidate = encoded[1].trim();
+    try {
+      return decodeURIComponent(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+
+  const quoted =
+    /filename\s*=\s*"([^"]+)"/i.exec(value) ??
+    /filename\s*=\s*([^;]+)/i.exec(value);
+  return quoted?.[1]?.trim() || null;
+}
+
+/** Authenticated binary fetch, used for on-demand archives and exports. */
+export async function fetchBlob(
+  path: string,
+  init: RequestInit = {},
+): Promise<BlobDownload> {
+  const res = await authorizedFetch(path, init);
+  if (!res.ok) throw await parseError(res);
+  return {
+    blob: await res.blob(),
+    filename: filenameFromContentDisposition(
+      res.headers.get("content-disposition"),
+    ),
+  };
+}
+
+/**
+ * Append `download=1` to a signed media URL without breaking an existing
+ * query string or fragment.
+ */
+export function withDownloadFlag(url: string): string {
+  const hashIndex = url.indexOf("#");
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : "";
+  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  const separator = base.includes("?")
+    ? base.endsWith("?") || base.endsWith("&")
+      ? ""
+      : "&"
+    : "?";
+  return `${base}${separator}download=1${hash}`;
+}
+
+/** Start a browser download for an already-authorized media URL. */
+export function triggerDownload(url: string, filename?: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  if (filename) anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
 }
 
 /** `GET /api/me` — current profile, approval flag and app role. */
@@ -306,4 +400,21 @@ export function getMediaToken(assetId: string): Promise<MediaToken> {
 /** Stream URL for a playlist ZIP (`GET /api/playlists/{playlist_id}/zip`). */
 export function playlistZipUrl(playlistId: string): string {
   return buildUrl(`/playlists/${encodeURIComponent(playlistId)}/zip`);
+}
+
+/**
+ * Download a playlist ZIP through the authenticated API.
+ *
+ * The ZIP endpoint requires a bearer token, so a plain navigation to
+ * `playlistZipUrl` would be rejected. Fetching it as a blob lets the normal
+ * Supabase auth and 401-refresh flow apply before the browser saves the file.
+ */
+export async function downloadPlaylistZip(
+  playlistId: string,
+  fallbackName = "playlist.zip",
+): Promise<void> {
+  const { blob, filename } = await fetchBlob(
+    `/playlists/${encodeURIComponent(playlistId)}/zip`,
+  );
+  triggerBlobDownload(blob, filename || fallbackName);
 }

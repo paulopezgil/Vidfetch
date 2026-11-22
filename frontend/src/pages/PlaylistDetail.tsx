@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import type { FormatName, PlaylistDetail, PlaylistItem } from "../types";
-import { formatBytes, formatDuration } from "../lib";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import type {
+  CreateDownloadPayload,
+  DownloadFormat,
+  PlaylistDetailV2,
+  PlaylistItemV2,
+} from "../types/v2";
+import { formatDuration } from "../lib";
 import {
-  deleteFile,
-  fileUrl,
+  deletePlaylist,
+  downloadPlaylistZip,
+  getMediaToken,
   getPlaylist,
-  mediaUrl,
-  startDownload,
-  streamTask,
-  zipUrl,
-} from "../api";
+  triggerDownload,
+  withDownloadFlag,
+} from "../lib/api";
 import Button from "../components/Button";
 import Thumbnail from "../components/Thumbnail";
 import ProgressBar from "../components/ProgressBar";
@@ -25,6 +29,8 @@ import EmptyState from "../components/EmptyState";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
+import { useDownloads } from "../downloads/DownloadsProvider";
+import { useMediaToken } from "../lib/useMediaToken";
 
 const formatOptions = [
   { value: "best", label: "Millor qualitat", icon: "high_quality" },
@@ -32,19 +38,22 @@ const formatOptions = [
   { value: "mp3", label: "MP3", icon: "music_note" },
 ];
 
-const AUDIO_EXTENSIONS = new Set([
-  "mp3",
-  "m4a",
-  "aac",
-  "wav",
-  "flac",
-  "ogg",
-  "opus",
-]);
+function formatFromSelector(selector: string): DownloadFormat {
+  const value = selector.toLowerCase();
+  if (value.includes("bestaudio") || value.includes("mp3")) return "mp3";
+  if (value.includes("720")) return "720p";
+  return "best";
+}
 
-function mediaTypeFor(filename: string): "video" | "audio" {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  return AUDIO_EXTENSIONS.has(ext) ? "audio" : "video";
+/** Playlist items inherit the audio/video nature of the playlist's format. */
+function mediaTypeForSelector(
+  formatSelector: string,
+): "video" | "audio" {
+  const selector = formatSelector.toLowerCase();
+  if (selector.includes("bestaudio") || selector.includes("mp3")) {
+    return "audio";
+  }
+  return "video";
 }
 
 interface PreviewState {
@@ -55,21 +64,22 @@ interface PreviewState {
 
 export default function PlaylistDetail() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const toast = useToast();
-  const [detail, setDetail] = useState<PlaylistDetail | null>(null);
+  const { activeJobs, createJob } = useDownloads();
+  const [detail, setDetail] = useState<PlaylistDetailV2 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [format, setFormat] = useState<FormatName>("best");
+  const [format, setFormat] = useState<DownloadFormat>("best");
   const [embedSubs, setEmbedSubs] = useState(false);
-  const [active, setActive] = useState(false);
-  const [busyUrl, setBusyUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [zipBusy, setZipBusy] = useState(false);
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<PlaylistItem | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
-  // The page polls refresh() every 3 s while a download is active. Guard the
-  // stored-format sync so that polling never overwrites a selection the user
-  // is in the middle of making: the playlist's persisted format is applied on
-  // first load and again only when the route switches to another playlist.
+  // Polling refreshes the whole detail view. Guard the stored-format sync so
+  // that a refresh never overwrites a selection the user is making: apply the
+  // persisted format on first load and when the route changes playlist.
   const appliedPlaylistRef = useRef<string | null>(null);
   const formatTouchedRef = useRef(false);
 
@@ -90,66 +100,127 @@ export default function PlaylistDetail() {
 
   useEffect(() => {
     setLoading(true);
-    refresh();
+    void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (!active) return;
-    const interval = window.setInterval(refresh, 3000);
-    return () => window.clearInterval(interval);
-  }, [active, refresh]);
-
-  useEffect(() => {
     if (!detail) return;
-    if (appliedPlaylistRef.current !== detail.playlist_id) {
-      appliedPlaylistRef.current = detail.playlist_id;
+    if (appliedPlaylistRef.current !== detail.id) {
+      appliedPlaylistRef.current = detail.id;
       formatTouchedRef.current = false;
     }
     if (!formatTouchedRef.current) {
-      setFormat(detail.format);
+      setFormat(formatFromSelector(detail.format_selector));
     }
   }, [detail]);
 
-  const startTask = useCallback(
-    async (payload: Parameters<typeof startDownload>[0], url: string | null) => {
+  const activeSourceUrls = useMemo(
+    () => new Set(activeJobs.map((job) => job.source_url)),
+    [activeJobs],
+  );
+
+  const playlistJobActive = detail
+    ? activeJobs.some(
+        (job) =>
+          job.source_url === detail.source_url || job.playlist_id === detail.id,
+      )
+    : false;
+  const itemJobActive =
+    detail?.items.some((item) => activeSourceUrls.has(item.source_url)) ??
+    false;
+  const downloadingItems =
+    detail?.items.some((item) => item.status === "downloading") ?? false;
+  const shouldPoll =
+    playlistJobActive ||
+    itemJobActive ||
+    downloadingItems ||
+    detail?.status === "downloading";
+
+  useEffect(() => {
+    if (!shouldPoll) return;
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [shouldPoll, refresh]);
+
+  const startJob = useCallback(
+    async (payload: CreateDownloadPayload, busyKey: string) => {
+      setBusy(busyKey);
       try {
-        const { task_id } = await startDownload(payload);
-        setActive(true);
-        setBusyUrl(url);
+        await createJob(payload);
         toast("Descàrrega iniciada", "info");
-        streamTask(
-          task_id,
-          () => {},
-          () => {
-            setActive(false);
-            setBusyUrl(null);
-            refresh();
-          },
-        );
       } catch (e) {
         toast(
-          e instanceof Error ? e.message : "No s’ha pogut iniciar la descàrrega",
+          e instanceof Error
+            ? e.message
+            : "No s’ha pogut iniciar la descàrrega",
+          "error",
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [createJob, toast],
+  );
+
+  const openPreview = useCallback(
+    async (item: PlaylistItemV2) => {
+      if (!item.asset_id) return;
+      try {
+        const token = await getMediaToken(item.asset_id);
+        setPreview({
+          title: item.title,
+          mediaType: mediaTypeForSelector(detail?.format_selector ?? ""),
+          src: token.url,
+        });
+      } catch (e) {
+        toast(
+          e instanceof Error
+            ? e.message
+            : "No s’ha pogut obrir el fitxer multimèdia.",
           "error",
         );
       }
     },
-    [refresh, toast],
+    [detail?.format_selector, toast],
   );
 
-  const confirmDeleteItem = useCallback(async () => {
-    if (!pendingDelete) return;
+  const confirmDeletePlaylist = useCallback(async () => {
+    if (!detail) return;
     try {
-      await deleteFile(pendingDelete.filename);
-      toast("Vídeo eliminat de la llista", "success");
-      setPendingDelete(null);
-      refresh();
+      // Removing a playlist deletes its rows only; shared media assets stay.
+      await deletePlaylist(detail.id);
+      toast("Llista de reproducció eliminada", "success");
+      setDeleteOpen(false);
+      navigate("/library");
     } catch (e) {
       toast(
-        e instanceof Error ? e.message : "No s’ha pogut eliminar el vídeo",
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut eliminar la llista de reproducció",
         "error",
       );
     }
-  }, [pendingDelete, refresh, toast]);
+  }, [detail, navigate, toast]);
+
+  const handleZip = useCallback(async () => {
+    if (!detail || zipBusy) return;
+    setZipBusy(true);
+    try {
+      await downloadPlaylistZip(
+        detail.id,
+        `${detail.title || "playlist"}.zip`,
+      );
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : "No s’ha pogut descarregar el ZIP",
+        "error",
+      );
+    } finally {
+      setZipBusy(false);
+    }
+  }, [detail, toast, zipBusy]);
 
   if (loading) {
     return (
@@ -177,8 +248,13 @@ export default function PlaylistDetail() {
     );
   }
 
-  const total = detail.item_count || 1;
-  const overall = Math.round((detail.downloaded_count / total) * 100);
+  const items = detail.items;
+  const readyCount = items.filter(
+    (item) => item.status === "ready" && item.asset_id,
+  ).length;
+  const failedCount = items.filter((item) => item.status === "failed").length;
+  const total = Math.max(detail.item_count, items.length, 1);
+  const overall = Math.round((readyCount / total) * 100);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -192,28 +268,37 @@ export default function PlaylistDetail() {
       <Card variant="outlined" className="p-4 sm:p-6">
         <div className="flex flex-col gap-5 sm:flex-row">
           <Thumbnail
-            src={detail.thumbnail_url}
+            src={detail.thumbnail_url ?? null}
             icon="playlist_play"
             className="aspect-video w-full sm:w-52"
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-headline-small text-on-surface">
-              {detail.title}
-            </h1>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="text-headline-small text-on-surface">
+                {detail.title}
+              </h1>
+              <StatusChip status={detail.status} />
+              <IconButton
+                variant="danger"
+                label="Elimina la llista de reproducció"
+                className="ml-auto"
+                disabled={playlistJobActive}
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Icon name="delete" className="text-[20px]" />
+              </IconButton>
+            </div>
             <p className="mt-1 text-body-medium text-on-surface-variant">
               {detail.channel}
               {detail.channel ? " · " : ""}
               {detail.item_count} vídeos
-              {detail.total_size ? ` · ${formatBytes(detail.total_size)}` : ""}
             </p>
 
             <div className="mt-4">
               <div className="mb-1.5 flex items-center justify-between text-label-medium text-on-surface-variant">
                 <span>
-                  {detail.downloaded_count} de {detail.item_count} descarregats
-                  {detail.failed_count
-                    ? ` · ${detail.failed_count} fallits`
-                    : ""}
+                  {readyCount} de {total} descarregats
+                  {failedCount ? ` · ${failedCount} fallits` : ""}
                 </span>
                 <span className="tabular-nums">{overall}%</span>
               </div>
@@ -221,9 +306,7 @@ export default function PlaylistDetail() {
                 value={overall}
                 label="Progrés de la descàrrega de la llista"
                 status={
-                  detail.failed_count && detail.downloaded_count
-                    ? "completed"
-                    : undefined
+                  failedCount && readyCount ? "completed" : undefined
                 }
               />
             </div>
@@ -237,7 +320,7 @@ export default function PlaylistDetail() {
                 value={format}
                 onChange={(value) => {
                   formatTouchedRef.current = true;
-                  setFormat(value as FormatName);
+                  setFormat(value as DownloadFormat);
                 }}
                 label="Format de descàrrega"
               />
@@ -253,36 +336,45 @@ export default function PlaylistDetail() {
             </div>
 
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              {detail.downloaded_count > 0 ? (
-                // The playlist's downloads are packaged into a ZIP built on
-                // demand by the backend, so this single action downloads the
-                // whole playlist (including any items retried since last time).
-                <a
-                  href={zipUrl(id)}
-                  className="inline-flex h-10 select-none items-center justify-center gap-2 whitespace-nowrap rounded-full bg-primary px-6 text-label-large font-medium text-on-primary transition-[background-color,box-shadow] duration-200 hover:shadow-elevation-1 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              {readyCount > 0 ? (
+                // The ZIP is built on demand by the backend and requires the
+                // bearer token, so fetch it through the authenticated client
+                // and save the resulting blob.
+                <Button
+                  onClick={() => void handleZip()}
+                  disabled={zipBusy}
+                  aria-label="Descarrega la llista de reproducció en un ZIP"
                 >
-                  <Icon name="download" className="text-[18px]" /> Descarrega la
-                  llista de reproducció
-                </a>
+                  {zipBusy ? (
+                    <Spinner className="text-[18px]" />
+                  ) : (
+                    <Icon name="download" className="text-[18px]" />
+                  )}
+                  Descarrega la llista de reproducció
+                </Button>
               ) : (
                 // Nothing is downloaded yet, so there is no archive to build:
                 // start the playlist download instead.
                 <Button
                   onClick={() =>
-                    startTask(
+                    void startJob(
                       {
-                        url: detail.url,
-                        operation_type: "playlist",
+                        url: detail.source_url,
+                        kind: "playlist",
                         format,
                         embed_subs: embedSubs && format !== "mp3",
-                        playlist_id: detail.playlist_id,
                       },
-                      null,
+                      "playlist",
                     )
                   }
+                  disabled={busy === "playlist" || playlistJobActive}
                 >
-                  <Icon name="download" className="text-[18px]" /> Descarrega la
-                  llista de reproducció
+                  {busy === "playlist" || playlistJobActive ? (
+                    <Spinner className="text-[18px]" />
+                  ) : (
+                    <Icon name="download" className="text-[18px]" />
+                  )}
+                  Descarrega la llista de reproducció
                 </Button>
               )}
             </div>
@@ -290,36 +382,29 @@ export default function PlaylistDetail() {
         </div>
       </Card>
 
-      {detail.items.length > 0 ? (
+      {items.length > 0 ? (
         <Card
           variant="outlined"
           className="divide-y divide-outline-variant overflow-hidden"
         >
-          {detail.items.map((item) => (
+          {items.map((item) => (
             <ItemRow
-              key={item.index}
+              key={item.id}
               item={item}
-              busy={busyUrl === item.url}
+              formatSelector={detail.format_selector}
+              busy={busy === item.id || activeSourceUrls.has(item.source_url)}
               onDownload={() =>
-                startTask(
+                void startJob(
                   {
-                    url: item.url,
-                    operation_type: "playlist_item",
+                    url: item.source_url,
+                    kind: "video",
                     format,
                     embed_subs: embedSubs && format !== "mp3",
-                    playlist_id: detail.playlist_id,
                   },
-                  item.url,
+                  item.id,
                 )
               }
-              onPreview={() =>
-                setPreview({
-                  title: item.title,
-                  mediaType: mediaTypeFor(item.filename),
-                  src: mediaUrl(item.filename),
-                })
-              }
-              onDelete={() => setPendingDelete(item)}
+              onPreview={() => void openPreview(item)}
             />
           ))}
         </Card>
@@ -340,21 +425,18 @@ export default function PlaylistDetail() {
       />
 
       <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Voleu eliminar el vídeo?"
+        open={deleteOpen}
+        title="Voleu eliminar la llista de reproducció?"
         message={
           <>
             S’eliminarà{" "}
-            <span className="font-medium text-on-surface">
-              {pendingDelete?.title}
-            </span>{" "}
-            del disc i l’element tornarà a l’estat pendent, de manera que es
-            podrà tornar a descarregar. Es conserva el registre a l’historial de
-            descàrregues.
+            <span className="font-medium text-on-surface">{detail.title}</span>{" "}
+            i els seus elements. Els fitxers multimèdia compartits no
+            s’eliminen i les descàrregues es conserven a l’historial.
           </>
         }
-        onConfirm={confirmDeleteItem}
-        onCancel={() => setPendingDelete(null)}
+        onConfirm={confirmDeletePlaylist}
+        onCancel={() => setDeleteOpen(false)}
       />
     </div>
   );
@@ -362,23 +444,43 @@ export default function PlaylistDetail() {
 
 function ItemRow({
   item,
+  formatSelector,
   busy,
   onDownload,
   onPreview,
-  onDelete,
 }: {
-  item: PlaylistItem;
+  item: PlaylistItemV2;
+  formatSelector: string;
   busy: boolean;
   onDownload: () => void;
   onPreview: () => void;
-  onDelete: () => void;
 }) {
-  const thumbSrc = item.video_id ? `/api/thumb/${item.video_id}.jpg` : null;
+  const toast = useToast();
+  const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
+  const [downloadingFile, setDownloadingFile] = useState(false);
+  const ready = item.status === "ready" && Boolean(item.asset_id);
+  const mediaType = mediaTypeForSelector(formatSelector);
+  const thumbSrc = token?.thumbnail_url ?? item.thumbnail_url ?? null;
+
+  async function handleFileDownload() {
+    if (downloadingFile) return;
+    setDownloadingFile(true);
+    try {
+      const fresh = await refreshToken();
+      if (!fresh) {
+        toast("No s’ha pogut preparar el fitxer per descarregar.", "error");
+        return;
+      }
+      triggerDownload(withDownloadFlag(fresh.url));
+    } finally {
+      setDownloadingFile(false);
+    }
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
       <span className="w-6 shrink-0 text-right text-label-medium tabular-nums text-on-surface-variant">
-        {item.index + 1}
+        {item.position}
       </span>
       <Thumbnail src={thumbSrc} icon="movie" className="aspect-video w-16" />
       <div className="min-w-0 flex-1">
@@ -386,10 +488,12 @@ function ItemRow({
           {item.title}
         </p>
         <div className="mt-0.5 flex items-center gap-3 text-label-medium text-on-surface-variant">
-          {item.duration ? (
-            <span className="tabular-nums">{formatDuration(item.duration)}</span>
+          {item.duration_seconds ? (
+            <span className="tabular-nums">
+              {formatDuration(item.duration_seconds)}
+            </span>
           ) : null}
-          {item.size ? <span>{formatBytes(item.size)}</span> : null}
+          <span>{mediaType === "audio" ? "Àudio" : "Vídeo"}</span>
           {item.status === "failed" && item.error ? (
             <span className="truncate text-error">{item.error}</span>
           ) : null}
@@ -397,28 +501,33 @@ function ItemRow({
       </div>
       <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         <StatusChip status={item.status} />
-        {item.status === "downloaded" && item.filename ? (
-          <IconButton
-            variant="tonal"
-            label="Reprodueix"
-            onClick={onPreview}
-          >
-            <Icon name="play_arrow" className="text-[20px]" />
-          </IconButton>
-        ) : null}
-        {item.status === "downloaded" && item.filename ? (
-          <IconButton
-            href={fileUrl(item.filename)}
-            variant="tonal"
-            label="Descarrega el fitxer"
-          >
-            <Icon name="download" className="text-[20px]" />
-          </IconButton>
+        {ready ? (
+          <>
+            <IconButton
+              variant="tonal"
+              label="Reprodueix"
+              onClick={onPreview}
+            >
+              <Icon name="play_arrow" className="text-[20px]" />
+            </IconButton>
+            <IconButton
+              variant="tonal"
+              label="Descarrega el fitxer"
+              onClick={() => void handleFileDownload()}
+              disabled={downloadingFile}
+            >
+              {downloadingFile ? (
+                <Spinner className="text-[20px]" />
+              ) : (
+                <Icon name="download" className="text-[20px]" />
+              )}
+            </IconButton>
+          </>
         ) : item.status === "downloading" || busy ? (
           <span className="px-2">
             <Spinner />
           </span>
-        ) : (
+        ) : item.source_url ? (
           <Button variant="outlined" size="sm" onClick={onDownload}>
             <Icon
               name={item.status === "failed" ? "refresh" : "download"}
@@ -426,19 +535,10 @@ function ItemRow({
             />
             {item.status === "failed"
               ? "Torna-ho a provar"
-              : item.status === "missing"
+              : item.status === "cancelled"
                 ? "Torna a descarregar"
                 : "Descarrega"}
           </Button>
-        )}
-        {item.status === "downloaded" && item.filename ? (
-          <IconButton
-            variant="danger"
-            label="Elimina el vídeo de la llista"
-            onClick={onDelete}
-          >
-            <Icon name="delete" className="text-[20px]" />
-          </IconButton>
         ) : null}
       </div>
     </div>
