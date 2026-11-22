@@ -25,7 +25,7 @@ def test_root_returns_json_diagnostics(tmp_path):
 
 
 def test_backend_does_not_serve_spa_routes(tmp_path, monkeypatch):
-    # A stale frontend-dist directory (as left by the old all-in-one image)
+    # A stale frontend-dist directory must not be mounted as SPA routes.
     # must not turn the API into a static file server. Chdir into the fixture
     # so the old cwd-relative default would find it.
     monkeypatch.chdir(tmp_path)

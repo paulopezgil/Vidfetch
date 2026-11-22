@@ -1,29 +1,136 @@
 name: vidfetch
 
+# Local development stack.
+#
+#   docker compose up --build
+#
+# Starts the Vite frontend, the FastAPI backend, and the official Supabase CLI
+# local stack (Postgres, Auth, Studio, etc.). No Supabase Cloud account is
+# required for local development.
+#
+# Supabase Cloud is only used in production: the Vercel frontend and the VPS
+# backend point at the same hosted project through environment variables.
+
 services:
-  app:
+  # -------------------------------------------------------------------------
+  # Local Supabase
+  #
+  # The CLI starts the official local Supabase containers through the mounted
+  # Docker socket. Host networking lets the CLI's own health checks reach the
+  # host-published Postgres/Auth ports (127.0.0.1:54322 and :54321).
+  # -------------------------------------------------------------------------
+  supabase:
     build:
-      context: .
-      args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-    container_name: vidfetch
+      context: ./docker/supabase
+    container_name: vidfetch-supabase
+    network_mode: host
+    working_dir: ${PWD}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}
+    environment:
+      # The local config enables the Google provider, so the CLI needs these
+      # values. Local email/password auth does not use them.
+      SUPABASE_AUTH_GOOGLE_CLIENT_ID: ${SUPABASE_AUTH_GOOGLE_CLIENT_ID:-local-placeholder}
+      SUPABASE_AUTH_GOOGLE_SECRET: ${SUPABASE_AUTH_GOOGLE_SECRET:-local-placeholder}
+    healthcheck:
+      # Wait for the Auth service, not just the CLI process: the CLI can report
+      # a healthy wrapper before the local services are fully ready.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:54321/auth/v1/health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+    stop_grace_period: 30s
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Backend API + download worker
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+    container_name: vidfetch-backend
     ports:
       - "8000:8000"
-    env_file:
-      - .env
     environment:
-      # Persistent media inside the container.
+      # Local Supabase CLI defaults. These are fixed local-development values,
+      # not production secrets.
+      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:54322/postgres
+      DB_SCHEMA: public
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      SUPABASE_JWKS_URL: http://host.docker.internal:54321/auth/v1/.well-known/jwks.json
+      SUPABASE_JWT_ISSUER: http://127.0.0.1:54321/auth/v1
+      SUPABASE_JWT_AUDIENCE: authenticated
+      MEDIA_TOKEN_SECRET: local-dev-media-token-secret
+      PUBLIC_API_URL: http://localhost:8000
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DOWNLOAD_DIR: /app/downloads
-      FRONTEND_DIST: /app/frontend-dist
-      DB_SCHEMA: ${DB_SCHEMA:-public}
-      # Optional overrides; .env values take precedence for the rest.
-      MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
-      MAX_CONCURRENT_JOBS_PER_USER: ${MAX_CONCURRENT_JOBS_PER_USER:-2}
-      MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-500}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      MAX_CONCURRENT_DOWNLOADS: "2"
+      MIN_FREE_DISK_MB: "100"
+      ALLOW_PRIVATE_URLS: "false"
     volumes:
-      - ./downloads:/app/downloads
+      - vidfetch_downloads:/app/downloads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      supabase:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     restart: unless-stopped
-    stop_grace_period: 30s
+
+  # -------------------------------------------------------------------------
+  # Frontend (Vite dev server for HMR)
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+    container_name: vidfetch-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      VITE_API_BASE: http://localhost:8000/api
+      VITE_ENABLE_LOCAL_AUTH: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Local administrator bootstrap
+  #
+  # Creates admin@local.test / password123 and approves the profile. This is a
+  # development convenience only; it is never part of the production stack.
+  # -------------------------------------------------------------------------
+  local-bootstrap:
+    build:
+      context: ./docker/local-bootstrap
+    container_name: vidfetch-local-bootstrap
+    environment:
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:54322/postgres
+      DB_SCHEMA: public
+      LOCAL_ADMIN_EMAIL: admin@local.test
+      LOCAL_ADMIN_PASSWORD: password123
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      supabase:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  vidfetch_downloads:

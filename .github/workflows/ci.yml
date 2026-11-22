@@ -48,6 +48,18 @@ jobs:
       - name: Build
         run: npm run build
 
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t vidfetch-backend ./backend
+      - name: Build frontend image
+        run: docker build -t vidfetch-frontend ./frontend
+      - name: Validate local Compose file
+        run: docker compose config >/dev/null
+
   migration-sql:
     name: Migration SQL syntax
     runs-on: ubuntu-latest
