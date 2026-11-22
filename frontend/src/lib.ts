@@ -44,6 +44,7 @@ export const STATUS_LABELS: Record<string, string> = {
   downloading: "Descarregant",
   processing: "Processant",
   ready: "A punt",
+  partial: "Parcial",
   completed: "Completat",
   failed: "Fallit",
   cancelled: "Cancel·lat",

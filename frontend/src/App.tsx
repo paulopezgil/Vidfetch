@@ -1,6 +1,5 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "./components/Toast";
-import { ActiveTasksProvider } from "./components/ActiveTasks";
 import { DownloadsProvider } from "./downloads/DownloadsProvider";
 import TopAppBar from "./components/TopAppBar";
 import NavigationDrawer from "./components/NavigationDrawer";
@@ -20,21 +19,19 @@ import Settings from "./pages/Settings";
 /** Navigation shell shared by every approved application route. */
 function AppShell() {
   return (
-    <ActiveTasksProvider>
-      <DownloadsProvider>
-        <div className="flex h-full bg-surface text-on-surface">
-          <NavigationDrawer />
-          <NavigationRail />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TopAppBar />
-            <main className="min-h-0 flex-1 overflow-y-auto">
-              <Outlet />
-            </main>
-            <NavigationBar />
-          </div>
+    <DownloadsProvider>
+      <div className="flex h-full bg-surface text-on-surface">
+        <NavigationDrawer />
+        <NavigationRail />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopAppBar />
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+          <NavigationBar />
         </div>
-      </DownloadsProvider>
-    </ActiveTasksProvider>
+      </div>
+    </DownloadsProvider>
   );
 }
 

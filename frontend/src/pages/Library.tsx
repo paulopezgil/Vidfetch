@@ -1,8 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { LibraryFile, LibraryResponse, Playlist } from "../types";
+import type {
+  DownloadJob,
+  LibraryItem,
+  PlaylistV2,
+} from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
-import { deleteFile, deletePlaylist, fileUrl, listLibrary, mediaUrl, zipUrl } from "../api";
+import {
+  deletePlaylist,
+  downloadPlaylistZip,
+  getMediaToken,
+  listLibrary,
+  listPlaylists,
+  removeFromLibrary,
+  triggerDownload,
+  withDownloadFlag,
+} from "../lib/api";
 import Thumbnail from "../components/Thumbnail";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -13,11 +26,20 @@ import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
-import TaskCard from "../components/TaskCard";
-import { useActiveTasks } from "../components/ActiveTasks";
+import JobCard from "../components/JobCard";
+import Button from "../components/Button";
+import StatusChip from "../components/StatusChip";
 import { useToast } from "../components/Toast";
+import { useDownloads } from "../downloads/DownloadsProvider";
+import { useMediaToken } from "../lib/useMediaToken";
 
 type Tab = "all" | "videos" | "audio" | "images" | "playlists";
+type MediaType = "video" | "audio" | "image";
+
+const PAGE = 20;
+const PLAYLIST_LIMIT = 100;
+/** Finished jobs stay in the "completed recently" strip for this long. */
+const RECENT_WINDOW_MS = 10 * 60 * 1000;
 
 const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "Tot" },
@@ -27,16 +49,64 @@ const tabs: { value: Tab; label: string }[] = [
   { value: "playlists", label: "Llistes" },
 ];
 
+const AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "m4a",
+  "aac",
+  "wav",
+  "flac",
+  "ogg",
+  "opus",
+]);
+
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "avif",
+  "bmp",
+]);
+
 interface PreviewState {
   title: string;
-  mediaType: "video" | "audio" | "image";
+  mediaType: MediaType;
   src: string;
+}
+
+function extensionOf(item: LibraryItem): string {
+  return item.output_ext.replace(/^\./, "").toLowerCase();
+}
+
+function mediaTypeFor(item: LibraryItem): MediaType {
+  const ext = extensionOf(item);
+  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  return "video";
+}
+
+/** Human label for the stored yt-dlp selector. */
+function formatLabel(selector: string): string {
+  const value = selector.toLowerCase();
+  if (value.includes("bestaudio") || value.includes("mp3")) return "Àudio";
+  if (value.includes("720")) return "720p";
+  return "Millor qualitat";
+}
+
+function isRecentJob(job: DownloadJob): boolean {
+  const stamp = job.completed_at ?? job.updated_at;
+  const time = Date.parse(stamp);
+  return Number.isFinite(time) && Date.now() - time < RECENT_WINDOW_MS;
 }
 
 export default function Library() {
   const toast = useToast();
-  const { tasks: activeTasks, finishedTask, cancelTask } = useActiveTasks();
-  const [data, setData] = useState<LibraryResponse | null>(null);
+  const { activeJobs, finishedJobs, cancelJob, jobs } = useDownloads();
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistV2[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
@@ -48,62 +118,123 @@ export default function Library() {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
-      setData(await listLibrary());
+      const [libraryPage, playlistPage] = await Promise.all([
+        listLibrary({ limit: PAGE, offset }),
+        listPlaylists({ limit: PLAYLIST_LIMIT, offset: 0 }),
+      ]);
+      setItems(libraryPage.items);
+      setTotal(libraryPage.total);
+      setPlaylists(playlistPage.items);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No s’ha pogut carregar la biblioteca.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut carregar la biblioteca.",
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [offset]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
-  // Tracked downloads are owned by the shared provider, so a download started
-  // from the Dashboard keeps streaming here after navigation.
-  const finishedNotice =
-    finishedTask?.status === "completed" ? finishedTask : null;
-
-  // When a tracked download reaches a terminal state, reload the library so the
-  // new file appears without a manual reload.
+  // Reload the library whenever a download reaches `ready`, so the new asset
+  // appears without a manual refresh. Keep polling updates from causing a
+  // reload on every tick by comparing the set of ready jobs.
+  const readySignature = useMemo(
+    () =>
+      jobs
+        .filter((job) => job.status === "ready")
+        .map((job) => `${job.id}:${job.asset_id ?? ""}`)
+        .sort()
+        .join("|"),
+    [jobs],
+  );
+  const previousReadyRef = useRef(readySignature);
   useEffect(() => {
-    if (!finishedTask) return;
-    refresh();
-  }, [finishedTask, refresh]);
+    if (previousReadyRef.current === readySignature) return;
+    previousReadyRef.current = readySignature;
+    void refresh();
+  }, [readySignature, refresh]);
+
+  const recentFinished = useMemo(
+    () =>
+      finishedJobs
+        .filter(
+          (job) => job.status === "ready" || job.status === "failed",
+        )
+        .filter(isRecentJob)
+        .slice(0, 3),
+    [finishedJobs],
+  );
 
   async function confirmDelete() {
     if (!pendingDelete) return;
     try {
       if (pendingDelete.kind === "file") {
-        await deleteFile(pendingDelete.id);
-        toast("Fitxer eliminat", "success");
+        await removeFromLibrary(pendingDelete.id);
+        toast("Element tret de la biblioteca", "success");
       } else {
         await deletePlaylist(pendingDelete.id);
         toast("Llista de reproducció eliminada", "success");
       }
       setPendingDelete(null);
-      refresh();
+      // Removing the last item on a page would leave the offset past the end.
+      if (pendingDelete.kind === "file" && items.length === 1 && offset > 0) {
+        setOffset(Math.max(0, offset - PAGE));
+      } else {
+        await refresh();
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : "No s’ha pogut eliminar", "error");
     }
   }
 
-  const files = data?.files ?? [];
-  const playlists = data?.playlists ?? [];
+  const openPreview = useCallback(
+    async (item: LibraryItem) => {
+      try {
+        const token = await getMediaToken(item.asset_id);
+        setPreview({
+          title: item.title,
+          mediaType: mediaTypeFor(item),
+          src: token.url,
+        });
+      } catch (e) {
+        toast(
+          e instanceof Error
+            ? e.message
+            : "No s’ha pogut obrir el fitxer multimèdia.",
+          "error",
+        );
+      }
+    },
+    [toast],
+  );
 
-  // Files downloaded on their own (not part of a playlist). Playlist items are
-  // reachable through the playlists section / playlist detail view instead.
-  const individualFiles = files.filter((f) => !f.playlist_id);
-  const videoFiles = individualFiles.filter((f) => f.media_type === "video");
-  const audioFiles = individualFiles.filter((f) => f.media_type === "audio");
-  const imageFiles = individualFiles.filter((f) => f.media_type === "image");
+  // Items downloaded as part of a playlist are reachable through the playlist
+  // detail view; keep them out of the individual-file sections.
+  const individualItems = useMemo(
+    () => items.filter((item) => !item.playlist_id),
+    [items],
+  );
+  const videoItems = individualItems.filter(
+    (item) => mediaTypeFor(item) === "video",
+  );
+  const audioItems = individualItems.filter(
+    (item) => mediaTypeFor(item) === "audio",
+  );
+  const imageItems = individualItems.filter(
+    (item) => mediaTypeFor(item) === "image",
+  );
 
-  const visibleVideos = tab === "all" || tab === "videos" ? videoFiles : [];
-  const visibleAudio = tab === "all" || tab === "audio" ? audioFiles : [];
-  const visibleImages = tab === "all" || tab === "images" ? imageFiles : [];
+  const visibleVideos = tab === "all" || tab === "videos" ? videoItems : [];
+  const visibleAudio = tab === "all" || tab === "audio" ? audioItems : [];
+  const visibleImages = tab === "all" || tab === "images" ? imageItems : [];
   const visiblePlaylists =
     tab === "all" || tab === "playlists" ? playlists : [];
 
@@ -117,30 +248,34 @@ export default function Library() {
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
-      {activeTasks.length > 0 || finishedNotice ? (
+      {activeJobs.length > 0 || recentFinished.length > 0 ? (
         <section className="space-y-3">
           <h2 className="px-1 text-title-medium text-on-surface">
-            Descàrregues actives
+            Descàrregues
           </h2>
-          {activeTasks.length > 0 ? (
+          {activeJobs.length > 0 ? (
             <div className="space-y-3">
-              {activeTasks.map((t) => (
-                <TaskCard key={t.task_id} task={t} onCancel={cancelTask} />
+              {activeJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onCancel={async (jobId) => {
+                    await cancelJob(jobId);
+                  }}
+                />
               ))}
             </div>
           ) : null}
-          {finishedNotice ? (
-            <div
-              role="status"
-              className="flex items-start gap-2 rounded-md bg-success-container px-4 py-3 text-body-medium text-on-success-container"
-            >
-              <Icon name="check_circle" className="shrink-0 text-[20px]" />
-              <span>
-                <span className="font-medium">
-                  {finishedNotice.title || "El vídeo"}
-                </span>{" "}
-                s’ha descarregat i ja apareix a la biblioteca.
-              </span>
+          {recentFinished.length > 0 ? (
+            <div className="space-y-2">
+              <h3 className="px-1 text-label-large text-on-surface-variant">
+                Acabades fa poc
+              </h3>
+              <div className="space-y-3">
+                {recentFinished.map((job) => (
+                  <JobCard key={job.id} job={job} />
+                ))}
+              </div>
             </div>
           ) : null}
         </section>
@@ -174,15 +309,15 @@ export default function Library() {
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visiblePlaylists.map((p) => (
+                {visiblePlaylists.map((playlist) => (
                   <PlaylistRow
-                    key={p.playlist_id}
-                    playlist={p}
+                    key={playlist.id}
+                    playlist={playlist}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "playlist",
-                        id: p.playlist_id,
-                        label: p.title,
+                        id: playlist.id,
+                        label: playlist.title,
                       })
                     }
                   />
@@ -202,22 +337,16 @@ export default function Library() {
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visibleVideos.map((f) => (
+                {visibleVideos.map((item) => (
                   <FileRow
-                    key={f.filename}
-                    file={f}
-                    onPreview={() =>
-                      setPreview({
-                        title: f.title,
-                        mediaType: f.media_type,
-                        src: mediaUrl(f.filename),
-                      })
-                    }
+                    key={item.job_id}
+                    item={item}
+                    onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
-                        id: f.filename,
-                        label: f.title,
+                        id: item.job_id,
+                        label: item.title,
                       })
                     }
                   />
@@ -237,22 +366,16 @@ export default function Library() {
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visibleAudio.map((f) => (
+                {visibleAudio.map((item) => (
                   <FileRow
-                    key={f.filename}
-                    file={f}
-                    onPreview={() =>
-                      setPreview({
-                        title: f.title,
-                        mediaType: f.media_type,
-                        src: mediaUrl(f.filename),
-                      })
-                    }
+                    key={item.job_id}
+                    item={item}
+                    onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
-                        id: f.filename,
-                        label: f.title,
+                        id: item.job_id,
+                        label: item.title,
                       })
                     }
                   />
@@ -272,22 +395,16 @@ export default function Library() {
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visibleImages.map((f) => (
+                {visibleImages.map((item) => (
                   <FileRow
-                    key={f.filename}
-                    file={f}
-                    onPreview={() =>
-                      setPreview({
-                        title: f.title,
-                        mediaType: f.media_type,
-                        src: mediaUrl(f.filename),
-                      })
-                    }
+                    key={item.job_id}
+                    item={item}
+                    onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
-                        id: f.filename,
-                        label: f.title,
+                        id: item.job_id,
+                        label: item.title,
                       })
                     }
                   />
@@ -299,7 +416,9 @@ export default function Library() {
           {!error && isEmpty ? (
             <EmptyState
               icon="folder_open"
-              title={tab === "all" ? "La biblioteca és buida" : "Aquí no hi ha res"}
+              title={
+                tab === "all" ? "La biblioteca és buida" : "Aquí no hi ha res"
+              }
               description={
                 tab === "all"
                   ? "Els vídeos i les llistes de reproducció que descarreguis apareixeran aquí."
@@ -307,25 +426,62 @@ export default function Library() {
               }
             />
           ) : null}
+
+          {total > PAGE && tab !== "playlists" ? (
+            <div className="flex items-center justify-between text-body-medium text-on-surface-variant">
+              <span>
+                {offset + 1}–{Math.min(offset + PAGE, total)} de {total}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outlined"
+                  size="sm"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="sm"
+                  disabled={offset + PAGE >= total}
+                  onClick={() => setOffset(offset + PAGE)}
+                >
+                  Següent
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title={`Voleu eliminar ${
+        title={
           pendingDelete?.kind === "file"
-            ? "el fitxer"
-            : "la llista de reproducció"
-        }?`}
+            ? "Voleu treure el fitxer de la biblioteca?"
+            : "Voleu eliminar la llista de reproducció?"
+        }
         message={
-          <>
-            S’eliminarà{" "}
-            <span className="font-medium text-on-surface">
-              {pendingDelete?.label}
-            </span>{" "}
-            del disc. Així i tot, es conserva el registre a l’historial de
-            descàrregues.
-          </>
+          pendingDelete?.kind === "file" ? (
+            <>
+              S’amagarà{" "}
+              <span className="font-medium text-on-surface">
+                {pendingDelete.label}
+              </span>{" "}
+              de la vostra biblioteca. El fitxer compartit no s’elimina i la
+              descàrrega es conserva a l’historial.
+            </>
+          ) : (
+            <>
+              S’eliminarà{" "}
+              <span className="font-medium text-on-surface">
+                {pendingDelete?.label}
+              </span>{" "}
+              i els seus elements. Els fitxers multimèdia compartits no
+              s’eliminen.
+            </>
+          )
         }
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
@@ -343,31 +499,57 @@ export default function Library() {
 }
 
 function FileRow({
-  file,
+  item,
   onDelete,
   onPreview,
 }: {
-  file: LibraryFile;
+  item: LibraryItem;
   onDelete: () => void;
   onPreview: () => void;
 }) {
-  const isImage = file.media_type === "image";
-  const icon = isImage
-    ? "image"
-    : file.media_type === "audio"
-      ? "music_note"
-      : "movie";
-  const thumbSrc = isImage ? mediaUrl(file.filename) : file.thumbnail_url;
+  const toast = useToast();
+  const mediaType = mediaTypeFor(item);
+  const isImage = mediaType === "image";
+  const icon =
+    mediaType === "audio" ? "music_note" : isImage ? "image" : "movie";
+  const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
+  const [downloading, setDownloading] = useState(false);
+  const ext = extensionOf(item);
+
+  async function handleDownload() {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      // Never reuse a thumbnail token for a download: tokens are short-lived.
+      const fresh = await refreshToken();
+      if (!fresh) {
+        toast("No s’ha pogut preparar el fitxer per descarregar.", "error");
+        return;
+      }
+      triggerDownload(withDownloadFlag(fresh.url));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-3 p-4">
-      <Thumbnail src={thumbSrc} icon={icon} className="aspect-video w-20" />
+      <Thumbnail
+        src={token?.thumbnail_url ?? null}
+        icon={icon}
+        className="aspect-video w-20"
+      />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-title-small text-on-surface">
-          {file.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-title-small text-on-surface">
+            {item.title}
+          </p>
+          <StatusChip status={item.status} />
+        </div>
         <p className="mt-0.5 text-body-small text-on-surface-variant">
-          {formatBytes(file.size)} · {file.ext.toUpperCase()} ·{" "}
-          {formatDate(new Date(file.mtime * 1000).toISOString())}
+          {formatBytes(item.file_size_bytes)} ·{" "}
+          {(ext || "fitxer").toUpperCase()} ·{" "}
+          {formatLabel(item.format_selector)} · {formatDate(item.created_at)}
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
@@ -376,18 +558,26 @@ function FileRow({
           label={isImage ? "Mostra la imatge" : "Reprodueix"}
           onClick={onPreview}
         >
-          <Icon name={isImage ? "image" : "play_arrow"} className="text-[20px]" />
+          <Icon
+            name={isImage ? "image" : "play_arrow"}
+            className="text-[20px]"
+          />
         </IconButton>
         <IconButton
-          href={fileUrl(file.filename)}
           variant="tonal"
           label="Descarrega el fitxer"
+          onClick={() => void handleDownload()}
+          disabled={downloading}
         >
-          <Icon name="download" className="text-[20px]" />
+          {downloading ? (
+            <Spinner className="text-[20px]" />
+          ) : (
+            <Icon name="download" className="text-[20px]" />
+          )}
         </IconButton>
         <IconButton
           variant="danger"
-          label="Elimina el fitxer"
+          label="Treu el fitxer de la biblioteca"
           onClick={onDelete}
         >
           <Icon name="delete" className="text-[20px]" />
@@ -401,39 +591,74 @@ function PlaylistRow({
   playlist,
   onDelete,
 }: {
-  playlist: Playlist;
+  playlist: PlaylistV2;
   onDelete: () => void;
 }) {
+  const toast = useToast();
+  const [zipping, setZipping] = useState(false);
+  const canZip =
+    playlist.status === "ready" || playlist.status === "partial";
+
+  async function handleZip() {
+    if (zipping) return;
+    setZipping(true);
+    try {
+      await downloadPlaylistZip(
+        playlist.id,
+        `${playlist.title || "playlist"}.zip`,
+      );
+    } catch (e) {
+      toast(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut descarregar el ZIP.",
+        "error",
+      );
+    } finally {
+      setZipping(false);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-3 p-4 sm:gap-4">
       <Thumbnail
-        src={playlist.thumbnail_url}
+        src={playlist.thumbnail_url ?? null}
         icon="playlist_play"
         className="aspect-video w-24"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-title-small text-on-surface">
-          {playlist.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-title-small text-on-surface">
+            {playlist.title}
+          </p>
+          <StatusChip status={playlist.status} />
+        </div>
         <p className="mt-0.5 text-body-small text-on-surface-variant">
-          {playlist.item_count} vídeos
-          {playlist.total_size ? ` · ${formatBytes(playlist.total_size)}` : ""}
+          {playlist.item_count} vídeos ·{" "}
+          {formatLabel(playlist.format_selector)}
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
         <Link
-          to={`/library/playlist/${playlist.playlist_id}`}
+          to={`/library/playlist/${playlist.id}`}
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary-container px-4 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
         >
           <Icon name="folder_open" className="text-[18px]" /> Mostra
         </Link>
-        {playlist.downloaded_count > 0 ? (
-          <a
-            href={zipUrl(playlist.playlist_id)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-outline px-4 text-label-large text-primary transition-colors hover:bg-primary/8"
+        {canZip ? (
+          <Button
+            variant="outlined"
+            size="sm"
+            onClick={() => void handleZip()}
+            disabled={zipping}
           >
-            <Icon name="folder_zip" className="text-[18px]" /> ZIP
-          </a>
+            {zipping ? (
+              <Spinner className="text-[18px]" />
+            ) : (
+              <Icon name="folder_zip" className="text-[18px]" />
+            )}
+            ZIP
+          </Button>
         ) : null}
         <IconButton
           variant="danger"
