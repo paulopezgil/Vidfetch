@@ -1,0 +1,22 @@
+-- Application schema bootstrap.
+--
+-- The default deployment uses the "public" schema so out-of-the-box forks work
+-- without configuration. Set DB_SCHEMA (for example, "vidfetch") and render the
+-- templates with scripts/render_migrations.py to keep every application table
+-- in a dedicated schema.
+
+create schema if not exists {{schema}};
+
+-- Client roles need to resolve the schema; the application migrations grant
+-- only the specific table privileges each role is allowed to use.
+grant usage on schema {{schema}} to anon, authenticated, service_role;
+
+-- Trusted server-side tooling uses the service role. Future tables created in
+-- this schema by the migration role inherit the same access. Client roles get
+-- no default table privileges.
+alter default privileges in schema {{schema}}
+    grant all on tables to service_role;
+alter default privileges in schema {{schema}}
+    grant all on sequences to service_role;
+alter default privileges in schema {{schema}}
+    grant execute on functions to service_role;

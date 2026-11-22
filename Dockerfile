@@ -1,11 +1,19 @@
 # ---- Stage 1: build the React frontend --------------------------------------
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 
 WORKDIR /build
 
-# Install dependencies first for better layer caching.
+# The Supabase URL and anon key are public client configuration, but they must
+# be present at build time. The service-role key must never be passed here.
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_BASE=/api
+ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL} \
+    VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY} \
+    VITE_API_BASE=${VITE_API_BASE}
+
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN npm ci
 
 COPY frontend/ ./
 RUN npm run build
@@ -38,13 +46,12 @@ COPY --from=frontend /build/dist ./frontend-dist/
 
 ENV FRONTEND_DIST=/app/frontend-dist \
     DOWNLOAD_DIR=/app/downloads \
-    DATA_DIR=/app/data \
     MAX_CONCURRENT_DOWNLOADS=2
 
-# Persistent directories, owned by a non-root user.
-RUN mkdir -p /app/downloads /app/data \
+# Persistent directory, owned by a non-root user.
+RUN mkdir -p /app/downloads \
     && useradd --create-home --uid 1000 appuser \
-    && chown -R appuser:appuser /app/downloads /app/data
+    && chown -R appuser:appuser /app/downloads
 
 # Entrypoint fixes bind-mount permissions, verifies runtimes, then drops to the
 # non-root user before starting the server.
@@ -57,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS http://localhost:8000/api/health || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

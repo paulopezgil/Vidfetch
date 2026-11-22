@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: ["v2", "dev", "main"]
+  pull_request:
+    branches: ["v2", "dev", "main"]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run pytest
+        run: python -m pytest backend/tests -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  migration-sql:
+    name: Migration SQL syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pglast
+        run: python -m pip install pglast
+      - name: Check rendered public migrations
+        run: python scripts/render_migrations.py --check
+      - name: Parse migrations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pglast
+
+          for path in sorted(Path("supabase/migrations").glob("*.sql")):
+              pglast.parse_sql(path.read_text())
+              print(f"parsed {path}")
+          PY
+      - name: Parse database tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pglast
+
+          for path in sorted(Path("supabase/tests").glob("*.sql")):
+              pglast.parse_sql(path.read_text())
+              print(f"parsed {path}")
+          PY
+      - name: Render and parse custom-schema migrations
+        env:
+          DB_SCHEMA: vidfetch
+        run: |
+          python scripts/render_migrations.py --output "$RUNNER_TEMP/vidfetch-migrations"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import pglast
+
+          output = Path(os.environ["RUNNER_TEMP"]) / "vidfetch-migrations"
+          paths = sorted(output.glob("*.sql"))
+          if not paths:
+              raise SystemExit("No custom-schema migrations were rendered")
+
+          for path in paths:
+              text = path.read_text()
+              if "{{" in text:
+                  raise SystemExit(f"Unreplaced placeholder in {path}")
+              pglast.parse_sql(text)
+              print(f"parsed custom-schema {path}")
+          PY
+
+  supabase:
+    name: Supabase RLS tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The local stack enables the Google provider, so the CLI needs these
+      # values to resolve config.toml. They are never used by the tests.
+      SUPABASE_AUTH_GOOGLE_CLIENT_ID: ci-placeholder
+      SUPABASE_AUTH_GOOGLE_SECRET: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.2.0
+      - name: Start local Supabase
+        run: supabase start
+      - name: Apply migrations and seed
+        run: supabase db reset
+      - name: Run pgTAP tests
+        run: supabase test db
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup

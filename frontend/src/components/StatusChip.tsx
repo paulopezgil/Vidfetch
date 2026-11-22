@@ -3,6 +3,7 @@ import Icon from "./Icon";
 
 const active = new Set([
   "queued",
+  "resolving",
   "fetching information",
   "downloading",
   "processing",
@@ -10,9 +11,12 @@ const active = new Set([
 
 const styles: Record<string, string> = {
   queued: "bg-surface-container-highest text-on-surface-variant",
+  resolving: "bg-primary-container text-on-primary-container",
   "fetching information": "bg-primary-container text-on-primary-container",
   downloading: "bg-primary-container text-on-primary-container",
   processing: "bg-primary-container text-on-primary-container",
+  ready: "bg-success-container text-on-success-container",
+  partial: "bg-warning-container text-on-warning-container",
   completed: "bg-success-container text-on-success-container",
   failed: "bg-error-container text-on-error-container",
   cancelled: "bg-surface-container-highest text-on-surface-variant",
@@ -23,9 +27,12 @@ const styles: Record<string, string> = {
 
 const icons: Record<string, string> = {
   queued: "schedule",
+  resolving: "sync",
   "fetching information": "sync",
   downloading: "download",
   processing: "sync",
+  ready: "check_circle",
+  partial: "warning",
   completed: "check_circle",
   failed: "error",
   cancelled: "cancel",
