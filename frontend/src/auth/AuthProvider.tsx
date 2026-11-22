@@ -7,10 +7,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { AuthError, Session } from "@supabase/supabase-js";
 import type { Profile } from "../types/auth";
 import { getMe } from "../lib/api";
+import { isLocalAuthEnabled } from "../lib/env";
 import { supabase, supabaseConfigError } from "../lib/supabase";
+
+/** Outcome of a development-only email/password sign-up. */
+export interface PasswordSignUpResult {
+  /**
+   * True when Supabase requires the user to confirm their email address
+   * before a session exists (the default for hosted projects).
+   */
+  needsEmailConfirmation: boolean;
+}
 
 interface AuthContextValue {
   /** Supabase session. `null` when signed out. */
@@ -22,6 +32,19 @@ interface AuthContextValue {
   /** User-facing error from the session or profile bootstrap. */
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  /**
+   * Development-only email/password sign-in. Rejects when
+   * `VITE_ENABLE_LOCAL_AUTH` is not `"true"`.
+   */
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  /**
+   * Development-only account creation. New accounts still start unapproved,
+   * so the normal `/pending` flow applies.
+   */
+  signUpWithPassword: (
+    email: string,
+    password: string,
+  ) => Promise<PasswordSignUpResult>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -31,6 +54,48 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "S'ha produït un error inesperat.";
+}
+
+/**
+ * Translate the Supabase Auth error codes that can realistically appear in
+ * the local email/password form. Unknown codes keep the server message.
+ */
+const passwordAuthMessages: Record<string, string> = {
+  invalid_credentials: "El correu o la contrasenya no són correctes.",
+  email_not_confirmed:
+    "Cal confirmar el correu electrònic abans d’iniciar sessió. Revisa la safata d’entrada.",
+  user_already_exists: "Ja existeix un compte amb aquest correu.",
+  email_exists: "Ja existeix un compte amb aquest correu.",
+  weak_password: "La contrasenya és massa feble. Fes servir com a mínim 6 caràcters.",
+  signup_disabled: "El registre amb correu està desactivat en aquest projecte.",
+  email_address_invalid: "L’adreça de correu no és vàlida.",
+  email_address_not_authorized:
+    "Aquest domini de correu no està autoritzat per registrar-se.",
+  validation_failed: "Revisa les dades introduïdes i torna-ho a provar.",
+  over_email_send_rate_limit:
+    "S’han enviat massa correus. Espera uns minuts i torna-ho a provar.",
+  over_request_rate_limit:
+    "Massa intents seguits. Espera uns minuts i torna-ho a provar.",
+};
+
+function passwordAuthError(error: AuthError): Error {
+  return new Error(passwordAuthMessages[error.code ?? ""] ?? error.message);
+}
+
+/**
+ * Both password methods are compile-time gated by the Vite env flag, so a
+ * production bundle can never reach them even if the UI were tampered with.
+ */
+function requireLocalAuthClient() {
+  if (!isLocalAuthEnabled) {
+    throw new Error(
+      "L’autenticació amb correu només està disponible en desenvolupament local.",
+    );
+  }
+  if (!supabase) {
+    throw new Error(supabaseConfigError ?? "Supabase no està configurat.");
+  }
+  return supabase;
 }
 
 /** Provider for Supabase Auth plus the backend profile (`GET /api/me`). */
@@ -137,6 +202,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const signInWithPassword = useCallback(
+    async (email: string, password: string) => {
+      const client = requireLocalAuthClient();
+      const { error: signInError } = await client.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) throw passwordAuthError(signInError);
+      // The session and profile arrive through `onAuthStateChange`.
+    },
+    [],
+  );
+
+  const signUpWithPassword = useCallback(
+    async (
+      email: string,
+      password: string,
+    ): Promise<PasswordSignUpResult> => {
+      const client = requireLocalAuthClient();
+      const { data, error: signUpError } = await client.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (signUpError) throw passwordAuthError(signUpError);
+      return { needsEmailConfirmation: !data.session };
+    },
+    [],
+  );
+
   const signOut = useCallback(async () => {
     if (!supabase) return;
     setError(null);
@@ -167,6 +262,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       signInWithGoogle,
+      signInWithPassword,
+      signUpWithPassword,
       signOut,
       refreshProfile,
     }),
@@ -176,6 +273,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       signInWithGoogle,
+      signInWithPassword,
+      signUpWithPassword,
       signOut,
       refreshProfile,
     ],

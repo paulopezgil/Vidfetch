@@ -1,4 +1,4 @@
-"""Tests for application assembly, SPA serving, CORS, and lifespan behavior."""
+"""Tests for application assembly, the JSON root, CORS, and lifespan behavior."""
 from __future__ import annotations
 
 import pytest
@@ -10,42 +10,44 @@ from backend.app.main import create_app
 from backend.tests.v2.fakes import app_client, make_settings
 
 
-def test_root_returns_json_when_frontend_absent(tmp_path):
+def test_root_returns_json_diagnostics(tmp_path):
     settings = make_settings(tmp_path)
 
     with app_client(settings) as (app, client):
         response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json()["app"] == "vidfetch"
+    body = response.json()
+    assert body["app"] == "vidfetch"
+    assert body["docs"] == "/docs"
+    assert body["version"]
+    assert "frontend" in body["message"].lower()
 
 
-def test_spa_is_served_without_shadowing_api(tmp_path):
-    dist = tmp_path / "dist"
-    assets = dist / "assets"
-    assets.mkdir(parents=True)
+def test_backend_does_not_serve_spa_routes(tmp_path, monkeypatch):
+    # A stale frontend-dist directory must not be mounted as SPA routes.
+    # must not turn the API into a static file server. Chdir into the fixture
+    # so the old cwd-relative default would find it.
+    monkeypatch.chdir(tmp_path)
+    dist = tmp_path / "frontend-dist"
+    (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>spa-index</html>", encoding="utf-8")
-    (assets / "app.js").write_text("console.log('hi')", encoding="utf-8")
-    settings = make_settings(tmp_path, FRONTEND_DIST=dist)
+    (dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    settings = make_settings(tmp_path)
 
     with app_client(settings) as (app, client):
-        root = client.get("/")
         deep_link = client.get("/admin/users")
         asset = client.get("/assets/app.js")
         api = client.get("/api/health")
         unknown_api = client.get("/api/nope")
 
-    assert root.status_code == 200
-    assert root.text == "<html>spa-index</html>"
-    assert deep_link.status_code == 200
-    assert deep_link.text == "<html>spa-index</html>"
-    assert asset.status_code == 200
-    assert "console.log" in asset.text
+    assert deep_link.status_code == 404
+    assert "spa-index" not in deep_link.text
+    assert asset.status_code == 404
     assert api.status_code == 200
     assert api.json()["status"] == "degraded"
     assert unknown_api.status_code == 404
     assert unknown_api.json()["error"]["code"] == "not_found"
-    assert unknown_api.text != "<html>spa-index</html>"
 
 
 def test_cors_wildcard_does_not_allow_credentials(tmp_path):
@@ -73,6 +75,44 @@ def test_cors_explicit_origin_allows_credentials(tmp_path):
         == "https://app.example.test"
     )
     assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_preflight_allows_authorization_header(tmp_path):
+    settings = make_settings(
+        tmp_path, CORS_ORIGINS="http://localhost:5173"
+    )
+
+    with app_client(settings) as (app, client):
+        response = client.options(
+            "/api/me",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+
+    assert response.status_code == 200
+    assert (
+        response.headers["access-control-allow-origin"]
+        == "http://localhost:5173"
+    )
+    assert response.headers["access-control-allow-credentials"] == "true"
+    allowed = response.headers["access-control-allow-headers"].lower()
+    assert "authorization" in allowed
+
+
+def test_cors_unknown_origin_is_not_allowed(tmp_path):
+    settings = make_settings(
+        tmp_path, CORS_ORIGINS="https://app.example.test"
+    )
+
+    with app_client(settings) as (app, client):
+        response = client.get(
+            "/api/health", headers={"Origin": "https://evil.example.test"}
+        )
+
+    assert "access-control-allow-origin" not in response.headers
 
 
 def test_non_test_environment_validates_configuration_on_startup(tmp_path):

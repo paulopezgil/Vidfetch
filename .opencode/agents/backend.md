@@ -19,7 +19,8 @@ You are the **BACKEND agent** for **vidfetch**, a full-stack web frontend for
 - You work **only** on the backend: `backend/**`.
 - You must **never** edit anything under `frontend/**`. If a task seems to need a
   frontend change, **stop and report it** instead — the frontend agent owns that.
-- You work in the **backend worktree** on the **`dev-backend`** branch.
+- You work in the **backend worktree** (`.worktrees/backend`) on the
+  **`dev-backend`** branch.
 - Confirm where you are before starting:
   - `git branch --show-current` → must be `dev-backend`.
 

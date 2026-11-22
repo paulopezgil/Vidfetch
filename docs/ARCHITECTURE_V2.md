@@ -41,8 +41,9 @@ small multiuser application:
    a valid cached file exists.
 4. Keep each user’s dashboard, library, history, and playlists private.
 5. Preserve the v1.9 feature set or explicitly document any regression.
-6. Keep the deployment simple: one application origin, one persistent volume,
-   hosted Supabase for Auth/Postgres.
+6. Keep deployment simple in both modes: one-command local Compose with a local
+   Supabase stack, and a decoupled production deployment (Vercel + VPS +
+   Supabase Cloud) with one persistent backend media volume.
 
 ### 1.2 Non-goals for v2.0.0
 
@@ -179,38 +180,58 @@ flowchart LR
 
 ## 5. Deployment topology
 
-### 5.1 Proposed: single origin
+### 5.1 Local: two application services + local Supabase
 
-Keep the current model: one application container (or a small nginx reverse
-proxy in front of FastAPI) serves the built SPA and the API on the same origin.
+Local development uses Docker Compose with:
 
-Benefits:
+- a Vite dev-server frontend on `http://localhost:5173`
+- a FastAPI/worker backend on `http://localhost:8000`
+- the official Supabase CLI local stack (Postgres, Auth, Studio, …)
 
-- No CORS configuration for the normal app.
-- Cookies, if used later, work without `SameSite=None` complexity.
-- SSE and media URLs share an origin.
-- One `docker-compose` service to operate.
-- Existing Docker volume layout can be preserved.
+The frontend and backend are separate containers. The browser talks to the
+frontend on `5173` and to the backend API on `8000`; the backend uses the local
+Supabase database and Auth services. A one-shot bootstrap container creates a
+local administrator. No Supabase Cloud account is required.
 
-### 5.2 Rejected for v2.0.0: split frontend/backend origins
+The Supabase service is a small wrapper around the official CLI. It uses the
+host Docker socket to start the official local Supabase containers, host
+networking for the CLI health checks, and the same absolute repository path
+inside and outside the wrapper. On `docker compose down`, the wrapper stops the
+CLI stack.
 
-Separate frontend and backend services are useful for independent scaling, but
-they add CORS, credential, SSE, and media-auth complexity that v2 does not need.
-They can be introduced later without changing the data model.
+### 5.2 Production: Vercel frontend + VPS backend + Supabase Cloud
+
+Production is decoupled:
+
+```text
+Vercel frontend  ──HTTPS + Bearer JWT──►  VPS backend container  ──►  Supabase Cloud
+        │                                                              │
+        └──────────────────── Google OAuth ────────────────────────────┘
+```
+
+- The frontend is built natively by Vercel from `frontend/`; `frontend/vercel.json`
+  provides the SPA rewrite.
+- The backend runs from `backend/Dockerfile` on a VPS behind a TLS reverse proxy.
+- Supabase Auth/Postgres are hosted by Supabase Cloud.
+- `PUBLIC_API_URL` makes signed media/thumbnail URLs absolute for the Vercel
+  origin.
+- `CORS_ORIGINS` explicitly allows the Vercel origin.
+- `DB_SCHEMA` still selects the application schema (`public` or a dedicated one).
 
 ### 5.3 Docker layout
 
-Proposed repository layout:
-
 ```text
-Dockerfile                 multi-stage frontend build + backend runtime
-docker-compose.yml         app service + persistent media volume
-docker-entrypoint.sh       permission fix + runtime checks
+backend/Dockerfile          FastAPI + yt-dlp + FFmpeg
+frontend/Dockerfile         Vite dev server for local Docker Compose
+docker/supabase/            Supabase CLI wrapper for local Compose
+docker/local-bootstrap/     local administrator bootstrap
+docker-compose.yml          local frontend + backend + Supabase stack
+docker-compose.prod.yml     backend-only VPS stack
+frontend/vercel.json        Vercel build + SPA rewrite
 ```
 
-If a reverse proxy is introduced, it should be part of the same image or a
-small nginx service that proxies `/api` to FastAPI and serves the SPA. The
-frontend must not be given database or service-role credentials.
+There is no all-in-one application image. The frontend must never receive
+database credentials or the Supabase service-role key.
 
 ---
 
@@ -915,7 +936,7 @@ Proposed policy:
 | `DATABASE_URL` | backend | Postgres connection string (pooler recommended) |
 | `DB_SCHEMA` | backend + migrations | Application table schema; default `public`, e.g. `vidfetch` |
 | `DOWNLOAD_DIR` | backend | Persistent media root |
-| `FRONTEND_DIST` | backend | Built SPA assets (set by the image) |
+| `PUBLIC_API_URL` | backend | Absolute public backend origin for signed media URLs |
 | `ALLOW_PRIVATE_URLS` | backend | Allow private/loopback media URLs; false in production |
 | `MAX_CONCURRENT_DOWNLOADS` | backend | Global download concurrency |
 | `MAX_CONCURRENT_JOBS_PER_USER` | backend | Per-user concurrency |
@@ -926,7 +947,7 @@ Proposed policy:
 | `MEDIA_TOKEN_SECRET` | backend | HMAC secret for signed media URLs |
 | `MEDIA_TOKEN_TTL_SECONDS` | backend | Signed URL lifetime |
 | `JOB_LEASE_SECONDS` | backend | Worker/asset lease duration |
-| `CORS_ORIGINS` | backend | Explicit origins if split-origin is ever used |
+| `CORS_ORIGINS` | backend | Explicit browser origins (local Vite / Vercel) |
 
 Notes:
 
@@ -1118,15 +1139,14 @@ Follow the repository rules:
 - `backend/version.py:APP_VERSION` is the single version source and is bumped
   only in the `release: vX.Y.Z` commit on `main`.
 
-For v2:
+Current workflow (after the v2 release):
 
-- Create a long-lived `v2` integration branch from `dev`.
-- Create `v2-backend` and `v2-frontend` worktrees/branches for the two agents.
-- Merge sub-branches into `v2`; merge `v2` into `dev` at stable milestones.
-- Keep `dev` releasable for v1.9.x patch releases during the rewrite.
-- When v2 reaches parity and passes release readiness, merge `dev` → `main`,
-  bump `APP_VERSION` to `2.0.0`, commit `release: v2.0.0`, tag `v2.0.0`, and
-  push.
+- The long-lived `v2` integration branch was merged into `main` and deleted.
+- Active work happens on `dev`; the agent worktrees are
+  `.worktrees/backend` (`dev-backend`) and `.worktrees/frontend`
+  (`dev-frontend`).
+- Merge feature branches into `dev`; release from `main` with a version bump,
+  `release: vX.Y.Z` commit, and tag.
 
 Release commit types:
 
@@ -1290,7 +1310,7 @@ Please confirm or adjust:
 
 1. Is the **`v2` integration branch** approach acceptable, or should v2 land
    directly on `dev`?
-2. Is **single-origin deployment** the right constraint for v2?
+2. Is the **split deployment** (local Compose + Vercel/VPS production) right?
 3. Is the **global shared cache + per-user jobs** model the intended semantics?
 4. Should user deletion remove only their library entry, never the shared file?
 5. Are **playlists/ZIP/per-item retry** required for v2.0.0, or can they follow?

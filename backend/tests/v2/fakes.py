@@ -328,7 +328,6 @@ def make_settings(tmp_path, **overrides: Any) -> Settings:
         "SUPABASE_JWT_SECRET": TEST_JWT_SECRET,
         "SUPABASE_JWT_AUDIENCE": "authenticated",
         "DOWNLOAD_DIR": str(tmp_path / "downloads"),
-        "FRONTEND_DIST": str(tmp_path / "frontend-dist"),
     }
     env.update({key: str(value) for key, value in overrides.items()})
     return Settings.from_env(env)

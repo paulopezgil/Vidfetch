@@ -3,6 +3,10 @@
 Nothing here connects to the network, a database, or the filesystem at import
 time. The pool is created in the lifespan, which also ensures the media storage
 directories exist. ``app`` is exported for ``uvicorn backend.app.main:app``.
+
+The backend is a pure JSON/media API: the UI is a separately deployed app
+(Vite dev server locally, Vercel in production). Only ``/`` returns a small
+diagnostic payload; everything user-facing lives under ``/api``.
 """
 from __future__ import annotations
 
@@ -10,17 +14,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from ..version import APP_VERSION
-from .api.errors import ApiError, register_exception_handlers
+from .api.errors import register_exception_handlers
 from .api.routes import admin, downloads, health, library, media, me, playlists
 from .core.config import Settings
 from .core.db import create_pool
 from .services.storage import Storage
 from .services.worker import Worker
-API_PREFIX = "api"
 
 
 def _create_lifespan(resolved: Settings):
@@ -59,38 +60,15 @@ def _create_lifespan(resolved: Settings):
     return lifespan
 
 
-def _add_spa_routes(app: FastAPI, frontend_dist) -> None:
-    """Serve the built SPA when present, without shadowing ``/api``."""
-    dist = frontend_dist.resolve()
-    assets = dist / "assets"
-    if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa(full_path: str) -> FileResponse:
-        if full_path == API_PREFIX or full_path.startswith(f"{API_PREFIX}/"):
-            raise ApiError(404, "not_found", "Not found.")
-
-        candidate = (dist / full_path).resolve()
-        if (
-            full_path
-            and candidate.is_file()
-            and (candidate == dist or dist in candidate.parents)
-        ):
-            return FileResponse(candidate)
-
-        index = dist / "index.html"
-        if not index.is_file():
-            raise ApiError(404, "not_found", "Not found.")
-        return FileResponse(index)
-
-
 def _add_root_json_route(app: FastAPI) -> None:
+    """Small diagnostic payload; the UI lives in its own frontend service."""
+
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:
         return {
             "app": "vidfetch",
-            "message": "API is running. Serve the Vite dev server for the UI.",
+            "version": APP_VERSION,
+            "message": "Vidfetch API. The web UI is served by the frontend app.",
             "docs": "/docs",
         }
 
@@ -111,8 +89,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
 
-    # A wildcard origin is public by definition; never combine it with
-    # credentials. Explicit origins may use credentialed requests.
+    # CORS: the browser UI is a separate origin. Local development uses the
+    # Vite dev server (http://localhost:5173); production uses the deployed
+    # Vercel origin. Origins stay explicit so credentialed (Bearer) requests
+    # are only allowed from known sites. A wildcard origin is public by
+    # definition, so it is never combined with credentials.
     wildcard = resolved.cors_origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
@@ -130,11 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(media.router)
     app.include_router(playlists.router)
 
-    frontend_dist = resolved.frontend_dist
-    if frontend_dist.is_dir():
-        _add_spa_routes(app, frontend_dist)
-    else:
-        _add_root_json_route(app)
+    _add_root_json_route(app)
 
     return app
 

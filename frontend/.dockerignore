@@ -1,0 +1,19 @@
+# Dependencies and build output are produced inside the image/build step.
+node_modules
+dist
+dist-ssr
+.vite
+*.tsbuildinfo
+
+# Never bake environment files (or their secrets) into the image.
+.env
+.env.*
+!.env.example
+
+# Local tooling and editor noise.
+.git
+.gitignore
+Dockerfile
+.dockerignore
+npm-debug.log*
+.DS_Store
