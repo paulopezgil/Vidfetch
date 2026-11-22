@@ -57,11 +57,13 @@ the operator documentation until v2 ships.
 - [x] Signed media and thumbnail streaming with range support.
 - [x] Playlist list/detail/delete endpoints.
 - [x] History page migrated to v2 jobs.
+- [x] Backend library/history endpoints and admin job/asset inventory.
+- [x] Supabase RLS and auth-trigger pgTAP coverage (56 assertions passing
+      against local Supabase).
 - [x] Setup/smoke-test guide (`docs/V2_SETUP.md`).
 
 ## In progress
 
-- [ ] Backend library/history/admin inventory endpoints.
 - [ ] Frontend Library and PlaylistDetail migration to v2.
 
 ## Pending
@@ -83,10 +85,12 @@ the operator documentation until v2 ships.
 | Check | Result |
 | --- | --- |
 | Migration SQL parse (`pglast`) | 2 migrations parsed |
-| Backend pytest | 418 passed |
+| Backend pytest | 457 passed |
 | Frontend build | 120 modules, zero TS errors |
-| Mutation checks | media-token expiry, storage symlink escape, approval gate, cache repair, and media approval re-check all failed as expected |
-| Live Supabase | Not yet run |
+| Mutation checks | media-token expiry, storage symlink escape, approval gate, cache repair, media approval re-check, and library-hidden filtering all failed as expected |
+| Local Supabase migrations | Applied cleanly (`supabase db reset`) |
+| Supabase pgTAP/RLS | 56 assertions passed |
+| Live JWKS/API integration | Not yet run |
 | Docker build | Passed (`vidfetch-v2-test`) |
 | Container startup | `/api/health` 200 degraded (test env), `/` 200, `/login` 200 |
 | Real download smoke test | Not yet run |
