@@ -225,7 +225,7 @@ def test_replace_items_inserts_when_no_rows_exist_and_dedupes_canonical():
 
     assert [row["canonical_id"] for row in rows] == ["youtube:same"]
     assert len([call for call in db.calls if call[0] == "fetchrow"]) == 1
-    assert "insert into public.playlist_items" in db.calls[1][1]
+    assert 'insert into "public".playlist_items' in db.calls[1][1]
 
 
 def test_update_item_only_sets_supplied_link_columns():

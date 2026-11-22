@@ -27,11 +27,14 @@ LIBRARY_COLUMNS = (
 
 # Every branch shares the same ownership/visibility predicate. Keeping it in
 # one place makes it hard to accidentally drop a condition from the count or
-# the page query.
-LIBRARY_FROM = (
-    "from public.download_jobs j "
-    "join public.media_assets a on j.asset_id = a.id"
-)
+# the page query. The FROM clause is a function because the schema is
+# configurable per deployment.
+def _library_from(schema_sql: str) -> str:
+    return (
+        f"from {schema_sql}.download_jobs j "
+        f"join {schema_sql}.media_assets a on j.asset_id = a.id"
+    )
+
 
 LIBRARY_WHERE = (
     "where j.user_id = $1 "
@@ -65,14 +68,16 @@ async def list_library(
     owner = _as_uuid(user_id)
     limit, offset = _clamp(limit, offset)
 
+    library_from = _library_from(db.schema_sql)
+
     total_row = await db.fetchrow(
-        f"select count(*) as total {LIBRARY_FROM} {LIBRARY_WHERE}",
+        f"select count(*) as total {library_from} {LIBRARY_WHERE}",
         owner,
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     rows = await db.fetch(
-        f"select {LIBRARY_COLUMNS} {LIBRARY_FROM} {LIBRARY_WHERE} "
+        f"select {LIBRARY_COLUMNS} {library_from} {LIBRARY_WHERE} "
         f"order by j.created_at desc, j.id desc "
         f"limit $2 offset $3",
         owner,
@@ -95,7 +100,8 @@ async def hide_library_item(
     owner = _as_uuid(user_id)
     identifier = _as_uuid(job_id)
     record = await db.fetchrow(
-        "update public.download_jobs set library_hidden = true, updated_at = now() "
+        f"update {db.schema_sql}.download_jobs "
+        "set library_hidden = true, updated_at = now() "
         "where id = $1 and user_id = $2 and status = 'ready' "
         "returning id",
         identifier,

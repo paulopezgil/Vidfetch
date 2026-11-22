@@ -42,8 +42,9 @@ async def get_current_profile(
     """Verify the bearer token and load the caller's profile.
 
     JWT verification may fetch JWKS over the network synchronously, so it runs
-    in a threadpool. The returned profile is always read from ``public.profiles``;
-    approval and role claims from the token are never trusted.
+    in a threadpool. The returned profile is always read from the configured
+    application schema's ``profiles`` table; approval and role claims from the
+    token are never trusted.
 
     The token is validated before the database is consulted so an anonymous
     request is always a 401, even while the database is unavailable.

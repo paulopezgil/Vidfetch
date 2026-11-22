@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.core.config import ConfigError, Settings
+from backend.app.core.config import (
+    ConfigError,
+    Settings,
+    validate_schema_name,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -21,6 +25,7 @@ def test_from_env_defaults_are_import_safe():
     assert settings.supabase_jwt_issuer == ""
     assert settings.supabase_jwt_audience == "authenticated"
     assert settings.database_url == ""
+    assert settings.db_schema == "public"
     assert settings.media_token_secret == ""
     assert settings.media_token_ttl_seconds == 900
     assert settings.max_concurrent_downloads == 2
@@ -80,6 +85,92 @@ def test_database_url_prefers_database_url_then_supabase_db_url():
 
     assert preferred.database_url == "postgresql://primary/db"
     assert fallback.database_url == "postgresql://fallback/db"
+
+
+def test_db_schema_defaults_to_public_and_reads_env():
+    default = Settings.from_env({})
+    custom = Settings.from_env({"DB_SCHEMA": "vidfetch"})
+
+    assert default.db_schema == "public"
+    assert custom.db_schema == "vidfetch"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "public",
+        "vidfetch",
+        "my_schema",
+        "_internal",
+        "a",
+        "a" * 63,
+    ],
+)
+def test_validate_schema_name_accepts_application_schemas(value):
+    assert validate_schema_name(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "Vidfetch",
+        "vid-fetch",
+        "1vidfetch",
+        "vid fetch",
+        "a" * 64,
+        "public; drop table profiles",
+        'vidfetch"',
+        "vid.fetch",
+    ],
+)
+def test_validate_schema_name_rejects_malformed_names(value):
+    with pytest.raises(ConfigError):
+        validate_schema_name(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "pg_catalog",
+        "pg_toast",
+        "information_schema",
+        "auth",
+        "storage",
+        "extensions",
+        "graphql",
+        "graphql_public",
+        "realtime",
+        "vault",
+        "supabase_migrations",
+    ],
+)
+def test_validate_schema_name_rejects_reserved_names(value):
+    with pytest.raises(ConfigError):
+        validate_schema_name(value)
+
+
+def test_from_env_rejects_invalid_db_schema():
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DB_SCHEMA": "not-a-schema"})
+
+    assert "DB_SCHEMA" in str(excinfo.value)
+
+
+def test_validate_runtime_rejects_invalid_db_schema():
+    settings = Settings.from_env(
+        {
+            "SUPABASE_URL": "https://proj.supabase.co",
+            "DATABASE_URL": "postgresql://user:pass@pooler/db",
+            "MEDIA_TOKEN_SECRET": "media-secret",
+        }
+    )
+    settings.db_schema = "auth"
+
+    with pytest.raises(ConfigError) as excinfo:
+        settings.validate_runtime()
+
+    assert "DB_SCHEMA" in str(excinfo.value)
 
 
 def test_numeric_and_list_settings_parse():

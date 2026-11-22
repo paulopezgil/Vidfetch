@@ -12,11 +12,13 @@ uses the dataclass below so a bad environment cannot break v1 imports.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
 DEFAULT_JWT_AUDIENCE = "authenticated"
+DEFAULT_DB_SCHEMA = "public"
 DEFAULT_MEDIA_TOKEN_TTL_SECONDS = 900
 DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2
 DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 2
@@ -29,9 +31,51 @@ DEFAULT_ALLOW_PRIVATE_URLS = False
 _TRUE_STRINGS = frozenset({"1", "true", "yes", "on"})
 _FALSE_STRINGS = frozenset({"0", "false", "no", "off"})
 
+# Application tables live in this schema by default. Forks keep ``public``;
+# a dedicated deployment may set ``DB_SCHEMA=vidfetch``.
+_SCHEMA_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+_RESERVED_SCHEMAS = frozenset(
+    {
+        "information_schema",
+        "auth",
+        "storage",
+        "extensions",
+        "graphql",
+        "graphql_public",
+        "realtime",
+        "vault",
+    }
+)
+_RESERVED_SCHEMA_PREFIXES = ("pg_", "supabase_")
+
 
 class ConfigError(RuntimeError):
     """Raised when configuration is missing or malformed."""
+
+
+def validate_schema_name(value: str) -> str:
+    """Return ``value`` when it is a safe application-schema name.
+
+    Only lowercase identifiers that start with a letter or underscore are
+    accepted. Reserved PostgreSQL and Supabase-owned schemas are rejected so a
+    misconfiguration can never point the application at ``auth``, ``storage``,
+    or an internal catalog. The error message is safe to log and never echoes
+    the raw value beyond a generic description.
+    """
+    candidate = (value or "").strip()
+    if not _SCHEMA_NAME_RE.match(candidate):
+        raise ConfigError(
+            "DB_SCHEMA must be a lowercase identifier starting with a letter "
+            "or underscore (letters, digits, underscores; max 63 characters)."
+        )
+    lowered = candidate.lower()
+    if lowered in _RESERVED_SCHEMAS or lowered.startswith(
+        _RESERVED_SCHEMA_PREFIXES
+    ):
+        raise ConfigError(
+            "DB_SCHEMA may not use a reserved or system schema name."
+        )
+    return candidate
 
 
 def _env_int(
@@ -93,6 +137,7 @@ class Settings:
     supabase_jwt_secret: str = ""
 
     database_url: str = ""
+    db_schema: str = DEFAULT_DB_SCHEMA
     download_dir: Path = field(default_factory=lambda: (Path.cwd() / "downloads").resolve())
     frontend_dist: Path = field(
         default_factory=lambda: (Path.cwd() / "frontend-dist").resolve()
@@ -135,6 +180,9 @@ class Settings:
             env.get("DATABASE_URL", "").strip()
             or env.get("SUPABASE_DB_URL", "").strip()
         )
+        db_schema = validate_schema_name(
+            env.get("DB_SCHEMA", DEFAULT_DB_SCHEMA)
+        )
 
         download_raw = env.get("DOWNLOAD_DIR", "").strip()
         download_dir = (
@@ -172,6 +220,7 @@ class Settings:
             or DEFAULT_JWT_AUDIENCE,
             supabase_jwt_secret=env.get("SUPABASE_JWT_SECRET", "").strip(),
             database_url=database_url,
+            db_schema=db_schema,
             download_dir=download_dir,
             frontend_dist=frontend_dist,
             media_token_secret=env.get("MEDIA_TOKEN_SECRET", "").strip(),
@@ -231,6 +280,7 @@ class Settings:
 
         Called from the application lifespan, never at import time.
         """
+        validate_schema_name(self.db_schema)
         missing: list[str] = []
         if not self.supabase_url:
             missing.append("SUPABASE_URL")

@@ -15,7 +15,12 @@ from typing import Any, AsyncIterator
 
 import asyncpg
 
-from .config import ConfigError, Settings
+from .config import (
+    DEFAULT_DB_SCHEMA,
+    ConfigError,
+    Settings,
+    validate_schema_name,
+)
 
 
 class Database:
@@ -24,16 +29,31 @@ class Database:
     The wrapper acquires a connection per operation so concurrent requests do
     not share a mutable connection. Multi-statement work uses
     :meth:`transaction`, which pins one connection for the duration.
+
+    ``schema`` is the application schema that owns every table the app reads or
+    writes. ``schema_sql`` is the same name, safely quoted, for interpolation
+    into SQL. Values are validated before they reach either property, so they
+    are never caller-supplied SQL.
     """
 
-    def __init__(self, pool: Any) -> None:
+    def __init__(self, pool: Any, schema: str = DEFAULT_DB_SCHEMA) -> None:
         if pool is None:
             raise ConfigError("A database pool is required.")
         self._pool = pool
+        self._schema = validate_schema_name(schema)
 
     @property
     def pool(self) -> Any:
         return self._pool
+
+    @property
+    def schema(self) -> str:
+        return self._schema
+
+    @property
+    def schema_sql(self) -> str:
+        """Return the schema as a quoted SQL identifier (``'"vidfetch"'``)."""
+        return f'"{self._schema}"'
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[Any]:
@@ -87,6 +107,11 @@ async def create_pool(
     if not settings.database_url:
         raise ConfigError("DATABASE_URL (or SUPABASE_DB_URL) is not configured.")
 
+    # Reject a bad schema before opening a connection. ``Database`` validates
+    # again, but doing it here means a misconfigured deployment never touches
+    # the database at all.
+    schema = validate_schema_name(settings.db_schema)
+
     pool = await asyncpg.create_pool(
         dsn=settings.database_url,
         min_size=min_size,
@@ -97,4 +122,4 @@ async def create_pool(
     )
     if pool is None:  # pragma: no cover - asyncpg always returns a pool
         raise ConfigError("Failed to create the database pool.")
-    return Database(pool)
+    return Database(pool, schema)

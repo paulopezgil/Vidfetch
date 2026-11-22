@@ -58,7 +58,7 @@ def test_create_job_inserts_queued_job_and_returns_row():
 
     assert result == inserted
     method, query, args = db.calls[1]
-    assert "insert into public.download_jobs" in query
+    assert 'insert into "public".download_jobs' in query
     assert args[0] == owner
     assert args[1] == "video"
     assert args[2] == "https://example.test/video"
