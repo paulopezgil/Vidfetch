@@ -23,6 +23,9 @@ echo "==> Frontend build"
   npm run build
 )
 
+echo "==> Migration template render check"
+DB_SCHEMA=public python3 scripts/render_migrations.py --check
+
 echo "==> Migration SQL parse"
 python3 - <<'PY'
 from pathlib import Path

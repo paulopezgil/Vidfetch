@@ -4,6 +4,9 @@
 -- per-user jobs, playlists, and the admin audit trail. RLS is enabled on every
 -- application table; the FastAPI backend is the only component that performs
 -- normal reads and writes.
+--
+-- Rendered from supabase/templates by scripts/render_migrations.py. Do not edit
+-- the generated migration directly; edit the template and re-render.
 
 create extension if not exists pgcrypto;
 
@@ -11,27 +14,27 @@ create extension if not exists pgcrypto;
 -- profiles
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.profiles (
+create table if not exists "public".profiles (
     id            uuid primary key references auth.users (id) on delete cascade,
     email         text not null default '',
     is_approved   boolean not null default false,
     app_role      text not null default 'user'
                   check (app_role in ('user', 'admin')),
     approved_at   timestamptz,
-    approved_by   uuid references public.profiles (id) on delete set null,
+    approved_by   uuid references "public".profiles (id) on delete set null,
     created_at    timestamptz not null default now(),
     updated_at    timestamptz not null default now()
 );
 
-create index if not exists profiles_is_approved_idx on public.profiles (is_approved);
-create index if not exists profiles_app_role_idx on public.profiles (app_role);
-create index if not exists profiles_email_idx on public.profiles (lower(email));
+create index if not exists profiles_is_approved_idx on "public".profiles (is_approved);
+create index if not exists profiles_app_role_idx on "public".profiles (app_role);
+create index if not exists profiles_email_idx on "public".profiles (lower(email));
 
 -- ---------------------------------------------------------------------------
 -- media_assets: global deduplication registry
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.media_assets (
+create table if not exists "public".media_assets (
     id                    uuid primary key default gen_random_uuid(),
     canonical_id          text not null,
     extractor_key         text not null default '',
@@ -68,19 +71,19 @@ create table if not exists public.media_assets (
 );
 
 create index if not exists media_assets_status_lease_idx
-    on public.media_assets (status, lease_until);
+    on "public".media_assets (status, lease_until);
 create index if not exists media_assets_last_accessed_idx
-    on public.media_assets (last_accessed_at);
+    on "public".media_assets (last_accessed_at);
 create index if not exists media_assets_canonical_idx
-    on public.media_assets (canonical_id);
+    on "public".media_assets (canonical_id);
 
 -- ---------------------------------------------------------------------------
 -- playlists
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.playlists (
+create table if not exists "public".playlists (
     id              uuid primary key default gen_random_uuid(),
-    user_id         uuid not null references public.profiles (id) on delete cascade,
+    user_id         uuid not null references "public".profiles (id) on delete cascade,
     canonical_id    text not null,
     source_url      text not null default '',
     title           text not null default '',
@@ -100,17 +103,17 @@ create table if not exists public.playlists (
 );
 
 create index if not exists playlists_user_created_idx
-    on public.playlists (user_id, created_at desc);
+    on "public".playlists (user_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- download_jobs: durable per-user queue and history
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.download_jobs (
+create table if not exists "public".download_jobs (
     id                uuid primary key default gen_random_uuid(),
-    user_id           uuid not null references public.profiles (id) on delete cascade,
-    asset_id          uuid references public.media_assets (id) on delete set null,
-    playlist_id       uuid references public.playlists (id) on delete set null,
+    user_id           uuid not null references "public".profiles (id) on delete cascade,
+    asset_id          uuid references "public".media_assets (id) on delete set null,
+    playlist_id       uuid references "public".playlists (id) on delete set null,
     kind              text not null default 'video'
                       check (kind in ('video', 'playlist', 'playlist_item')),
     source_url        text not null default '',
@@ -135,29 +138,29 @@ create table if not exists public.download_jobs (
 );
 
 create unique index if not exists download_jobs_user_idempotency_key_idx
-    on public.download_jobs (user_id, idempotency_key)
+    on "public".download_jobs (user_id, idempotency_key)
     where idempotency_key is not null;
 create index if not exists download_jobs_user_created_idx
-    on public.download_jobs (user_id, created_at desc);
+    on "public".download_jobs (user_id, created_at desc);
 create index if not exists download_jobs_status_created_idx
-    on public.download_jobs (status, created_at);
+    on "public".download_jobs (status, created_at);
 create index if not exists download_jobs_asset_idx
-    on public.download_jobs (asset_id);
+    on "public".download_jobs (asset_id);
 
 -- ---------------------------------------------------------------------------
 -- playlist_items
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.playlist_items (
+create table if not exists "public".playlist_items (
     id                uuid primary key default gen_random_uuid(),
-    playlist_id       uuid not null references public.playlists (id) on delete cascade,
+    playlist_id       uuid not null references "public".playlists (id) on delete cascade,
     position          integer not null,
     canonical_id      text not null default '',
     source_url        text not null default '',
     title             text not null default '',
     duration_seconds  integer,
-    asset_id          uuid references public.media_assets (id) on delete set null,
-    job_id            uuid references public.download_jobs (id) on delete set null,
+    asset_id          uuid references "public".media_assets (id) on delete set null,
+    job_id            uuid references "public".download_jobs (id) on delete set null,
     status            text not null default 'pending'
                       check (status in ('pending', 'downloading', 'ready', 'failed', 'cancelled')),
     error             text not null default '',
@@ -167,32 +170,32 @@ create table if not exists public.playlist_items (
 );
 
 create unique index if not exists playlist_items_playlist_canonical_idx
-    on public.playlist_items (playlist_id, canonical_id)
+    on "public".playlist_items (playlist_id, canonical_id)
     where canonical_id <> '';
 create index if not exists playlist_items_playlist_idx
-    on public.playlist_items (playlist_id, position);
+    on "public".playlist_items (playlist_id, position);
 
 -- ---------------------------------------------------------------------------
 -- admin_audit_log
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.admin_audit_log (
+create table if not exists "public".admin_audit_log (
     id              uuid primary key default gen_random_uuid(),
-    actor_id        uuid references public.profiles (id) on delete set null,
+    actor_id        uuid references "public".profiles (id) on delete set null,
     action          text not null,
-    target_user_id  uuid references public.profiles (id) on delete set null,
+    target_user_id  uuid references "public".profiles (id) on delete set null,
     metadata        jsonb not null default '{}'::jsonb,
     created_at      timestamptz not null default now()
 );
 
 create index if not exists admin_audit_log_created_idx
-    on public.admin_audit_log (created_at desc);
+    on "public".admin_audit_log (created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- updated_at maintenance
 -- ---------------------------------------------------------------------------
 
-create or replace function public.set_updated_at()
+create or replace function "public".set_updated_at()
 returns trigger
 language plpgsql
 as $$
@@ -202,50 +205,50 @@ begin
 end;
 $$;
 
-drop trigger if exists profiles_set_updated_at on public.profiles;
+drop trigger if exists profiles_set_updated_at on "public".profiles;
 create trigger profiles_set_updated_at
-    before update on public.profiles
-    for each row execute function public.set_updated_at();
+    before update on "public".profiles
+    for each row execute function "public".set_updated_at();
 
-drop trigger if exists media_assets_set_updated_at on public.media_assets;
+drop trigger if exists media_assets_set_updated_at on "public".media_assets;
 create trigger media_assets_set_updated_at
-    before update on public.media_assets
-    for each row execute function public.set_updated_at();
+    before update on "public".media_assets
+    for each row execute function "public".set_updated_at();
 
-drop trigger if exists download_jobs_set_updated_at on public.download_jobs;
+drop trigger if exists download_jobs_set_updated_at on "public".download_jobs;
 create trigger download_jobs_set_updated_at
-    before update on public.download_jobs
-    for each row execute function public.set_updated_at();
+    before update on "public".download_jobs
+    for each row execute function "public".set_updated_at();
 
-drop trigger if exists playlists_set_updated_at on public.playlists;
+drop trigger if exists playlists_set_updated_at on "public".playlists;
 create trigger playlists_set_updated_at
-    before update on public.playlists
-    for each row execute function public.set_updated_at();
+    before update on "public".playlists
+    for each row execute function "public".set_updated_at();
 
-drop trigger if exists playlist_items_set_updated_at on public.playlist_items;
+drop trigger if exists playlist_items_set_updated_at on "public".playlist_items;
 create trigger playlist_items_set_updated_at
-    before update on public.playlist_items
-    for each row execute function public.set_updated_at();
+    before update on "public".playlist_items
+    for each row execute function "public".set_updated_at();
 
 -- ---------------------------------------------------------------------------
 -- Supabase Auth -> profiles synchronization
 -- ---------------------------------------------------------------------------
 
-create or replace function public.handle_auth_user_change()
+create or replace function "public".handle_auth_user_change()
 returns trigger
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = "public", pg_temp
 as $$
 begin
     if tg_op = 'INSERT' then
-        insert into public.profiles (id, email)
+        insert into "public".profiles (id, email)
         values (new.id, coalesce(new.email, ''))
         on conflict (id) do update
             set email = excluded.email,
                 updated_at = now();
     elsif tg_op = 'UPDATE' then
-        update public.profiles
+        update "public".profiles
            set email = coalesce(new.email, ''),
                updated_at = now()
          where id = new.id;
@@ -257,46 +260,51 @@ $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
     after insert or update of email on auth.users
-    for each row execute function public.handle_auth_user_change();
+    for each row execute function "public".handle_auth_user_change();
 
 -- ---------------------------------------------------------------------------
 -- Row-level security
 -- ---------------------------------------------------------------------------
 
-alter table public.profiles enable row level security;
-alter table public.media_assets enable row level security;
-alter table public.download_jobs enable row level security;
-alter table public.playlists enable row level security;
-alter table public.playlist_items enable row level security;
-alter table public.admin_audit_log enable row level security;
+alter table "public".profiles enable row level security;
+alter table "public".media_assets enable row level security;
+alter table "public".download_jobs enable row level security;
+alter table "public".playlists enable row level security;
+alter table "public".playlist_items enable row level security;
+alter table "public".admin_audit_log enable row level security;
 
 -- Clients may read only their own profile. All writes go through the backend.
-revoke all on public.profiles from anon, authenticated;
+revoke all on "public".profiles from anon, authenticated;
 grant select (id, email, is_approved, app_role, created_at, updated_at)
-    on public.profiles to authenticated;
-drop policy if exists profiles_select_own on public.profiles;
+    on "public".profiles to authenticated;
+drop policy if exists profiles_select_own on "public".profiles;
 create policy profiles_select_own
-    on public.profiles
+    on "public".profiles
     for select
     to authenticated
     using (auth.uid() = id);
 
 -- No direct client access to the cache, jobs, playlists, or audit log.
-revoke all on public.media_assets from anon, authenticated;
-revoke all on public.download_jobs from anon, authenticated;
-revoke all on public.playlists from anon, authenticated;
-revoke all on public.playlist_items from anon, authenticated;
-revoke all on public.admin_audit_log from anon, authenticated;
+revoke all on "public".media_assets from anon, authenticated;
+revoke all on "public".download_jobs from anon, authenticated;
+revoke all on "public".playlists from anon, authenticated;
+revoke all on "public".playlist_items from anon, authenticated;
+revoke all on "public".admin_audit_log from anon, authenticated;
 
-comment on table public.profiles is
+comment on table "public".profiles is
     'Application identity and approval state, synchronized from auth.users.';
-comment on table public.media_assets is
+comment on table "public".media_assets is
     'Global deduplication cache keyed by (canonical_id, options_hash).';
-comment on table public.download_jobs is
+comment on table "public".download_jobs is
     'Durable per-user queue, progress, and download history.';
-comment on table public.playlists is
+comment on table "public".playlists is
     'Per-user playlist metadata.';
-comment on table public.playlist_items is
+comment on table "public".playlist_items is
     'Per-user playlist items, each linked to a shared media asset or job.';
-comment on table public.admin_audit_log is
+comment on table "public".admin_audit_log is
     'Audit trail for approval, revocation, role, and asset actions.';
+
+-- The trusted server-side role bypasses RLS. This is explicit so a dedicated
+-- schema behaves like "public", where Supabase grants the service role by
+-- default. Client roles still receive only the privileges granted above.
+grant all on all tables in schema "public" to service_role;
