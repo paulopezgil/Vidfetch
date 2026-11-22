@@ -1,9 +1,13 @@
 import { NavLink } from "react-router-dom";
 import Icon from "./Icon";
-import { destinations } from "../navigation";
+import { destinationsFor } from "../navigation";
+import { useAuth } from "../auth/AuthProvider";
 
 /** Material 3 navigation bar for compact windows. */
 export default function NavigationBar() {
+  const { profile } = useAuth();
+  const destinations = destinationsFor(profile?.app_role === "admin");
+
   return (
     <nav
       aria-label="Navegació principal"

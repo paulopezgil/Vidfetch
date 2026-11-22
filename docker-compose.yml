@@ -2,23 +2,28 @@ name: vidfetch
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
     container_name: vidfetch
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      # Persistent storage locations inside the container.
+      # Persistent media inside the container.
       DOWNLOAD_DIR: /app/downloads
-      DATA_DIR: /app/data
-      # Resource limits and CORS (comma-separated origins, or "*").
-      MAX_CONCURRENT_DOWNLOADS: "2"
-      # Refuse to start a download below this much free space (MB); 0 disables.
-      MIN_FREE_DISK_MB: "500"
-      CORS_ORIGINS: "*"
+      FRONTEND_DIST: /app/frontend-dist
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      # Optional overrides; .env values take precedence for the rest.
+      MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
+      MAX_CONCURRENT_JOBS_PER_USER: ${MAX_CONCURRENT_JOBS_PER_USER:-2}
+      MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-500}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     volumes:
-      # Media files, ZIP archives, and thumbnails.
       - ./downloads:/app/downloads
-      # SQLite database (task history + playlist metadata).
-      - ./data:/app/data
     restart: unless-stopped
     stop_grace_period: 30s

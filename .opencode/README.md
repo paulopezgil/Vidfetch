@@ -3,6 +3,10 @@
 These are repo-local OpenCode agents for the Vidfetch project, discovered from
 `.opencode/agents/`. Each Markdown file is one agent (frontmatter + system prompt).
 
+The canonical repo-wide rules (branches, versioning, v2 architecture guardrails,
+and verification) live in the root [`AGENTS.md`](../AGENTS.md). Agent prompts add
+scope and worktree details on top of those rules.
+
 | Agent | Mode | Where to run it | Purpose |
 | --- | --- | --- | --- |
 | `orchestrator` | primary | main checkout (on `dev`) | Owns the Git workflow, verifies and merges work, ships releases from `main` |

@@ -1,5 +1,9 @@
 .git
+.github
 .gitignore
+docs
+supabase
+scripts
 **/__pycache__
 **/*.pyc
 **/.pytest_cache
@@ -14,3 +18,6 @@ Dockerfile
 docker-compose.yml
 README.md
 .dockerignore
+.env
+.env.*
+!.env.example

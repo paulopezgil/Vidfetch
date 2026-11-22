@@ -39,9 +39,12 @@ export function formatSpeed(bytesPerSec: number): string {
 
 export const STATUS_LABELS: Record<string, string> = {
   queued: "En cua",
+  resolving: "Resolent",
   "fetching information": "Obtenint informació",
   downloading: "Descarregant",
   processing: "Processant",
+  ready: "A punt",
+  partial: "Parcial",
   completed: "Completat",
   failed: "Fallit",
   cancelled: "Cancel·lat",

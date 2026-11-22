@@ -281,7 +281,7 @@ A fresh deployment has no approved users. Bootstrap must be explicit:
 
 1. The first user signs in with Google; a pending profile is created.
 2. An operator runs a documented one-time SQL statement or CLI command:
-   - `python -m backend.scripts.promote_admin --email <email>`
+   - `DATABASE_URL=... python3 scripts/promote_admin.py --email <email>`
    - or the equivalent `UPDATE profiles ...` in the Supabase SQL editor.
 3. The command sets `is_approved = true`, `app_role = 'admin'`, and records
    `approved_at`/`approved_by` where applicable.
@@ -346,8 +346,19 @@ future improvement.
 
 ## 7. Data model
 
-All tables live in the `public` schema unless noted. Timestamps are
-`timestamptz`. UUIDs use `gen_random_uuid()`.
+All application tables live in the schema selected by `DB_SCHEMA`. The default
+is `public`, so a fork works without configuration; a deployment can use a
+dedicated schema such as `vidfetch` by rendering/applying the schema migrations
+with the same value. Only application tables use this schema — `auth.users`,
+`auth.uid()`, and other Supabase-owned objects remain untouched.
+
+The committed `supabase/migrations/*.sql` are generated for `public` from
+`supabase/templates/*.sql.template`. `scripts/render_migrations.py` renders the
+templates for any validated schema; `scripts/apply_migrations.py` applies the
+rendered SQL to a database. The backend validates `DB_SCHEMA` with the same
+identifier rules and never interpolates unvalidated schema names into SQL.
+
+Timestamps are `timestamptz`. UUIDs use `gen_random_uuid()`.
 
 ### 7.1 `profiles`
 
@@ -902,7 +913,10 @@ Proposed policy:
 | `SUPABASE_JWT_ISSUER` | backend | Defaults to `${SUPABASE_URL}/auth/v1` |
 | `SUPABASE_JWT_AUDIENCE` | backend | Defaults to `authenticated` |
 | `DATABASE_URL` | backend | Postgres connection string (pooler recommended) |
+| `DB_SCHEMA` | backend + migrations | Application table schema; default `public`, e.g. `vidfetch` |
 | `DOWNLOAD_DIR` | backend | Persistent media root |
+| `FRONTEND_DIST` | backend | Built SPA assets (set by the image) |
+| `ALLOW_PRIVATE_URLS` | backend | Allow private/loopback media URLs; false in production |
 | `MAX_CONCURRENT_DOWNLOADS` | backend | Global download concurrency |
 | `MAX_CONCURRENT_JOBS_PER_USER` | backend | Per-user concurrency |
 | `MAX_PLAYLIST_ITEMS` | backend | Playlist size cap |
@@ -913,7 +927,6 @@ Proposed policy:
 | `MEDIA_TOKEN_TTL_SECONDS` | backend | Signed URL lifetime |
 | `JOB_LEASE_SECONDS` | backend | Worker/asset lease duration |
 | `CORS_ORIGINS` | backend | Explicit origins if split-origin is ever used |
-| `ADMIN_BOOTSTRAP_EMAIL` | backend/CLI | Optional first-admin bootstrap helper |
 
 Notes:
 
