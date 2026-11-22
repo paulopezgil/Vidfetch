@@ -43,6 +43,26 @@ function buildUrl(path: string): string {
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * Absolute URL for an API-relative resource, such as the signed media and
+ * thumbnail URLs returned by `POST /api/media/{id}/token`.
+ *
+ * The backend always answers with paths that start with `/api`, which is
+ * correct when the frontend and API share an origin. When `VITE_API_BASE` is
+ * absolute (Vercel frontend + separately hosted API), those paths must be
+ * resolved against the API origin or the browser would request them from the
+ * static frontend host. Absolute URLs and non-HTTP schemes are untouched.
+ */
+export function resolveApiUrl(path: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (/^https?:\/\//i.test(API_BASE)) {
+    const base = `${API_BASE.replace(/\/+$/, "")}/`;
+    return new URL(normalized, base).toString();
+  }
+  return normalized;
+}
+
 async function parseError(res: Response): Promise<ApiError> {
   let code = `http_${res.status}`;
   let message = res.statusText || `La petició ha fallat (${res.status}).`;
@@ -390,11 +410,21 @@ export function deletePlaylist(playlistId: string): Promise<void> {
 }
 
 /** `POST /api/media/{asset_id}/token` — mint a short-lived signed URL. */
-export function getMediaToken(assetId: string): Promise<MediaToken> {
-  return apiFetch<MediaToken>(
+export async function getMediaToken(assetId: string): Promise<MediaToken> {
+  const token = await apiFetch<MediaToken>(
     `/media/${encodeURIComponent(assetId)}/token`,
     { method: "POST" },
   );
+  // The API returns `/api/...` paths. Resolve them against the API origin so
+  // previews and downloads keep working when the frontend is hosted apart
+  // from the API (absolute `VITE_API_BASE`).
+  return {
+    ...token,
+    url: resolveApiUrl(token.url),
+    thumbnail_url: token.thumbnail_url
+      ? resolveApiUrl(token.thumbnail_url)
+      : token.thumbnail_url,
+  };
 }
 
 /** Stream URL for a playlist ZIP (`GET /api/playlists/{playlist_id}/zip`). */

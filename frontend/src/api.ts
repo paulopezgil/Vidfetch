@@ -9,7 +9,10 @@ import type {
   Task,
 } from "./types";
 
-const BASE = "/api";
+// Legacy v1 helpers. The health check in Settings still uses this module, so
+// it must honour the same API base as `lib/api.ts` (including an absolute
+// production URL).
+const BASE = (import.meta.env.VITE_API_BASE ?? "/api").replace(/\/+$/, "");
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
