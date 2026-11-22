@@ -2,13 +2,14 @@
 
 | Field | Value |
 | --- | --- |
+| Status | **`v2.0.0` released** |
 | Baseline | `v1.9.0` |
 | Integration branch | `v2` |
-| Target release | `v2.0.0` |
-| Last updated | 2026-11-21 |
+| Release | `v2.0.0` |
+| Last updated | 2026-11-22 |
 
-This is a working checklist, not a release note. The v1.9 `README.md` remains
-the operator documentation until v2 ships.
+This is the implementation checklist for the v2 release. The root `README.md`
+now documents the shipped v2 application.
 
 ## Branch layout
 
