@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     DownloadJobList,
     DownloadJobOut,
@@ -24,8 +23,6 @@ from ..deps import get_db, require_approved
 from ..errors import ApiError
 
 router = APIRouter(tags=["library"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def _unavailable() -> ApiError:
@@ -54,7 +51,7 @@ async def list_library(
         rows, total = await library.list_library(
             db, profile.id, limit=limit, offset=offset
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return LibraryList(
         items=[LibraryItemOut.model_validate(row) for row in rows],
@@ -79,7 +76,7 @@ async def hide_library_item(
         hidden = await library.hide_library_item(db, profile.id, job_id)
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if not hidden:
         raise _not_found()
@@ -107,7 +104,7 @@ async def list_history(
         )
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid job filter.") from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return DownloadJobList(
         items=[DownloadJobOut.model_validate(row) for row in rows],

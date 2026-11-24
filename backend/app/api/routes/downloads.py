@@ -10,13 +10,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from ...core.config import Settings
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     DownloadJobList,
     DownloadJobOut,
@@ -32,8 +31,6 @@ from ..deps import get_db, get_settings, require_approved
 from ..errors import ApiError
 
 router = APIRouter(tags=["downloads"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 _TERMINAL = frozenset({"ready", "failed", "cancelled"})
 
 
@@ -110,7 +107,7 @@ async def create_download(
         )
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid download request.") from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return DownloadJobOut.model_validate(row)
 
@@ -136,7 +133,7 @@ async def list_downloads(
         )
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid job filter.") from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return DownloadJobList(
         items=[DownloadJobOut.model_validate(row) for row in rows],
@@ -159,7 +156,7 @@ async def get_download(
         row = await jobs.get_job(db, job_id, user_id=profile.id)
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -180,7 +177,7 @@ async def cancel_download(
         row = await jobs.get_job(db, job_id, user_id=profile.id)
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -193,11 +190,11 @@ async def cancel_download(
             await worker.request_cancel(job_id)
         else:
             row = await jobs.request_cancel(db, job_id) or row
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
 
     try:
         refreshed = await jobs.get_job(db, job_id, user_id=profile.id)
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return DownloadJobOut.model_validate(refreshed or row)

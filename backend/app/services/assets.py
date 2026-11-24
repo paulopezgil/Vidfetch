@@ -9,7 +9,7 @@ concurrent jobs that want the same output:
 * ``processing`` with a live lease -> wait
 * ``failed`` or an expired lease -> re-claim with a new lease
 
-All timestamps are timezone-aware UTC datetimes. The asyncpg driver returns
+All timestamps are timezone-aware UTC datetimes. The psycopg driver returns
 aware ``datetime`` values for ``timestamptz``; naive values (for example from a
 test double) are treated as UTC rather than compared against aware values.
 """

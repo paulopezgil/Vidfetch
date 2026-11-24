@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import FileResponse
 
 from ...core.config import Settings
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     CoverOut,
     CoverUpload,
@@ -32,8 +31,6 @@ from ..deps import get_db, get_settings, get_storage, require_approved
 from ..errors import ApiError
 
 router = APIRouter(tags=["tracks"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def _unavailable() -> ApiError:
@@ -106,7 +103,7 @@ async def list_tracks(
         rows, total = await tracks.list_tracks(
             db, profile.id, limit=limit, offset=offset, q=q
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return TrackList(
         items=[_track_out(settings, profile.id, row) for row in rows],
@@ -154,7 +151,7 @@ async def _list_facets(
         )
     except ValueError as exc:
         raise _invalid_metadata() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return FacetList(items=[FacetItem.model_validate(row) for row in rows])
 
@@ -175,7 +172,7 @@ async def update_track(
         row = await tracks.update_track(db, track_id, profile.id, fields)
     except ValueError as exc:
         raise _invalid_metadata() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -205,7 +202,7 @@ async def upload_cover(
         )
     except tracks.CoverValidationError as exc:
         raise ApiError(400, "invalid_cover", str(exc)) from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if relative is None:
         raise _not_found()
@@ -237,7 +234,7 @@ async def delete_cover(
         deleted = await tracks.delete_cover(
             db, storage, track_id, profile.id
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if not deleted:
         raise _not_found()
@@ -264,7 +261,7 @@ async def stream_cover(
         )
     except ValueError as exc:
         raise MediaTokenError("invalid_token", "Invalid media token.") from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if path is None:
         raise _cover_missing()

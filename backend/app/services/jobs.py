@@ -10,9 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-import asyncpg
-
-from ..core.db import Database
+from ..core.db import DB_ERRORS, Database, is_unique_violation
 
 MAX_PAGE_SIZE = 200
 
@@ -138,7 +136,9 @@ async def create_job(
             key,
             playlist,
         )
-    except asyncpg.UniqueViolationError:
+    except DB_ERRORS as exc:
+        if not is_unique_violation(exc):
+            raise
         # A concurrent request won the idempotency race; return its job.
         if key is not None:
             existing = await db.fetchrow(

@@ -3,19 +3,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import Depends, Header, Request
 from starlette.concurrency import run_in_threadpool
 
 from ..core.config import Settings
-from ..core.db import Database
+from ..core.db import DB_UNAVAILABLE, Database
 from ..core.security import AuthError, decode_supabase_token, extract_bearer_token
 from ..models.schemas import ProfileOut
 from ..services import profiles
 from ..services.storage import Storage
-
-# Database failures that mean "try again later" rather than "bad request".
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def get_settings(request: Request) -> Settings:
@@ -68,7 +64,7 @@ async def get_current_profile(
 
     try:
         row = await profiles.get_profile(db, user_id)
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise AuthError(
             "service_unavailable",
             "The service is temporarily unavailable.",

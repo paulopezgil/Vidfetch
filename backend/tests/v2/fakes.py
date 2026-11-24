@@ -1,9 +1,10 @@
-"""Shared test helpers: fake asyncpg database and JWT/profile fixtures.
+"""Shared test helpers: fake database and JWT/profile fixtures.
 
-The fakes are deliberately asyncpg-shaped: services acquire a transaction and
-then call ``fetch``/``fetchrow``/``execute`` on the connection, while simple
-reads go through the ``Database`` wrapper. Queued results are returned in call
-order so tests can drive real service code without a network or Postgres.
+The fakes mirror the driver-shaped wrapper API: services acquire a transaction
+and then call ``fetch``/``fetchrow``/``execute`` on the connection, while
+simple reads go through the ``Database`` wrapper. Queued results are returned
+in call order so tests can drive real service code without a network or
+Postgres.
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ class FakeTransaction:
 
 
 class FakeConnection:
-    """Queue-driven asyncpg connection double."""
+    """Queue-driven connection double."""
 
     def __init__(self) -> None:
         self.fetchrow_results: deque[Any] = deque()

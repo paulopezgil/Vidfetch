@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from ...core.db import Database
+from ...core.db import DB_ERRORS, Database
 from ...models.schemas import (
     AdminAssetList,
     AdminAssetOut,
@@ -68,7 +67,7 @@ async def list_users(
             limit=clamped_limit,
             offset=clamped_offset,
         )
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
 
     return AdminUserList(
@@ -89,7 +88,7 @@ async def approve_user(
         raise _unavailable()
     try:
         row = await profiles.approve_profile(db, user_id, admin.id)
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -108,7 +107,7 @@ async def revoke_user(
         row = await profiles.revoke_profile(db, user_id, admin.id)
     except ConflictError as exc:
         raise ApiError(409, exc.code, exc.message) from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -130,7 +129,7 @@ async def set_user_role(
         raise ApiError(409, exc.code, exc.message) from exc
     except ValueError as exc:
         raise ApiError(400, "invalid_role", "Invalid application role.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -167,7 +166,7 @@ async def list_jobs(
         )
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid job filter.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     return AdminJobList(
         items=[AdminJobOut.model_validate(row) for row in rows],
@@ -203,7 +202,7 @@ async def list_assets(
         free_bytes = storage.free_bytes()
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid asset filter.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     return AdminAssetList(
         items=[AdminAssetOut.model_validate(row) for row in rows],
@@ -234,7 +233,7 @@ async def delete_asset(
         raise ApiError(409, exc.code, exc.message) from exc
     except ValueError as exc:
         raise _asset_not_found() from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if deleted is None:
         raise _asset_not_found()

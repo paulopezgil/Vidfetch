@@ -5,13 +5,12 @@ import zipfile
 from pathlib import Path
 from uuid import UUID, uuid4
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     PlaylistDetailOut,
     PlaylistList,
@@ -25,8 +24,6 @@ from ..deps import get_db, get_storage, require_approved
 from ..errors import ApiError
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def _unavailable() -> ApiError:
@@ -63,7 +60,7 @@ async def list_playlists(
         rows, total = await playlists.list_playlists(
             db, profile.id, limit=limit, offset=offset
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return PlaylistList(
         items=[PlaylistOut.model_validate(row) for row in rows],
@@ -91,7 +88,7 @@ async def get_playlist(
         items = await playlists.list_items(db, playlist_id)
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return PlaylistDetailOut.model_validate({**row, "items": items})
 
@@ -111,7 +108,7 @@ async def delete_playlist(
         )
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if not deleted:
         raise _not_found()
@@ -137,7 +134,7 @@ async def download_playlist_zip(
         items = await playlists.list_items(db, playlist_id)
     except ValueError as exc:
         raise _not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
 
     candidates: list[tuple[str, Path]] = []
@@ -148,7 +145,7 @@ async def download_playlist_zip(
             asset = await assets.get_asset(db, item["asset_id"])
         except ValueError:
             continue
-        except _DB_UNAVAILABLE as exc:
+        except DB_UNAVAILABLE as exc:
             raise _unavailable() from exc
         if asset is None or asset.get("status") != "ready":
             continue
