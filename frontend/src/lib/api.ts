@@ -357,6 +357,8 @@ export function cancelDownload(jobId: string): Promise<DownloadJob> {
 export interface TrackQuery {
   limit?: number;
   offset?: number;
+  /** Optional trimmed search over title, artist and album. */
+  q?: string;
 }
 
 /** `GET /api/tracks` — the caller's ready tracks, newest first. */
@@ -364,6 +366,8 @@ export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const q = params.q?.trim();
+  if (q) query.set("q", q);
   const suffix = query.toString();
   return apiFetch<TrackList>(`/tracks${suffix ? `?${suffix}` : ""}`);
 }
