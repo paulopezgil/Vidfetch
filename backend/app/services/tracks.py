@@ -19,10 +19,12 @@ from ..core.db import Database
 
 MAX_PAGE_SIZE = 200
 
+TRACKS_TITLE = (
+    "coalesce(nullif(ut.custom_title, ''), nullif(j.title, ''), a.title, '')"
+)
+
 TRACKS_COLUMNS = (
-    "ut.id, ut.asset_id, j.id as job_id, a.canonical_id, "
-    "coalesce(nullif(ut.custom_title, ''), nullif(j.title, ''), a.title, '') "
-    "as title, "
+    f"ut.id, ut.asset_id, j.id as job_id, a.canonical_id, {TRACKS_TITLE} as title, "
     "ut.custom_artist as artist, ut.custom_album as album, "
     "ut.cover_path, a.thumbnail_path, a.duration_seconds, a.file_size_bytes, "
     "a.output_ext, j.format_selector, j.playlist_id, 'ready' as status, "
@@ -52,7 +54,18 @@ def _tracks_from(schema_sql: str) -> str:
     )
 
 
-TRACKS_WHERE = "where ut.user_id = $1 and ut.deleted_at is null and a.status = 'ready'"
+TRACKS_WHERE = (
+    "where ut.user_id = $1 and ut.deleted_at is null and a.status = 'ready' "
+    "and ($2 = '' "
+    f"or {TRACKS_TITLE} ilike '%' || $2 || '%' "
+    "or coalesce(ut.custom_artist, '') ilike '%' || $2 || '%' "
+    "or coalesce(ut.custom_album, '') ilike '%' || $2 || '%')"
+)
+
+
+def _normalize_search(q: str | None) -> str:
+    """Trim the search term; blank input means no filter."""
+    return "" if q is None else str(q).strip()
 
 
 def _as_uuid(value: str | UUID) -> UUID:
@@ -74,24 +87,32 @@ async def list_tracks(
     *,
     limit: int = 50,
     offset: int = 0,
+    q: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return one page of the caller's visible tracks, newest first."""
+    """Return one page of the caller's visible tracks, newest first.
+
+    ``q`` filters case-insensitively on the resolved title, artist, or album.
+    Whitespace-only input is treated as no filter.
+    """
     owner = _as_uuid(user_id)
     limit, offset = _clamp(limit, offset)
+    search = _normalize_search(q)
 
     tracks_from = _tracks_from(db.schema_sql)
 
     total_row = await db.fetchrow(
         f"select count(*) as total {tracks_from} {TRACKS_WHERE}",
         owner,
+        search,
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     rows = await db.fetch(
         f"select {TRACKS_COLUMNS} {tracks_from} {TRACKS_WHERE} "
         f"order by ut.downloaded_at desc, ut.id desc "
-        f"limit $2 offset $3",
+        f"limit $3 offset $4",
         owner,
+        search,
         limit,
         offset,
     )

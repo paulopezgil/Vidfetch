@@ -31,6 +31,7 @@ def _unavailable() -> ApiError:
 async def list_tracks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=200),
     profile: ProfileOut = Depends(require_approved),
     db: Database | None = Depends(get_db),
 ) -> TrackList:
@@ -39,7 +40,7 @@ async def list_tracks(
         raise _unavailable()
     try:
         rows, total = await tracks.list_tracks(
-            db, profile.id, limit=limit, offset=offset
+            db, profile.id, limit=limit, offset=offset, q=q
         )
     except _DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
