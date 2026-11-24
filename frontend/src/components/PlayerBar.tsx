@@ -1,66 +1,15 @@
+import { useEffect, useState } from "react";
 import Icon from "./Icon";
 import IconButton from "./IconButton";
 import Thumbnail from "./Thumbnail";
+import PlayerSlider, { formatClock } from "./PlayerSlider";
+import NowPlayingPanel from "./NowPlayingPanel";
 import { usePlayer } from "../player/PlayerProvider";
-
-/** `0:00` / `1:02:03` clock used by the seek row. */
-function clock(seconds: number): string {
-  const value = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.floor((value % 3600) / 60);
-  const secs = value % 60;
-  const ss = String(secs).padStart(2, "0");
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${ss}`;
-  }
-  return `${minutes}:${ss}`;
-}
-
-interface PlayerSliderProps {
-  label: string;
-  value: number;
-  max: number;
-  step?: number;
-  disabled?: boolean;
-  valueText?: string;
-  onChange: (value: number) => void;
-}
-
-/**
- * Native range input styled with Material 3 semantic roles. Keeping the native
- * element preserves keyboard support and screen-reader slider semantics.
- */
-function PlayerSlider({
-  label,
-  value,
-  max,
-  step = 1,
-  disabled,
-  valueText,
-  onChange,
-}: PlayerSliderProps) {
-  const upper = Math.max(max, 0.01);
-  const clamped = Math.min(Math.max(value, 0), upper);
-
-  return (
-    <input
-      type="range"
-      min={0}
-      max={upper}
-      step={step}
-      value={clamped}
-      disabled={disabled}
-      aria-label={label}
-      aria-valuetext={valueText}
-      onChange={(event) => onChange(Number(event.target.value))}
-      className="h-4 w-full cursor-pointer appearance-none rounded-full bg-transparent accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-high disabled:cursor-not-allowed disabled:opacity-[0.38] [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary [&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-outline-variant [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-outline-variant [&::-webkit-slider-thumb]:mt-[-4px] [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
-    />
-  );
-}
 
 /**
  * Persistent playback bar. Docked above the compact navigation bar and inside
- * the content column on wider windows, so it never covers the rail/drawer.
+ * the content column on wider windows, so it never covers the rail/drawer. The
+ * expandable now-playing panel sits directly above the bar.
  */
 export default function PlayerBar() {
   const {
@@ -72,6 +21,7 @@ export default function PlayerBar() {
     duration,
     artworkUrl,
     volume,
+    mediaKind,
     togglePlay,
     next,
     previous,
@@ -80,15 +30,35 @@ export default function PlayerBar() {
     close,
   } = usePlayer();
 
+  const [expanded, setExpanded] = useState(false);
+
   const hasTrack = current !== null;
   const hasNext = hasTrack && index < queue.length - 1;
-  const artist = current?.artist?.trim() || "Unknown artist";
   const seekable = hasTrack && duration > 0;
+  const trackId = current?.id ?? null;
+
+  // Video needs its real surface visible as soon as it starts. Audio keeps the
+  // panel collapsed unless the listener opens it from the bar.
+  useEffect(() => {
+    if (!trackId) {
+      setExpanded(false);
+      return;
+    }
+    if (mediaKind === "video") setExpanded(true);
+  }, [mediaKind, trackId]);
+
+  const credit = current
+    ? [current.artist, current.album]
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+        .join(" · ") || "Artista desconegut"
+    : "Tria un track per començar a escoltar";
+  const art = current?.cover_url ?? artworkUrl;
 
   const controls = (
     <>
       <IconButton
-        label="Previous track"
+        label="Pista anterior"
         onClick={previous}
         disabled={!hasTrack}
       >
@@ -97,7 +67,7 @@ export default function PlayerBar() {
       <IconButton
         variant="filled"
         size="md"
-        label={isPlaying ? "Pause" : "Play"}
+        label={isPlaying ? "Pausa" : "Reprodueix"}
         onClick={togglePlay}
         disabled={!hasTrack}
       >
@@ -107,7 +77,7 @@ export default function PlayerBar() {
           className="text-[24px]"
         />
       </IconButton>
-      <IconButton label="Next track" onClick={next} disabled={!hasNext}>
+      <IconButton label="Pista següent" onClick={next} disabled={!hasNext}>
         <Icon name="skip_next" className="text-[22px]" />
       </IconButton>
     </>
@@ -116,34 +86,54 @@ export default function PlayerBar() {
   const seekRow = (
     <>
       <span className="w-12 shrink-0 text-right text-label-medium tabular-nums text-on-surface-variant">
-        {clock(hasTrack ? position : 0)}
+        {formatClock(hasTrack ? position : 0)}
       </span>
       <PlayerSlider
-        label="Seek"
+        label="Posició de reproducció"
         value={hasTrack ? position : 0}
         max={seekable ? duration : 0}
         disabled={!seekable}
-        valueText={`${clock(hasTrack ? position : 0)} of ${clock(
+        valueText={`${formatClock(hasTrack ? position : 0)} de ${formatClock(
           seekable ? duration : 0,
         )}`}
         onChange={seek}
       />
       <span className="w-12 shrink-0 text-label-medium tabular-nums text-on-surface-variant">
-        {clock(seekable ? duration : 0)}
+        {formatClock(seekable ? duration : 0)}
       </span>
     </>
   );
 
+  const expandButton = (
+    <IconButton
+      label={expanded ? "Amaga el reproductor" : "Mostra el reproductor"}
+      onClick={() => setExpanded((value) => !value)}
+      disabled={!hasTrack}
+      ariaExpanded={expanded}
+      ariaControls="now-playing-panel"
+    >
+      <Icon
+        name={expanded ? "expand_more" : "expand_less"}
+        className="text-[22px]"
+      />
+    </IconButton>
+  );
+
   return (
     <section
-      aria-label="Player"
+      aria-label="Reproductor"
       className="shrink-0 border-t border-outline-variant bg-surface-container-high"
     >
+      <NowPlayingPanel
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
+      />
+
       <div className="flex items-center gap-3 px-3 py-2 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-56 sm:flex-none lg:w-64">
           <Thumbnail
-            src={hasTrack ? artworkUrl : null}
-            icon="music_note"
+            src={hasTrack ? art : null}
+            icon={mediaKind === "video" ? "movie" : "music_note"}
             className={`h-12 w-12 ${hasTrack ? "" : "opacity-60"}`}
           />
           <div className="min-w-0 flex-1">
@@ -152,10 +142,10 @@ export default function PlayerBar() {
                 hasTrack ? "text-on-surface" : "text-on-surface-variant"
               }`}
             >
-              {hasTrack ? current.title : "Nothing playing"}
+              {hasTrack ? current.title : "No s’està reproduint res"}
             </p>
             <p className="truncate text-body-small text-on-surface-variant">
-              {hasTrack ? artist : "Choose a track to start listening"}
+              {credit}
             </p>
           </div>
         </div>
@@ -171,28 +161,31 @@ export default function PlayerBar() {
           <div className="flex min-w-0 items-center gap-2">{seekRow}</div>
         </div>
 
-        <div className="hidden w-56 shrink-0 items-center justify-end gap-1 md:flex">
-          <Icon
-            name={volume === 0 ? "volume_off" : "volume_up"}
-            className="text-[20px] text-on-surface-variant"
-          />
-          <div className="w-24">
-            <PlayerSlider
-              label="Volume"
-              value={volume}
-              max={1}
-              step={0.01}
-              valueText={`${Math.round(volume * 100)}%`}
-              onChange={setVolume}
+        <div className="flex shrink-0 items-center gap-1">
+          {expandButton}
+          <div className="hidden items-center gap-1 md:flex">
+            <Icon
+              name={volume === 0 ? "volume_off" : "volume_up"}
+              className="text-[20px] text-on-surface-variant"
             />
+            <div className="w-24">
+              <PlayerSlider
+                label="Volum"
+                value={volume}
+                max={1}
+                step={0.01}
+                valueText={`${Math.round(volume * 100)}%`}
+                onChange={setVolume}
+              />
+            </div>
+            <IconButton
+              label="Tanca el reproductor"
+              onClick={close}
+              disabled={!hasTrack}
+            >
+              <Icon name="close" className="text-[20px]" />
+            </IconButton>
           </div>
-          <IconButton
-            label="Close player"
-            onClick={close}
-            disabled={!hasTrack}
-          >
-            <Icon name="close" className="text-[20px]" />
-          </IconButton>
         </div>
       </div>
 

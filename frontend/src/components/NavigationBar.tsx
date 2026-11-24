@@ -19,12 +19,12 @@ export default function NavigationBar() {
           to={destination.to}
           end={destination.end}
           title={destination.label}
-          className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 py-3 text-label-medium"
+          className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden px-0.5 py-3 text-label-medium"
         >
           {({ isActive }) => (
             <>
               <span
-                className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
+                className={`flex h-8 w-full max-w-[4rem] items-center justify-center rounded-full transition-colors ${
                   isActive
                     ? "bg-secondary-container text-on-secondary-container"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"

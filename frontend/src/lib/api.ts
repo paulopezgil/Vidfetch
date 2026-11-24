@@ -650,15 +650,18 @@ export interface TrackQuery {
   offset?: number;
   /** Optional trimmed search over title, artist and album. */
   q?: string;
+  /** Server-side order: newest download first, or title A–Z. */
+  sort?: "downloaded" | "title";
 }
 
-/** `GET /api/tracks` — the caller's ready tracks, newest first. */
+/** `GET /api/tracks` — the caller's ready tracks, newest first by default. */
 export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   const q = params.q?.trim();
   if (q) query.set("q", q);
+  if (params.sort) query.set("sort", params.sort);
   const suffix = query.toString();
   return apiFetch<TrackList>(
     `/tracks${suffix ? `?${suffix}` : ""}`,

@@ -10,7 +10,11 @@ import {
 } from "react";
 import type { MediaToken, Track } from "../types/v2";
 import { getMediaToken } from "../lib/api";
+import { mediaTypeFor } from "../lib/trackDisplay";
 import { getOfflineMediaBlob } from "../offline/media";
+
+/** Media surface the current track needs: a detached audio or video element. */
+export type MediaKind = "audio" | "video";
 
 export interface PlayerContextValue {
   /** Track loaded in the bar, or `null` when the player is idle. */
@@ -26,6 +30,14 @@ export interface PlayerContextValue {
   artworkUrl: string | null;
   /** Playback volume between 0 and 1. */
   volume: number;
+  /** Whether the current source is audio or video. */
+  mediaKind: MediaKind | null;
+  /**
+   * Provider-owned video element. The now-playing surface mounts it while the
+   * current track is a video, so playback survives expanding/collapsing the
+   * panel and never creates a second competing element.
+   */
+  videoElement: HTMLVideoElement | null;
   /**
    * Load `track` and start playing. When `queue` is provided it becomes the
    * play order (the current item is located by id, or prepended if absent).
@@ -41,6 +53,11 @@ export interface PlayerContextValue {
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
+
+/** Audio playback uses the detached audio element; everything else is video. */
+function mediaKindFor(track: Track): MediaKind {
+  return mediaTypeFor(track) === "audio" ? "audio" : "video";
+}
 
 /** Token lifetime in epoch milliseconds, tolerant of a malformed payload. */
 function tokenExpiry(token: MediaToken): number {
@@ -58,9 +75,9 @@ function isExpired(expiresAt: number): boolean {
   return expiresAt === 0 || Date.now() >= expiresAt - 5_000;
 }
 
-/** `audio.play()` rejects on autoplay policy or a replaced source. */
-function attemptPlay(audio: HTMLAudioElement): void {
-  const result = audio.play();
+/** `media.play()` rejects on autoplay policy or a replaced source. */
+function attemptPlay(media: HTMLMediaElement): void {
+  const result = media.play();
   if (result && typeof result.catch === "function") {
     result.catch(() => {
       // The bar simply stays paused; the user can retry.
@@ -69,11 +86,15 @@ function attemptPlay(audio: HTMLAudioElement): void {
 }
 
 /**
- * Single persistent audio element shared by every route in the app shell.
+ * Persistent player shared by every route in the app shell.
  *
- * The provider owns playback state, a queue with auto-advance, and the
- * short-lived signed URL refresh. Token or network failures never throw into
- * the UI: the bar stays visible and paused.
+ * The provider owns an audio element and a video element, choosing the one that
+ * matches the current track. The video element is mounted by the now-playing
+ * panel, so a real video surface is shown while the bar stays docked.
+ *
+ * Playback state, the queue with auto-advance, and the short-lived signed URL
+ * refresh all live here. Token or network failures never throw into the UI: the
+ * bar stays visible and paused.
  */
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<Track | null>(null);
@@ -84,8 +105,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(1);
   const [artworkUrl, setArtworkUrl] = useState<string | null>(null);
+  const [mediaKind, setMediaKind] = useState<MediaKind | null>(null);
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(
+    null,
+  );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  /** Element currently carrying the source; events from the other are ignored. */
+  const mediaRef = useRef<HTMLMediaElement | null>(null);
   const currentRef = useRef<Track | null>(null);
   const playingRef = useRef(false);
   const queueRef = useRef<Track[]>([]);
@@ -115,6 +143,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return audio;
   }, []);
 
+  const getVideo = useCallback((): HTMLVideoElement => {
+    if (videoRef.current) return videoRef.current;
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.volume = volumeRef.current;
+    videoRef.current = video;
+    return video;
+  }, []);
+
   const applyQueue = useCallback((nextQueue: Track[], nextIndex: number) => {
     queueRef.current = nextQueue;
     indexRef.current = nextIndex;
@@ -129,11 +168,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     blobUrlRef.current = null;
   }, []);
 
+  /** Stop both elements and drop the active source before loading a new one. */
+  const resetMedia = useCallback(() => {
+    mediaRef.current = null;
+    const audio = audioRef.current;
+    const video = videoRef.current;
+    audio?.pause();
+    video?.pause();
+    audio?.removeAttribute("src");
+    video?.removeAttribute("src");
+    audio?.load();
+    video?.load();
+    releaseBlobUrl();
+    expiresAtRef.current = 0;
+  }, [releaseBlobUrl]);
+
   /** Load a signed source for `track`, optionally resuming mid-track. */
   const loadSource = useCallback(
     async (track: Track, autoplay: boolean, resumeAt = 0) => {
-      const audio = audioRef.current;
-      if (!audio) return;
+      const audio = getAudio();
+      const video = getVideo();
+      const kind = mediaKindFor(track);
+      const media = kind === "video" ? video : audio;
 
       const loadId = ++loadIdRef.current;
       const startAt =
@@ -141,10 +197,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Stop whatever was loaded before, so a failed token request can never
       // leave the previous track playing behind a paused bar.
-      audio.pause();
-      audio.removeAttribute("src");
-      releaseBlobUrl();
-      expiresAtRef.current = 0;
+      resetMedia();
 
       currentRef.current = track;
       setCurrent(track);
@@ -152,23 +205,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setDuration(track.duration_seconds ?? 0);
       setPosition(startAt);
       setPlaying(false);
+      setMediaKind(kind);
 
       const applyStartOffset = () => {
         if (startAt <= 0) return;
         const onMetadata = () => {
-          audio.removeEventListener("loadedmetadata", onMetadata);
+          media.removeEventListener("loadedmetadata", onMetadata);
           if (loadId !== loadIdRef.current) return;
           try {
-            audio.currentTime = startAt;
+            media.currentTime = startAt;
           } catch {
             // Seeking before the media is ready is not fatal.
           }
         };
-        audio.addEventListener("loadedmetadata", onMetadata);
+        media.addEventListener("loadedmetadata", onMetadata);
       };
 
       try {
-        // Prefer the local copy: it plays offline and needs no token.
+        // Prefer the local copy: it plays offline and needs no token. Only
+        // audio is ever copied locally, but reading this for every asset keeps
+        // the source logic identical for both media kinds.
         const local = await getOfflineMediaBlob(track.asset_id);
         if (loadId !== loadIdRef.current) return;
 
@@ -178,10 +234,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           // A blob URL never expires, so do not refresh it on play.
           expiresAtRef.current = Number.MAX_SAFE_INTEGER;
           setArtworkUrl(track.cover_url ?? null);
-          audio.src = objectUrl;
-          audio.load();
+          mediaRef.current = media;
+          media.src = objectUrl;
+          media.load();
           applyStartOffset();
-          if (autoplay) attemptPlay(audio);
+          if (autoplay) attemptPlay(media);
           return;
         }
 
@@ -189,42 +246,42 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (loadId !== loadIdRef.current) return;
 
         expiresAtRef.current = tokenExpiry(token);
-        setArtworkUrl(token.thumbnail_url ?? null);
-        audio.src = token.url;
-        audio.load();
+        setArtworkUrl(track.cover_url ?? token.thumbnail_url ?? null);
+        mediaRef.current = media;
+        media.src = token.url;
+        media.load();
         applyStartOffset();
 
-        if (autoplay) attemptPlay(audio);
+        if (autoplay) attemptPlay(media);
       } catch {
         if (loadId !== loadIdRef.current) return;
         // The signed URL could not be minted. Keep the track in the bar, but
         // paused and silent; nothing is surfaced to the user.
+        mediaRef.current = null;
+        media.removeAttribute("src");
         releaseBlobUrl();
         expiresAtRef.current = 0;
         setPlaying(false);
       }
     },
-    [releaseBlobUrl, setPlaying],
+    [getAudio, getVideo, releaseBlobUrl, resetMedia, setPlaying],
   );
 
-  const seek = useCallback(
-    (seconds: number) => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      const max =
-        Number.isFinite(audio.duration) && audio.duration > 0
-          ? audio.duration
-          : currentRef.current?.duration_seconds ?? 0;
-      const next = Math.max(0, max > 0 ? Math.min(seconds, max) : seconds);
-      try {
-        audio.currentTime = next;
-      } catch {
-        return;
-      }
-      setPosition(next);
-    },
-    [],
-  );
+  const seek = useCallback((seconds: number) => {
+    const media = mediaRef.current;
+    if (!media) return;
+    const max =
+      Number.isFinite(media.duration) && media.duration > 0
+        ? media.duration
+        : currentRef.current?.duration_seconds ?? 0;
+    const next = Math.max(0, max > 0 ? Math.min(seconds, max) : seconds);
+    try {
+      media.currentTime = next;
+    } catch {
+      return;
+    }
+    setPosition(next);
+  }, []);
 
   const advance = useCallback(
     (autoplay: boolean) => {
@@ -234,12 +291,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const nextIndex = indexRef.current + 1;
       if (nextIndex >= currentQueue.length) {
         // End of the queue: stop on the last item instead of looping.
-        const audio = audioRef.current;
-        if (audio) {
-          audio.pause();
+        const media = mediaRef.current;
+        if (media) {
+          media.pause();
           setPosition(
-            Number.isFinite(audio.duration) && audio.duration > 0
-              ? audio.duration
+            Number.isFinite(media.duration) && media.duration > 0
+              ? media.duration
               : currentRef.current?.duration_seconds ?? 0,
           );
         }
@@ -259,10 +316,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [advance]);
 
   const previous = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const media = mediaRef.current;
+    if (!media) return;
     // Like most players: restart the current item unless we are near its start.
-    if (audio.currentTime > 3 || indexRef.current === 0) {
+    if (media.currentTime > 3 || indexRef.current === 0) {
       seek(0);
       return;
     }
@@ -273,26 +330,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [applyQueue, loadSource, seek]);
 
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
+    const media = mediaRef.current;
     const track = currentRef.current;
-    if (!audio || !track) return;
-    if (!audio.paused) {
-      audio.pause();
+    if (!media || !track) return;
+    if (!media.paused) {
+      media.pause();
       return;
     }
-    if (!audio.src || isExpired(expiresAtRef.current)) {
-      void loadSource(track, true, audio.ended ? 0 : audio.currentTime || 0);
+    if (!media.src || isExpired(expiresAtRef.current)) {
+      void loadSource(track, true, media.ended ? 0 : media.currentTime || 0);
       return;
     }
-    if (audio.ended) seek(0);
-    attemptPlay(audio);
+    if (media.ended) seek(0);
+    attemptPlay(media);
   }, [loadSource, seek]);
 
   const playTrack = useCallback(
     (track: Track, nextQueue?: Track[]) => {
-      const audio = audioRef.current;
-      if (!audio) return;
-
       let resolvedQueue: Track[];
       let nextIndex: number;
       if (nextQueue && nextQueue.length > 0) {
@@ -312,21 +366,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Choosing the active track toggles it instead of restarting playback.
       if (currentRef.current?.id === track.id) {
-        if (!audio.paused) {
-          audio.pause();
+        const media = mediaRef.current;
+        if (!media) {
+          retryRef.current = 0;
+          void loadSource(track, true, 0);
+          return;
+        }
+        if (!media.paused) {
+          media.pause();
           return;
         }
         retryRef.current = 0;
-        if (!audio.src || isExpired(expiresAtRef.current)) {
+        if (!media.src || isExpired(expiresAtRef.current)) {
           void loadSource(
             track,
             true,
-            audio.ended ? 0 : audio.currentTime || 0,
+            media.ended ? 0 : media.currentTime || 0,
           );
           return;
         }
-        if (audio.ended) seek(0);
-        attemptPlay(audio);
+        if (media.ended) seek(0);
+        attemptPlay(media);
         return;
       }
 
@@ -341,42 +401,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     volumeRef.current = nextVolume;
     setVolumeState(nextVolume);
     if (audioRef.current) audioRef.current.volume = nextVolume;
+    if (videoRef.current) videoRef.current.volume = nextVolume;
   }, []);
 
   const close = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-    }
     loadIdRef.current += 1;
-    releaseBlobUrl();
+    resetMedia();
     currentRef.current = null;
-    expiresAtRef.current = 0;
     retryRef.current = 0;
     setCurrent(null);
     setArtworkUrl(null);
+    setMediaKind(null);
     applyQueue([], 0);
     setPlaying(false);
     setPosition(0);
     setDuration(0);
-  }, [applyQueue, releaseBlobUrl, setPlaying]);
+  }, [applyQueue, resetMedia, setPlaying]);
 
   /** Retry once after a media error, refreshing the signed URL. */
   const handleError = useCallback(() => {
     const track = currentRef.current;
-    const audio = audioRef.current;
-    if (!track || !audio) return;
+    const media = mediaRef.current;
+    if (!track || !media) return;
 
     const shouldResume = playingRef.current;
     setPlaying(false);
     if (retryRef.current >= 1) return;
     retryRef.current += 1;
-    void loadSource(track, shouldResume, audio.currentTime || 0);
+    void loadSource(track, shouldResume, media.currentTime || 0);
   }, [loadSource, setPlaying]);
 
-  // Keep the event handlers current without re-creating the audio element.
+  // Keep the event handlers current without re-creating the media elements.
   endedRef.current = () => advance(true);
   errorRef.current = handleError;
   canPlayRef.current = () => {
@@ -385,48 +440,78 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const audio = getAudio();
+    const video = getVideo();
     audio.volume = volumeRef.current;
+    video.volume = volumeRef.current;
+    setVideoElement(video);
 
-    const onTimeUpdate = () => setPosition(audio.currentTime || 0);
-    const onDurationChange = () => {
+    const onTimeUpdate = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      setPosition((event.currentTarget as HTMLMediaElement).currentTime || 0);
+    };
+    const onDurationChange = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      const media = event.currentTarget as HTMLMediaElement;
       setDuration(
-        Number.isFinite(audio.duration) && audio.duration > 0
-          ? audio.duration
+        Number.isFinite(media.duration) && media.duration > 0
+          ? media.duration
           : currentRef.current?.duration_seconds ?? 0,
       );
     };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onEnded = () => endedRef.current();
-    const onError = () => errorRef.current();
-    const onCanPlay = () => canPlayRef.current();
+    const onPlay = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      setPlaying(true);
+    };
+    const onPause = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      setPlaying(false);
+    };
+    const onEnded = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      endedRef.current();
+    };
+    const onError = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      errorRef.current();
+    };
+    const onCanPlay = (event: Event) => {
+      if (event.currentTarget !== mediaRef.current) return;
+      canPlayRef.current();
+    };
 
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("loadedmetadata", onDurationChange);
-    audio.addEventListener("durationchange", onDurationChange);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("error", onError);
-    audio.addEventListener("canplay", onCanPlay);
+    const elements = [audio, video];
+    for (const element of elements) {
+      element.addEventListener("timeupdate", onTimeUpdate);
+      element.addEventListener("loadedmetadata", onDurationChange);
+      element.addEventListener("durationchange", onDurationChange);
+      element.addEventListener("play", onPlay);
+      element.addEventListener("pause", onPause);
+      element.addEventListener("ended", onEnded);
+      element.addEventListener("error", onError);
+      element.addEventListener("canplay", onCanPlay);
+    }
 
     return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("loadedmetadata", onDurationChange);
-      audio.removeEventListener("durationchange", onDurationChange);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("canplay", onCanPlay);
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
+      for (const element of elements) {
+        element.removeEventListener("timeupdate", onTimeUpdate);
+        element.removeEventListener("loadedmetadata", onDurationChange);
+        element.removeEventListener("durationchange", onDurationChange);
+        element.removeEventListener("play", onPlay);
+        element.removeEventListener("pause", onPause);
+        element.removeEventListener("ended", onEnded);
+        element.removeEventListener("error", onError);
+        element.removeEventListener("canplay", onCanPlay);
+        element.pause();
+        element.removeAttribute("src");
+        element.load();
+      }
+      mediaRef.current = null;
       audioRef.current = null;
+      videoRef.current = null;
       releaseBlobUrl();
       loadIdRef.current += 1;
     };
-  }, [getAudio, releaseBlobUrl, setPlaying]);
+  }, [getAudio, getVideo, releaseBlobUrl, setPlaying]);
 
   const value = useMemo<PlayerContextValue>(
     () => ({
@@ -438,6 +523,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       artworkUrl,
       volume,
+      mediaKind,
+      videoElement,
       playTrack,
       togglePlay,
       next,
@@ -453,6 +540,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       index,
       isPlaying,
+      mediaKind,
       next,
       playTrack,
       position,
@@ -461,6 +549,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       seek,
       setVolume,
       togglePlay,
+      videoElement,
       volume,
     ],
   );
