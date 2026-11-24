@@ -8,6 +8,7 @@ import {
 import { formatBytes } from "../lib";
 import Icon from "./Icon";
 import StorageDialog from "./StorageDialog";
+import UserMenu from "./UserMenu";
 import { useOfflineMedia } from "../offline/media";
 
 /** Material 3 top app bar. */
@@ -50,6 +51,7 @@ export default function TopAppBar() {
         open={storageOpen}
         onClose={() => setStorageOpen(false)}
       />
+      <UserMenu />
     </header>
   );
 }
