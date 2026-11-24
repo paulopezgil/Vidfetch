@@ -31,6 +31,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { setActivePlaylistTitle } from "../navigation";
 
 const formatOptions = [
   { value: "best", label: "Millor qualitat", icon: "high_quality" },
@@ -102,6 +103,17 @@ export default function PlaylistDetail() {
     setLoading(true);
     void refresh();
   }, [refresh]);
+
+  // Publish the loaded playlist name for the top app bar title.
+  useEffect(() => {
+    setActivePlaylistTitle(null);
+  }, [id]);
+
+  useEffect(() => {
+    setActivePlaylistTitle(detail?.title ?? null);
+  }, [detail]);
+
+  useEffect(() => () => setActivePlaylistTitle(null), []);
 
   useEffect(() => {
     if (!detail) return;
@@ -193,7 +205,7 @@ export default function PlaylistDetail() {
       await deletePlaylist(detail.id);
       toast("Llista de reproducció eliminada", "success");
       setDeleteOpen(false);
-      navigate("/tracks");
+      navigate("/playlists");
     } catch (e) {
       toast(
         e instanceof Error
@@ -234,10 +246,10 @@ export default function PlaylistDetail() {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
         <Link
-          to="/tracks"
+          to="/playlists"
           className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
         >
-          <Icon name="arrow_back" className="text-[20px]" /> Tracks
+          <Icon name="arrow_back" className="text-[20px]" /> Playlists
         </Link>
         <EmptyState
           icon="playlist_remove"
@@ -259,10 +271,10 @@ export default function PlaylistDetail() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
       <Link
-        to="/tracks"
+        to="/playlists"
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <Icon name="arrow_back" className="text-[20px]" /> Tracks
+        <Icon name="arrow_back" className="text-[20px]" /> Playlists
       </Link>
 
       <Card variant="outlined" className="p-4 sm:p-6">

@@ -18,6 +18,7 @@ export default function NavigationBar() {
           key={destination.to}
           to={destination.to}
           end={destination.end}
+          title={destination.label}
           className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 py-3 text-label-medium"
         >
           {({ isActive }) => (
@@ -37,7 +38,9 @@ export default function NavigationBar() {
               </span>
               <span
                 className={
-                  isActive ? "text-on-surface" : "text-on-surface-variant"
+                  isActive
+                    ? "max-w-full truncate px-1 text-center text-on-surface"
+                    : "max-w-full truncate px-1 text-center text-on-surface-variant"
                 }
               >
                 {destination.label}
