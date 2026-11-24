@@ -26,6 +26,7 @@ import Tracks from "./pages/Tracks";
 import Playlists from "./pages/Playlists";
 import PlaylistDetail from "./pages/PlaylistDetail";
 import UserPlaylistDetail from "./pages/UserPlaylistDetail";
+import PlaylistAddTracks from "./pages/PlaylistAddTracks";
 import ArtistsAlbums from "./pages/ArtistsAlbums";
 
 /** Navigation shell shared by every approved application route. */
@@ -74,6 +75,10 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/tracks" element={<Tracks />} />
                   <Route path="/playlists" element={<Playlists />} />
+                  <Route
+                    path="/playlists/:id/add"
+                    element={<PlaylistAddTracks />}
+                  />
                   <Route
                     path="/playlists/:id"
                     element={<UserPlaylistDetail />}
