@@ -5,19 +5,13 @@ import { formatBytes, formatDate } from "../lib";
 import {
   deletePlaylist,
   downloadPlaylistZip,
-  getMediaToken,
   listPlaylists,
   listTracks,
   removeFromLibrary,
   triggerDownload,
   withDownloadFlag,
 } from "../lib/api";
-import {
-  extensionOf,
-  groupTracksByDay,
-  mediaTypeFor,
-  type MediaType,
-} from "../lib/trackDisplay";
+import { extensionOf, groupTracksByDay, mediaTypeFor } from "../lib/trackDisplay";
 import Thumbnail from "../components/Thumbnail";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -27,7 +21,6 @@ import Card from "../components/Card";
 import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
-import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import Menu from "../components/Menu";
 import AddToPlaylistDialog from "../components/AddToPlaylistDialog";
 import TrackEditDialog from "../components/TrackEditDialog";
@@ -51,12 +44,6 @@ const tabs: { value: Tab; label: string }[] = [
   { value: "audio", label: "Àudio" },
   { value: "playlists", label: "Llistes" },
 ];
-
-interface PreviewState {
-  title: string;
-  mediaType: MediaType;
-  src: string;
-}
 
 /** Human label for the stored yt-dlp selector. */
 function formatLabel(selector: string): string {
@@ -84,7 +71,6 @@ export default function Tracks() {
     id: string;
     label: string;
   } | null>(null);
-  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [editing, setEditing] = useState<Track | null>(null);
   const [addTarget, setAddTarget] = useState<Track | null>(null);
 
@@ -171,27 +157,6 @@ export default function Tracks() {
       toast(e instanceof Error ? e.message : "No s’ha pogut eliminar", "error");
     }
   }
-
-  const openPreview = useCallback(
-    async (item: Track) => {
-      try {
-        const token = await getMediaToken(item.asset_id);
-        setPreview({
-          title: item.title,
-          mediaType: mediaTypeFor(item),
-          src: token.url,
-        });
-      } catch (e) {
-        toast(
-          e instanceof Error
-            ? e.message
-            : "No s’ha pogut obrir el fitxer multimèdia.",
-          "error",
-        );
-      }
-    },
-    [toast],
-  );
 
   const handleTrackSaved = useCallback(
     (updated: Track) => {
@@ -315,7 +280,6 @@ export default function Tracks() {
                     key={item.job_id}
                     item={item}
                     queue={day.items}
-                    onPreview={() => void openPreview(item)}
                     onEdit={() => setEditing(item)}
                     onAddToPlaylist={() => setAddTarget(item)}
                     onDelete={() =>
@@ -413,14 +377,6 @@ export default function Tracks() {
         onCancel={() => setPendingDelete(null)}
       />
 
-      <MediaPreviewDialog
-        open={preview !== null}
-        title={preview?.title ?? ""}
-        mediaType={preview?.mediaType ?? "video"}
-        src={preview?.src ?? ""}
-        onClose={() => setPreview(null)}
-      />
-
       <TrackEditDialog
         open={editing !== null}
         track={editing}
@@ -443,7 +399,6 @@ function FileRow({
   onDelete,
   onEdit,
   onAddToPlaylist,
-  onPreview,
 }: {
   item: Track;
   /** Visible rows that form the play queue for this section. */
@@ -451,7 +406,6 @@ function FileRow({
   onDelete: () => void;
   onEdit: () => void;
   onAddToPlaylist: () => void;
-  onPreview: () => void;
 }) {
   const toast = useToast();
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
@@ -514,13 +468,6 @@ function FileRow({
             name={playerPlaying ? "pause" : "play_arrow"}
             className="text-[20px]"
           />
-        </IconButton>
-        <IconButton
-          variant="tonal"
-          label="Obre la previsualització"
-          onClick={onPreview}
-        >
-          <Icon name="open_in_new" className="text-[20px]" />
         </IconButton>
         {mediaType === "audio" ? (
           // Songs use the offline-state control instead of a one-shot file

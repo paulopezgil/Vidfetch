@@ -5,7 +5,7 @@ import Icon from "./Icon";
 interface MediaPreviewDialogProps {
   open: boolean;
   title: string;
-  mediaType: "video" | "audio" | "image";
+  /** Image source of an imported playlist item. */
   src: string;
   onClose: () => void;
 }
@@ -14,14 +14,16 @@ const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
- * Material 3 basic dialog for previewing media inline. Reuses the predictable
- * focus management (trapped Tab, Escape to close, focus restoration) of
- * ConfirmDialog.
+ * Material 3 basic dialog for previewing an image inline. Reuses the
+ * predictable focus management (trapped Tab, Escape to close, focus
+ * restoration) of ConfirmDialog.
+ *
+ * Audio and video deliberately do not use a dialog: they play in the
+ * persistent now-playing player instead.
  */
 export default function MediaPreviewDialog({
   open,
   title,
-  mediaType,
   src,
   onClose,
 }: MediaPreviewDialogProps) {
@@ -97,27 +99,11 @@ export default function MediaPreviewDialog({
         </div>
 
         <div className="flex max-h-[70vh] items-center justify-center overflow-hidden px-4 pb-4 sm:px-6 sm:pb-6">
-          {mediaType === "video" ? (
-            <video
-              controls
-              autoPlay
-              playsInline
-              src={src}
-              className="max-h-[70vh] w-full rounded-lg bg-black"
-            >
-              El vostre navegador no pot reproduir aquest vídeo.
-            </video>
-          ) : mediaType === "audio" ? (
-            <audio controls autoPlay src={src} className="w-full">
-              El vostre navegador no pot reproduir aquest àudio.
-            </audio>
-          ) : (
-            <img
-              src={src}
-              alt={title}
-              className="max-h-[70vh] max-w-full object-contain"
-            />
-          )}
+          <img
+            src={src}
+            alt={title}
+            className="max-h-[70vh] max-w-full object-contain"
+          />
         </div>
       </div>
     </div>
