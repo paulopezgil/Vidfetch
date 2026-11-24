@@ -7,15 +7,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from ...core.db import Database
+from ...core.db import DB_ERRORS, Database
 from ...models.schemas import (
     AdminAssetList,
     AdminAssetOut,
     AdminJobList,
     AdminJobOut,
+    AdminPasswordReset,
     AdminUserList,
     AppRole,
     AssetStatus,
@@ -23,7 +23,7 @@ from ...models.schemas import (
     ProfileOut,
     RoleUpdate,
 )
-from ...services import admin_inventory, profiles
+from ...services import admin_inventory, auth as auth_service, profiles
 from ...services.profiles import ConflictError, MAX_PAGE_SIZE
 from ...services.storage import Storage
 from ..deps import get_db, get_storage, require_admin
@@ -68,7 +68,7 @@ async def list_users(
             limit=clamped_limit,
             offset=clamped_offset,
         )
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
 
     return AdminUserList(
@@ -89,7 +89,7 @@ async def approve_user(
         raise _unavailable()
     try:
         row = await profiles.approve_profile(db, user_id, admin.id)
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -108,7 +108,7 @@ async def revoke_user(
         row = await profiles.revoke_profile(db, user_id, admin.id)
     except ConflictError as exc:
         raise ApiError(409, exc.code, exc.message) from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
@@ -130,11 +130,43 @@ async def set_user_role(
         raise ApiError(409, exc.code, exc.message) from exc
     except ValueError as exc:
         raise ApiError(400, "invalid_role", "Invalid application role.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if row is None:
         raise _not_found()
     return ProfileOut.model_validate(row)
+
+
+@router.post(
+    "/users/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT
+)
+async def reset_user_password(
+    user_id: UUID,
+    payload: AdminPasswordReset,
+    admin: ProfileOut = Depends(require_admin),
+    db: Database | None = Depends(get_db),
+) -> Response:
+    """Set a new password and revoke every session for the account.
+
+    The hash change and the session cleanup commit in one transaction, so an
+    administrator reset can never leave a previously issued token usable.
+    """
+    if db is None:
+        raise _unavailable()
+    try:
+        updated = await auth_service.set_password(
+            db, user_id, payload.password, revoke_sessions=True
+        )
+    except (
+        auth_service.WeakPasswordError,
+        auth_service.InvalidPasswordError,
+    ) as exc:
+        raise ApiError(400, exc.code, exc.message) from exc
+    except DB_ERRORS as exc:
+        raise _unavailable() from exc
+    if not updated:
+        raise _not_found()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _asset_not_found() -> ApiError:
@@ -167,7 +199,7 @@ async def list_jobs(
         )
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid job filter.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     return AdminJobList(
         items=[AdminJobOut.model_validate(row) for row in rows],
@@ -203,7 +235,7 @@ async def list_assets(
         free_bytes = storage.free_bytes()
     except ValueError as exc:
         raise ApiError(400, "invalid_request", "Invalid asset filter.") from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     return AdminAssetList(
         items=[AdminAssetOut.model_validate(row) for row in rows],
@@ -234,7 +266,7 @@ async def delete_asset(
         raise ApiError(409, exc.code, exc.message) from exc
     except ValueError as exc:
         raise _asset_not_found() from exc
-    except (asyncpg.PostgresError, OSError) as exc:
+    except DB_ERRORS as exc:
         raise _unavailable() from exc
     if deleted is None:
         raise _asset_not_found()

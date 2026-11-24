@@ -1,26 +1,24 @@
-"""Shared test helpers: fake asyncpg database and JWT/profile fixtures.
+"""Shared test helpers: fake database and profile fixtures.
 
-The fakes are deliberately asyncpg-shaped: services acquire a transaction and
-then call ``fetch``/``fetchrow``/``execute`` on the connection, while simple
-reads go through the ``Database`` wrapper. Queued results are returned in call
-order so tests can drive real service code without a network or Postgres.
+The fakes mirror the driver-shaped wrapper API: services acquire a transaction
+and then call ``fetch``/``fetchrow``/``execute`` on the connection, while
+simple reads go through the ``Database`` wrapper. Queued results are returned
+in call order so tests can drive real service code without a network or
+Postgres.
 """
 from __future__ import annotations
 
-import time
 from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator
 from uuid import UUID, uuid4
 
-import jwt
 from fastapi.testclient import TestClient
 
 from backend.app.core.config import Settings, validate_schema_name
 from backend.app.main import create_app
 
-TEST_JWT_SECRET = "test-jwt-secret-not-for-production"
 NOW = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
 
 
@@ -39,7 +37,7 @@ class FakeTransaction:
 
 
 class FakeConnection:
-    """Queue-driven asyncpg connection double."""
+    """Queue-driven connection double."""
 
     def __init__(self) -> None:
         self.fetchrow_results: deque[Any] = deque()
@@ -146,6 +144,18 @@ class FakeDatabase:
         return self.connection.transaction()
 
 
+def non_session_calls(
+    db: "FakeDatabase",
+) -> list[tuple[str, str, tuple[Any, ...]]]:
+    """Recorded calls excluding the ``last_used_at`` touch of authentication.
+
+    Every authenticated request writes ``auth_sessions.last_used_at``. Tests
+    that assert an endpoint performed no writes are about the endpoint's own
+    tables, so they inspect this view instead.
+    """
+    return [call for call in db.calls if "auth_sessions" not in call[1]]
+
+
 def profile_row(
     *,
     user_id: str | UUID | None = None,
@@ -154,10 +164,17 @@ def profile_row(
     app_role: str = "user",
     approved_at: datetime | None = None,
     approved_by: str | UUID | None = None,
+    password_hash: str = "",
 ) -> dict[str, Any]:
+    """A ``profiles`` row.
+
+    ``password_hash`` is only meaningful to login/password tests; response
+    models never include it, so API assertions stay unchanged.
+    """
     return {
         "id": user_id or uuid4(),
         "email": email,
+        "password_hash": password_hash,
         "is_approved": is_approved,
         "app_role": app_role,
         "approved_at": approved_at,
@@ -382,32 +399,20 @@ def playlist_item_row(
 def make_settings(tmp_path, **overrides: Any) -> Settings:
     env = {
         "ENVIRONMENT": "test",
-        "SUPABASE_JWT_SECRET": TEST_JWT_SECRET,
-        "SUPABASE_JWT_AUDIENCE": "authenticated",
         "DOWNLOAD_DIR": str(tmp_path / "downloads"),
     }
     env.update({key: str(value) for key, value in overrides.items()})
     return Settings.from_env(env)
 
 
-def make_token(
-    subject: str | UUID,
-    *,
-    secret: str = TEST_JWT_SECRET,
-    audience: str = "authenticated",
-    expires_in: int = 3600,
-) -> str:
-    now = int(time.time())
-    return jwt.encode(
-        {
-            "sub": str(subject),
-            "aud": audience,
-            "iat": now,
-            "exp": now + expires_in,
-        },
-        secret,
-        algorithm="HS256",
-    )
+def make_token(subject: str | UUID | None = None) -> str:
+    """Return an opaque session-token stand-in for ``subject``.
+
+    Authentication is a database lookup now: :class:`FakeDatabase` returns the
+    profile a test queued, so the literal token value never matters. Keeping it
+    deterministic makes call lists and error output readable.
+    """
+    return f"test-session-token-{subject or uuid4()}"
 
 
 def auth_headers(token: str) -> dict[str, str]:

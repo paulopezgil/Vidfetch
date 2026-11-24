@@ -1,21 +1,14 @@
 """Shared FastAPI dependencies for authentication and database access."""
 from __future__ import annotations
 
-from uuid import UUID
-
-import asyncpg
 from fastapi import Depends, Header, Request
-from starlette.concurrency import run_in_threadpool
 
 from ..core.config import Settings
-from ..core.db import Database
-from ..core.security import AuthError, decode_supabase_token, extract_bearer_token
+from ..core.db import DB_UNAVAILABLE, Database
+from ..core.security import AuthError, extract_bearer_token
 from ..models.schemas import ProfileOut
-from ..services import profiles
+from ..services import auth
 from ..services.storage import Storage
-
-# Database failures that mean "try again later" rather than "bad request".
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def get_settings(request: Request) -> Settings:
@@ -33,33 +26,23 @@ def get_storage(request: Request) -> Storage:
     return request.app.state.storage
 
 
-async def get_current_profile(
-    request: Request,
+async def get_bearer_token(
     authorization: str | None = Header(default=None),
-    settings: Settings = Depends(get_settings),
+) -> str:
+    """Extract the opaque session token from the Authorization header."""
+    return extract_bearer_token(authorization)
+
+
+async def get_current_profile(
+    token: str = Depends(get_bearer_token),
     db: Database | None = Depends(get_db),
 ) -> ProfileOut:
-    """Verify the bearer token and load the caller's profile.
+    """Resolve the caller's profile from their opaque session token.
 
-    JWT verification may fetch JWKS over the network synchronously, so it runs
-    in a threadpool. The returned profile is always read from the configured
-    application schema's ``profiles`` table; approval and role claims from the
-    token are never trusted.
-
-    The token is validated before the database is consulted so an anonymous
-    request is always a 401, even while the database is unavailable.
+    Approval and role always come from the ``profiles`` row, never from client
+    input. The token is validated before any other work, so an anonymous
+    request is a 401 even while the database is unavailable.
     """
-    token = extract_bearer_token(authorization)
-    claims = await run_in_threadpool(decode_supabase_token, token, settings)
-
-    subject = claims.get("sub")
-    try:
-        user_id = UUID(str(subject))
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise AuthError(
-            "invalid_token", "Invalid authentication token."
-        ) from exc
-
     if db is None:
         raise AuthError(
             "service_unavailable",
@@ -67,8 +50,8 @@ async def get_current_profile(
         )
 
     try:
-        row = await profiles.get_profile(db, user_id)
-    except _DB_UNAVAILABLE as exc:
+        row = await auth.authenticate(db, token)
+    except DB_UNAVAILABLE as exc:
         raise AuthError(
             "service_unavailable",
             "The service is temporarily unavailable.",
@@ -76,8 +59,8 @@ async def get_current_profile(
 
     if row is None:
         raise AuthError(
-            "profile_missing",
-            "No profile exists for this account. Please sign in again.",
+            "invalid_session",
+            "Your session is invalid or has expired. Please sign in again.",
         )
     return ProfileOut.model_validate(row)
 

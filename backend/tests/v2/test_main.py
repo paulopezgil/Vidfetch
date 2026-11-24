@@ -116,12 +116,7 @@ def test_cors_unknown_origin_is_not_allowed(tmp_path):
 
 
 def test_non_test_environment_validates_configuration_on_startup(tmp_path):
-    settings = make_settings(
-        tmp_path,
-        ENVIRONMENT="production",
-        SUPABASE_JWT_SECRET="",
-        SUPABASE_JWT_AUDIENCE="",
-    )
+    settings = make_settings(tmp_path, ENVIRONMENT="production")
     app = create_app(settings)
 
     with pytest.raises(ConfigError):
@@ -168,7 +163,6 @@ def test_lifespan_starts_and_stops_worker_outside_test_environment(
         tmp_path,
         ENVIRONMENT="production",
         DATABASE_URL="postgresql://user:pass@pooler.example/db",
-        SUPABASE_URL="https://proj.supabase.co",
         MEDIA_TOKEN_SECRET="media-secret",
     )
 

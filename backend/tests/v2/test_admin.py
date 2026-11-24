@@ -1,4 +1,4 @@
-"""Admin user-management endpoint tests against a canned asyncpg-like database."""
+"""Admin user-management endpoint tests against a canned driver-shaped database."""
 from __future__ import annotations
 
 import json

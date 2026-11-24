@@ -1,7 +1,8 @@
 """Profile, approval, and admin-audit queries.
 
-All SQL uses asyncpg positional placeholders (``$1``, ``$2``, ...) and passes
-values as parameters; user input is never interpolated into a statement. The
+All SQL uses ``$1``-style positional placeholders (translated for psycopg by
+``core.db``) and passes values as parameters; user input is never interpolated
+into a statement. The
 admin mutations run inside a transaction that also records an audit entry, so a
 partial update can never be committed.
 

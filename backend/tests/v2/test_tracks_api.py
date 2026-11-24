@@ -12,6 +12,7 @@ from backend.tests.v2.fakes import (
     auth_headers,
     make_settings,
     make_token,
+    non_session_calls,
     profile_row,
     track_row,
 )
@@ -338,7 +339,9 @@ def test_patch_track_rejects_invalid_metadata(tmp_path):
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "invalid_request"
     # Only authentication touched the database; no UPDATE was attempted.
-    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert all(
+        " set " not in call[1].lower() for call in non_session_calls(db)
+    )
 
 
 def test_list_artist_facets_groups_and_clamps_the_limit(tmp_path):
@@ -526,7 +529,9 @@ def test_patch_track_requires_an_approved_user(tmp_path):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "approval_required"
-    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert all(
+        " set " not in call[1].lower() for call in non_session_calls(db)
+    )
 
 
 def test_list_facets_requires_an_approved_user(tmp_path):
@@ -558,4 +563,6 @@ def test_patch_track_rejects_an_invalid_uuid(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_request"
-    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert all(
+        " set " not in call[1].lower() for call in non_session_calls(db)
+    )

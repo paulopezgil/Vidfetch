@@ -2,9 +2,9 @@
 
 Configuration is read from environment variables only. Importing this module
 must never require environment variables to be present: tests import it, and
-tools import it without a database or Supabase project. Call
-:meth:`Settings.validate_runtime` from application startup to fail fast with a
-clear message when required values are missing.
+tools import it without a database. Call :meth:`Settings.validate_runtime` from
+application startup to fail fast with a clear message when required values are
+missing.
 
 The v1 settings in :mod:`backend.config` are intentionally left alone; v2 code
 uses the dataclass below so a bad environment cannot break v1 imports.
@@ -20,8 +20,8 @@ from urllib.parse import urlsplit
 
 from .urls import UrlValidationError, validate_http_url
 
-DEFAULT_JWT_AUDIENCE = "authenticated"
 DEFAULT_DB_SCHEMA = "public"
+DEFAULT_AUTH_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 DEFAULT_MEDIA_TOKEN_TTL_SECONDS = 900
 DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2
 DEFAULT_MAX_CONCURRENT_JOBS_PER_USER = 2
@@ -60,7 +60,7 @@ def validate_schema_name(value: str) -> str:
     """Return ``value`` when it is a safe application-schema name.
 
     Only lowercase identifiers that start with a letter or underscore are
-    accepted. Reserved PostgreSQL and Supabase-owned schemas are rejected so a
+    accepted. Reserved PostgreSQL and provider-owned schemas are rejected so a
     misconfiguration can never point the application at ``auth``, ``storage``,
     or an internal catalog. The error message is safe to log and never echoes
     the raw value beyond a generic description.
@@ -123,10 +123,6 @@ def _split_csv(raw: str | None) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _clean_url(raw: str | None) -> str:
-    return (raw or "").strip().rstrip("/")
-
-
 def validate_public_api_url(value: str) -> str:
     """Return a normalised public base URL, or ``""`` when disabled.
 
@@ -156,16 +152,11 @@ def validate_public_api_url(value: str) -> str:
 class Settings:
     """All v2 runtime settings with safe, import-time-free defaults."""
 
-    supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
-    supabase_jwks_url: str = ""
-    supabase_jwt_issuer: str = ""
-    supabase_jwt_audience: str = DEFAULT_JWT_AUDIENCE
-    supabase_jwt_secret: str = ""
-
     database_url: str = ""
     db_schema: str = DEFAULT_DB_SCHEMA
+    # Lifetime of an opaque login session. Cleanup of expired sessions is
+    # lazy (on the next login/registration for that user).
+    auth_session_ttl_seconds: int = DEFAULT_AUTH_SESSION_TTL_SECONDS
     download_dir: Path = field(default_factory=lambda: (Path.cwd() / "downloads").resolve())
 
     # Absolute base URL for links returned to browsers (media, thumbnails).
@@ -208,16 +199,7 @@ class Settings:
         """
         env = os.environ if environ is None else environ
 
-        supabase_url = _clean_url(env.get("SUPABASE_URL"))
-        derived_jwks = (
-            f"{supabase_url}/auth/v1/.well-known/jwks.json" if supabase_url else ""
-        )
-        derived_issuer = f"{supabase_url}/auth/v1" if supabase_url else ""
-
-        database_url = (
-            env.get("DATABASE_URL", "").strip()
-            or env.get("SUPABASE_DB_URL", "").strip()
-        )
+        database_url = env.get("DATABASE_URL", "").strip()
         db_schema = validate_schema_name(
             env.get("DB_SCHEMA", DEFAULT_DB_SCHEMA)
         )
@@ -238,22 +220,14 @@ class Settings:
             cors_origins = _split_csv(cors_raw)
 
         return cls(
-            supabase_url=supabase_url,
-            supabase_anon_key=env.get("SUPABASE_ANON_KEY", "").strip(),
-            supabase_service_role_key=env.get(
-                "SUPABASE_SERVICE_ROLE_KEY", ""
-            ).strip(),
-            supabase_jwks_url=env.get("SUPABASE_JWKS_URL", "").strip()
-            or derived_jwks,
-            supabase_jwt_issuer=env.get("SUPABASE_JWT_ISSUER", "").strip()
-            or derived_issuer,
-            supabase_jwt_audience=env.get(
-                "SUPABASE_JWT_AUDIENCE", DEFAULT_JWT_AUDIENCE
-            ).strip()
-            or DEFAULT_JWT_AUDIENCE,
-            supabase_jwt_secret=env.get("SUPABASE_JWT_SECRET", "").strip(),
             database_url=database_url,
             db_schema=db_schema,
+            auth_session_ttl_seconds=_env_int(
+                env,
+                "AUTH_SESSION_TTL_SECONDS",
+                DEFAULT_AUTH_SESSION_TTL_SECONDS,
+                minimum=60,
+            ),
             download_dir=download_dir,
             public_api_url=public_api_url,
             media_token_secret=env.get("MEDIA_TOKEN_SECRET", "").strip(),
@@ -318,14 +292,10 @@ class Settings:
         # cannot start with a malformed absolute media base URL.
         validate_public_api_url(self.public_api_url)
         missing: list[str] = []
-        if not self.supabase_url:
-            missing.append("SUPABASE_URL")
         if not self.database_url:
-            missing.append("DATABASE_URL (or SUPABASE_DB_URL)")
+            missing.append("DATABASE_URL")
         if not self.media_token_secret:
             missing.append("MEDIA_TOKEN_SECRET")
-        if not self.supabase_jwt_secret and not self.supabase_jwks_url:
-            missing.append("SUPABASE_JWKS_URL (or SUPABASE_JWT_SECRET)")
         if missing:
             raise ConfigError(
                 "Missing required configuration: " + ", ".join(missing)

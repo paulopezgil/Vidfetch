@@ -1,4 +1,4 @@
-"""Pydantic v2 request/response models aligned with the Supabase schema.
+"""Pydantic v2 request/response models aligned with the database schema.
 
 Timestamps are timezone-aware ``datetime`` values and identifiers are UUIDs.
 The models intentionally mirror the database columns so routers can hand
@@ -69,6 +69,45 @@ class ProfileOut(_ORMModel):
 
 class MeOut(ProfileOut):
     """The caller's own profile (``GET /api/me``)."""
+
+
+class AuthRegister(BaseModel):
+    """Email/password sign-up payload."""
+
+    email: str = ""
+    password: str = ""
+
+
+class AuthLogin(BaseModel):
+    """Email/password sign-in payload."""
+
+    email: str = ""
+    password: str = ""
+
+
+class AuthSessionOut(_ORMModel):
+    """A new session plus the profile it belongs to.
+
+    ``token`` is the only time the raw opaque token exists; only its SHA-256
+    hash is stored server-side.
+    """
+
+    token: str
+    expires_at: datetime
+    profile: ProfileOut
+
+
+class ChangePassword(BaseModel):
+    """Self-service password change for the signed-in user."""
+
+    current_password: str = ""
+    new_password: str = ""
+
+
+class AdminPasswordReset(BaseModel):
+    """Administrator password reset for another account."""
+
+    password: str = ""
 
 
 class StorageHealth(_ORMModel):

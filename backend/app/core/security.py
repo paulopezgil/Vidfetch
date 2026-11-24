@@ -1,38 +1,40 @@
-"""Supabase JWT verification and bearer-token extraction.
+"""Password hashing, opaque session tokens, and bearer-token extraction.
 
-The backend trusts only cryptographically verified claims. In particular it
-never reads approval or role information from ``user_metadata``: those live in
-the ``profiles`` table and are loaded per request (see the architecture spec,
-sections 6.2 and 6.3).
+Authentication is fully local: the backend stores Argon2id password hashes in
+``profiles`` and SHA-256 hashes of opaque session tokens in ``auth_sessions``.
+The raw session token only ever exists in the client's ``Authorization`` header
+and in transit; the database never sees it.
 
-Tokens are verified with the project's HS256 secret when configured (tests and
-legacy projects) and otherwise against the project JWKS with asymmetric
-algorithms. The JWKS client is cached per URL so key fetches are reused.
+Nothing here touches the network or reads configuration at import time.
 """
 from __future__ import annotations
 
-import threading
-from typing import Any
+import hashlib
+import secrets
 
-import jwt
-from jwt import PyJWKClient
-from jwt.exceptions import (
-    ExpiredSignatureError,
-    InvalidAudienceError,
-    InvalidIssuerError,
-    InvalidTokenError,
-    MissingRequiredClaimError,
-    PyJWKClientError,
+from argon2 import PasswordHasher
+from argon2.exceptions import (
+    InvalidHashError,
+    VerificationError,
+    VerifyMismatchError,
 )
 
-from .config import Settings
+# Session tokens are 256 bits of URL-safe randomness. They are only compared by
+# their SHA-256 hash, so the database content cannot be replayed as a token.
+SESSION_TOKEN_BYTES = 32
 
-# Verification order matters: PyJWT's specific errors subclass InvalidTokenError.
-_SYMMETRIC_ALGORITHMS = ["HS256"]
-_ASYMMETRIC_ALGORITHMS = ["RS256", "ES256", "EdDSA"]
+# Argon2id defaults (m=64 MiB, t=3, p=4) are the library's recommended
+# password-hashing parameters.
+_hasher = PasswordHasher()
 
-_JWKS_CLIENTS: dict[str, PyJWKClient] = {}
-_JWKS_LOCK = threading.Lock()
+# A fixed hash of a random, unused password. Verifying against it when an email
+# is unknown keeps a failed login's timing similar to a wrong-password failure,
+# so the endpoint does not reveal whether an account exists.
+_DUMMY_PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "agz7LG9oHwLSRlF+LLlLmw$"
+    "WQo5IQUT8LpOuoMAcG8H1GM/FNvfyWeH8g+46MmCK24"
+)
 
 
 class AuthError(Exception):
@@ -75,95 +77,34 @@ def extract_bearer_token(authorization: str | None) -> str:
     return token
 
 
-def _jwks_client(url: str) -> PyJWKClient:
-    """Return a process-wide cached JWKS client for ``url``."""
-    with _JWKS_LOCK:
-        client = _JWKS_CLIENTS.get(url)
-        if client is None:
-            client = PyJWKClient(url, cache_keys=True)
-            _JWKS_CLIENTS[url] = client
-        return client
+def generate_session_token() -> str:
+    """Return a new opaque session token (never stored in plaintext)."""
+    return secrets.token_urlsafe(SESSION_TOKEN_BYTES)
 
 
-def decode_supabase_token(token: str, settings: Settings) -> dict[str, Any]:
-    """Verify a Supabase access token and return its claims.
+def hash_session_token(token: str) -> str:
+    """Return the lowercase SHA-256 hex digest used to look a session up."""
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
 
-    Raises :class:`AuthError` with a stable ``code`` on any failure.
+
+def dummy_verify_password(password: str) -> bool:
+    """Spend the same work as a real verification, always returning False."""
+    verify_password(_DUMMY_PASSWORD_HASH, password)
+    return False
+
+
+def hash_password(password: str) -> str:
+    """Hash ``password`` with Argon2id (salted; a fresh hash every call)."""
+    return _hasher.hash(password)
+
+
+def verify_password(password_hash: str, password: str) -> bool:
+    """Return True when ``password`` matches ``password_hash``.
+
+    A corrupted/unknown hash is treated as a mismatch instead of raising, so a
+    damaged row cannot turn a login attempt into a 500.
     """
-    if not isinstance(token, str) or not token.strip():
-        raise AuthError("missing_token", "Authentication required.")
-
-    if settings.supabase_jwt_secret:
-        return _decode_claims(
-            token,
-            settings.supabase_jwt_secret,
-            _SYMMETRIC_ALGORITHMS,
-            settings,
-        )
-
-    if not settings.supabase_jwks_url:
-        raise AuthError(
-            "auth_not_configured",
-            "Authentication is not configured on the server.",
-        )
-
     try:
-        signing_key = _jwks_client(settings.supabase_jwks_url).get_signing_key_from_jwt(token)
-    except (PyJWKClientError, OSError) as exc:
-        raise AuthError(
-            "jwks_unavailable",
-            "Unable to verify your session right now. Please try again.",
-        ) from exc
-
-    return _decode_claims(
-        token,
-        signing_key.key,
-        _ASYMMETRIC_ALGORITHMS,
-        settings,
-    )
-
-
-def _decode_claims(
-    token: str,
-    key: Any,
-    algorithms: list[str],
-    settings: Settings,
-) -> dict[str, Any]:
-    options: dict[str, Any] = {
-        "require": ["exp", "sub"],
-        "verify_aud": bool(settings.supabase_jwt_audience),
-        "verify_iss": bool(settings.supabase_jwt_issuer),
-    }
-    kwargs: dict[str, Any] = {"algorithms": algorithms, "options": options}
-    if settings.supabase_jwt_audience:
-        kwargs["audience"] = settings.supabase_jwt_audience
-    if settings.supabase_jwt_issuer:
-        kwargs["issuer"] = settings.supabase_jwt_issuer
-
-    try:
-        claims = jwt.decode(token, key, **kwargs)
-    except ExpiredSignatureError as exc:
-        raise AuthError(
-            "token_expired", "Your session has expired. Please sign in again."
-        ) from exc
-    except InvalidAudienceError as exc:
-        raise AuthError(
-            "invalid_audience", "This token was not issued for this application."
-        ) from exc
-    except InvalidIssuerError as exc:
-        raise AuthError(
-            "invalid_issuer", "This token was not issued by the expected provider."
-        ) from exc
-    except MissingRequiredClaimError as exc:
-        if "sub" in str(exc):
-            raise AuthError(
-                "missing_subject", "The token does not identify a user."
-            ) from exc
-        raise AuthError("invalid_token", "Invalid authentication token.") from exc
-    except InvalidTokenError as exc:
-        raise AuthError("invalid_token", "Invalid authentication token.") from exc
-
-    subject = claims.get("sub")
-    if not isinstance(subject, str) or not subject.strip():
-        raise AuthError("missing_subject", "The token does not identify a user.")
-    return claims
+        return _hasher.verify(password_hash, password)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        return False

@@ -9,11 +9,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from ...core.config import Settings
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     ProfileOut,
     TrackOut,
@@ -31,8 +30,6 @@ from ..deps import get_db, get_settings, require_approved
 from ..errors import ApiError
 
 router = APIRouter(prefix="/api/user-playlists", tags=["user-playlists"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 
 
 def _unavailable() -> ApiError:
@@ -121,7 +118,7 @@ async def list_user_playlists(
         rows, total = await user_playlists.list_user_playlists(
             db, profile.id, limit=limit, offset=offset
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return UserPlaylistList(
         items=[UserPlaylistOut.model_validate(row) for row in rows],
@@ -153,7 +150,7 @@ async def create_user_playlist(
         )
     except ValueError as exc:
         raise _invalid_request() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return UserPlaylistOut.model_validate(row)
 
@@ -172,7 +169,7 @@ async def get_user_playlist(
         result = await user_playlists.get_playlist_with_tracks(
             db, playlist_id, profile.id
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if result is None:
         raise _playlist_not_found()
@@ -197,7 +194,7 @@ async def update_user_playlist(
         )
     except ValueError as exc:
         raise _invalid_request() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if row is None:
         raise _playlist_not_found()
@@ -219,7 +216,7 @@ async def delete_user_playlist(
         deleted = await user_playlists.delete_user_playlist(
             db, playlist_id, profile.id
         )
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if not deleted:
         raise _playlist_not_found()
@@ -252,7 +249,7 @@ async def add_playlist_track(
         raise _track_not_found() from exc
     except ValueError as exc:
         raise _playlist_not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if result is None:  # pragma: no cover - the playlist was just locked
         raise _playlist_not_found()
@@ -286,7 +283,7 @@ async def reorder_playlist_tracks(
         raise _playlist_not_found() from exc
     except ValueError as exc:
         raise _playlist_not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if result is None:  # pragma: no cover - the playlist was just locked
         raise _playlist_not_found()
@@ -315,7 +312,7 @@ async def remove_playlist_track(
         raise _playlist_not_found() from exc
     except ValueError as exc:
         raise _playlist_not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if not removed:
         raise _track_not_found()

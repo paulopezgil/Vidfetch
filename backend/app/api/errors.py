@@ -29,7 +29,6 @@ _AUTH_STATUS: dict[str, int] = {
     "approval_required": 403,
     "admin_required": 403,
     "service_unavailable": 503,
-    "jwks_unavailable": 503,
 }
 
 _HTTP_STATUS_CODES: dict[int, str] = {
