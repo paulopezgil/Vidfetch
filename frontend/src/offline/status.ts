@@ -5,6 +5,17 @@ import { countQueue } from "./db";
 export const QUEUED_MUTATION_MESSAGE =
   "Desat al dispositiu; es sincronitzarà quan torni la connexió.";
 
+/** How the browser answers the persistent-storage request. */
+export type PersistenceState =
+  | "unknown"
+  | "granted"
+  | "denied"
+  | "unsupported";
+
+const persistentStorageSupported =
+  typeof navigator !== "undefined" &&
+  typeof navigator.storage?.persist === "function";
+
 /** Snapshot consumed by the offline banner and other UI. */
 export interface OfflineStatus {
   /** Network reachable according to `navigator.onLine` and recent requests. */
@@ -19,6 +30,8 @@ export interface OfflineStatus {
   lastError: string | null;
   /** When the currently displayed cached data was stored. */
   cachedAt: number | null;
+  /** Persistent-storage grant, remembered for the storage dialog. */
+  persistence: PersistenceState;
 }
 
 const browserOnline =
@@ -31,6 +44,7 @@ let state: OfflineStatus = {
   usingCache: false,
   lastError: null,
   cachedAt: null,
+  persistence: persistentStorageSupported ? "unknown" : "unsupported",
 };
 
 const listeners = new Set<() => void>();
@@ -104,6 +118,11 @@ export function setSyncing(syncing: boolean): void {
 /** Record why the last replay stopped or skipped an entry. */
 export function setLastError(lastError: string | null): void {
   update({ lastError });
+}
+
+/** Remember the result of the persistent-storage request. */
+export function setPersistence(persistence: PersistenceState): void {
+  update({ persistence });
 }
 
 /** True when the app should assume there is no usable connection. */

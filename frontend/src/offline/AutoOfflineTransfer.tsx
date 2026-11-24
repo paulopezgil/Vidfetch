@@ -1,7 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
-import { isAudioSelector, loadOfflineIndex, saveOfflineMedia } from "./media";
+import {
+  QUOTA_EXCEEDED_MESSAGE,
+  isAudioSelector,
+  loadOfflineIndex,
+  offlineMediaError,
+  saveOfflineMedia,
+} from "./media";
 
 /**
  * Second phase of an audio download: transfer the finished media locally.
@@ -50,8 +56,11 @@ export default function AutoOfflineTransfer() {
       handledRef.current.add(assetId);
       void saveOfflineMedia(assetId).then((copied) => {
         if (copied) return;
+        const quotaMessage = offlineMediaError(assetId);
         toast(
-          `No s’ha pogut desar «${job.title}» per a escoltar sense connexió.`,
+          quotaMessage === QUOTA_EXCEEDED_MESSAGE
+            ? quotaMessage
+            : `No s’ha pogut desar «${job.title}» per a escoltar sense connexió.`,
           "error",
         );
       });
