@@ -124,16 +124,3 @@ export interface LibraryResponse {
   files: LibraryFile[];
   playlists: Playlist[];
 }
-
-export interface Health {
-  status: string;
-  version: string;
-  ytdlp_version?: string | null;
-  python_version: string;
-  dependencies: {
-    node_available: boolean;
-    node_version?: string | null;
-    ffmpeg_available: boolean;
-    ffmpeg_version?: string | null;
-  };
-}
