@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 from uuid import UUID, uuid4
 
@@ -551,6 +551,10 @@ async def resolve_cover_path(
         path = storage.validate_relative_path(relative)
     except (OSError, StorageError):
         return None
-    if path.is_symlink() or not path.is_file():
+    # ``validate_relative_path`` resolves symlinks, so check the lexical entry
+    # as well: a symlink planted at the cover path must never be served even
+    # when it points at another file inside the storage root.
+    lexical = storage.root.joinpath(*PurePosixPath(relative).parts)
+    if path.is_symlink() or lexical.is_symlink() or not path.is_file():
         return None
     return path

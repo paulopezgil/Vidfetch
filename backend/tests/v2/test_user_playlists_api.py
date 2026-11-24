@@ -490,6 +490,7 @@ def test_reorder_playlist_tracks_rewrites_and_returns_the_new_order(tmp_path):
     [
         lambda first, second: [first],
         lambda first, second: [first, first],
+        lambda first, second: [first, second, uuid4()],
     ],
 )
 def test_reorder_playlist_tracks_rejects_a_non_permutation(
@@ -538,3 +539,319 @@ def test_reorder_playlist_tracks_hides_a_foreign_playlist(tmp_path):
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "playlist_not_found"
+
+
+def test_create_user_playlist_accepts_metadata_at_the_limits(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    name = "n" * 200
+    description = "d" * 500
+    created = user_playlist_row(
+        user_id=profile["id"], name=name, description=description
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, created)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            "/api/user-playlists",
+            json={"name": name, "description": description},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 201
+    assert response.json()["name"] == name
+    assert response.json()["description"] == description
+    assert db.calls[1][2] == (profile["id"], name, description)
+
+
+def test_update_user_playlist_accepts_metadata_at_the_limits(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    playlist_id = uuid4()
+    name = "n" * 200
+    description = "d" * 500
+    updated = user_playlist_row(
+        playlist_id=playlist_id,
+        user_id=profile["id"],
+        name=name,
+        description=description,
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, updated)
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            f"/api/user-playlists/{playlist_id}",
+            json={"name": name, "description": description},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == name
+    assert response.json()["description"] == description
+    assert db.calls[1][2] == (playlist_id, profile["id"], name, description)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 201},
+        {"offset": -1},
+    ],
+)
+def test_list_user_playlists_rejects_out_of_range_pagination(tmp_path, params):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/user-playlists", params=params, headers=_headers(profile)
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert len(db.calls) == 1
+
+
+def test_detail_track_count_matches_the_visible_items(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    playlist = user_playlist_row(user_id=profile["id"], track_count=5)
+    first, second = track_row(), track_row()
+    hidden = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, playlist)
+    db.queue_fetch(
+        [
+            {"user_track_id": first["id"]},
+            {"user_track_id": hidden},
+            {"user_track_id": second["id"]},
+        ]
+    )
+    db.queue_fetch([first, second])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            f"/api/user-playlists/{playlist['id']}", headers=_headers(profile)
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["track_count"] == 2
+    assert len(body["items"]) == 2
+
+
+def _playlist_request(operation: str, playlist_id):
+    track_id = uuid4()
+    base = f"/api/user-playlists/{playlist_id}"
+    if operation == "get":
+        return "GET", base, None
+    if operation == "patch":
+        return "PATCH", base, {"name": "Renamed"}
+    if operation == "delete":
+        return "DELETE", base, None
+    if operation == "add":
+        return "POST", f"{base}/tracks", {"track_id": str(track_id)}
+    if operation == "reorder":
+        return "PUT", f"{base}/tracks/order", {"track_ids": []}
+    if operation == "remove":
+        return "DELETE", f"{base}/tracks/{track_id}", None
+    raise AssertionError(f"Unknown operation {operation}")
+
+
+@pytest.mark.parametrize(
+    "operation", ["get", "patch", "delete", "add", "reorder", "remove"]
+)
+def test_missing_soft_deleted_or_foreign_playlist_is_404(tmp_path, operation):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    playlist_id = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, None)
+    method, url, payload = _playlist_request(operation, playlist_id)
+
+    with app_client(settings, db) as (app, client):
+        response = client.request(
+            method, url, json=payload, headers=_headers(profile)
+        )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "playlist_not_found"
+    assert len(db.calls) == 2
+    assert all("deleted_at is null" in call[1] for call in db.calls[1:])
+    # Every lookup/mutation is owner-scoped, never "id only then check".
+    assert all("user_id = $2" in call[1] for call in db.calls[1:])
+
+
+@pytest.mark.parametrize(
+    "operation", ["get", "patch", "delete", "add", "reorder", "remove"]
+)
+def test_playlist_operations_require_an_approved_user(tmp_path, operation):
+    settings = make_settings(tmp_path)
+    profile = profile_row(is_approved=False)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+    method, url, payload = _playlist_request(operation, uuid4())
+
+    with app_client(settings, db) as (app, client):
+        response = client.request(
+            method, url, json=payload, headers=_headers(profile)
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "approval_required"
+    assert len(db.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "list",
+        "create",
+        "get",
+        "patch",
+        "delete",
+        "add",
+        "reorder",
+        "remove",
+    ],
+)
+def test_playlist_db_failure_is_503(tmp_path, operation):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=1)
+    db.queue_fetchrow(profile)
+    if operation == "list":
+        method, url, payload = "GET", "/api/user-playlists", None
+    elif operation == "create":
+        method, url, payload = (
+            "POST",
+            "/api/user-playlists",
+            {"name": "Mix"},
+        )
+    else:
+        method, url, payload = _playlist_request(operation, uuid4())
+
+    with app_client(settings, db) as (app, client):
+        response = client.request(
+            method, url, json=payload, headers=_headers(profile)
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+
+
+@pytest.mark.parametrize(
+    "operation", ["get", "patch", "delete", "add", "reorder", "remove"]
+)
+def test_playlist_operations_reject_invalid_uuids(tmp_path, operation):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+    base = "/api/user-playlists/not-a-uuid"
+    if operation == "get":
+        method, url, payload = "GET", base, None
+    elif operation == "patch":
+        method, url, payload = "PATCH", base, {"name": "Renamed"}
+    elif operation == "delete":
+        method, url, payload = "DELETE", base, None
+    elif operation == "add":
+        method, url, payload = (
+            "POST",
+            f"{base}/tracks",
+            {"track_id": str(uuid4())},
+        )
+    elif operation == "reorder":
+        method, url, payload = "PUT", f"{base}/tracks/order", {"track_ids": []}
+    else:
+        method, url, payload = (
+            "DELETE",
+            f"{base}/tracks/{uuid4()}",
+            None,
+        )
+
+    with app_client(settings, db) as (app, client):
+        response = client.request(
+            method, url, json=payload, headers=_headers(profile)
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert all("user_playlists" not in call[1] for call in db.calls)
+
+
+def test_add_playlist_track_twice_is_idempotent(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    playlist = user_playlist_row(user_id=profile["id"], track_count=1)
+    track = track_row()
+    db = FakeDatabase()
+    add_responses = (
+        profile,
+        {"id": playlist["id"]},
+        {"id": track["id"]},
+        playlist,
+    )
+    for _ in range(2):
+        db.queue_fetchrow(*add_responses)
+        db.queue_execute("INSERT 0 1", "UPDATE 1")
+        db.queue_fetch([{"user_track_id": track["id"]}])
+        db.queue_fetch([track])
+
+    with app_client(settings, db) as (app, client):
+        first = client.post(
+            f"/api/user-playlists/{playlist['id']}/tracks",
+            json={"track_id": str(track["id"])},
+            headers=_headers(profile),
+        )
+        second = client.post(
+            f"/api/user-playlists/{playlist['id']}/tracks",
+            json={"track_id": str(track["id"])},
+            headers=_headers(profile),
+        )
+
+    for response in (first, second):
+        assert response.status_code == 200
+        assert response.json()["track_count"] == 1
+        assert [item["id"] for item in response.json()["items"]] == [
+            str(track["id"])
+        ]
+    inserts = [
+        call
+        for call in db.calls
+        if "insert into" in call[1] and "user_playlist_tracks" in call[1]
+    ]
+    assert len(inserts) == 2
+    assert all(
+        "on conflict (playlist_id, user_track_id) do nothing" in call[1]
+        for call in inserts
+    )
+
+
+def test_reorder_empty_playlist_with_an_empty_order(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    playlist = user_playlist_row(user_id=profile["id"], track_count=0)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, {"id": playlist["id"]}, playlist)
+    db.queue_fetch([], [])
+    db.queue_execute("UPDATE 1")
+
+    with app_client(settings, db) as (app, client):
+        response = client.put(
+            f"/api/user-playlists/{playlist['id']}/tracks/order",
+            json={"track_ids": []},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["track_count"] == 0
+    assert body["items"] == []
+    assert db.connection.commits == 1
+    assert all("set position" not in call[1] for call in db.calls)

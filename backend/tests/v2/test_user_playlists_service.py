@@ -437,3 +437,65 @@ def test_reorder_tracks_rejects_a_foreign_or_deleted_playlist():
 
     assert db.connection.rollbacks == 1
     assert len(db.calls) == 1
+
+
+def test_list_user_playlists_clamps_pagination():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    rows, total = run(
+        user_playlists.list_user_playlists(
+            db, owner, limit=10_000, offset=-5
+        )
+    )
+
+    assert rows == []
+    assert total == 0
+    assert db.calls[0][2] == (owner,)
+    assert db.calls[1][2] == (owner, user_playlists.MAX_PAGE_SIZE, 0)
+
+
+def test_remove_track_rejects_a_foreign_or_deleted_playlist():
+    db = FakeDatabase()
+    db.queue_fetchrow(None)
+
+    with pytest.raises(user_playlists.UserPlaylistNotFoundError):
+        run(user_playlists.remove_track(db, uuid4(), uuid4(), uuid4()))
+
+    assert db.connection.transactions == 1
+    assert db.connection.rollbacks == 1
+    assert all(call[0] != "delete" for call in db.calls)
+
+
+def test_reorder_tracks_rejects_an_empty_order_for_a_non_empty_playlist():
+    ids = [uuid4(), uuid4()]
+    db = FakeDatabase()
+    db.queue_fetchrow({"id": uuid4()})
+    db.queue_fetch([{"user_track_id": value} for value in ids])
+
+    with pytest.raises(user_playlists.InvalidTrackOrderError):
+        run(user_playlists.reorder_tracks(db, uuid4(), uuid4(), []))
+
+    assert db.connection.rollbacks == 1
+    assert all(call[0] != "execute" for call in db.calls)
+
+
+def test_reorder_tracks_accepts_an_empty_order_for_an_empty_playlist():
+    playlist_id = uuid4()
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"id": playlist_id})
+    db.queue_fetch([])
+    db.queue_execute("UPDATE 1")
+
+    run(user_playlists.reorder_tracks(db, playlist_id, owner, []))
+
+    assert db.connection.commits == 1
+    assert db.connection.rollbacks == 0
+    updates = [call for call in db.calls if call[0] == "execute"]
+    assert len(updates) == 1
+    assert 'update "public".user_playlists' in updates[0][1]
+    assert updates[0][2] == (playlist_id, owner)
+    assert all("set position" not in call[1] for call in db.calls)

@@ -528,6 +528,78 @@ def test_list_tracks_by_ids_preserves_order_and_filters_invisible_rows():
     assert args == (owner, [first, second, third])
 
 
+def test_list_facets_clamps_a_negative_limit():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetch([])
+
+    run(tracks.list_facets(db, owner, kind="artist", limit=-10))
+
+    assert db.calls[0][2] == (owner, "", 1)
+
+
+def test_get_track_scopes_owner_and_visibility():
+    owner, track_id = uuid4(), uuid4()
+    row = track_row(track_id=track_id)
+    db = FakeDatabase()
+    db.queue_fetchrow(row)
+
+    assert run(tracks.get_track(db, track_id, owner)) == row
+
+    query, args = db.calls[0][1], db.calls[0][2]
+    assert 'from "public".user_tracks ut' in query
+    assert 'join "public".media_assets a on a.id = ut.asset_id' in query
+    assert "join lateral (" in query
+    assert "ut.id = $1 and ut.user_id = $2" in query
+    assert "ut.deleted_at is null" in query
+    assert "a.status = 'ready'" in query
+    assert "j.library_hidden = false" in query
+    assert args == (track_id, owner)
+
+    db = FakeDatabase()
+    db.queue_fetchrow(None)
+    assert run(tracks.get_track(db, track_id, uuid4())) is None
+
+
+def test_decode_cover_rejects_empty_or_unsupported_payloads():
+    for content_type, data in (
+        ("image/png", ""),
+        ("image/png", "   "),
+        ("image/gif", "R0lGODlh"),
+    ):
+        with pytest.raises(tracks.CoverValidationError):
+            tracks.decode_cover(content_type, data)
+
+
+def test_resolve_cover_path_refuses_a_symlink_cover(storage: Storage):
+    owner, track_id = uuid4(), uuid4()
+    target = storage.root / "assets" / "shared.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(PNG_MAGIC + b"shared")
+    relative = f"covers/{owner}/{track_id}.png"
+    link = storage.root / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    db = FakeDatabase()
+    db.queue_fetchrow({"cover_path": relative})
+
+    assert run(tracks.resolve_cover_path(db, storage, track_id, owner)) is None
+    assert link.is_symlink()
+    assert target.is_file()
+
+
+def test_resolve_cover_path_refuses_a_directory(storage: Storage):
+    owner, track_id = uuid4(), uuid4()
+    relative = f"covers/{owner}/{track_id}.png"
+    directory = storage.root / relative
+    directory.mkdir(parents=True)
+    db = FakeDatabase()
+    db.queue_fetchrow({"cover_path": relative})
+
+    assert run(tracks.resolve_cover_path(db, storage, track_id, owner)) is None
+    assert directory.is_dir()
+
+
 def test_list_tracks_by_ids_skips_the_query_for_an_empty_list():
     db = FakeDatabase()
 

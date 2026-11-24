@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from backend.app.services.signing import verify_media_token
 from backend.tests.v2.fakes import (
     FakeDatabase,
@@ -391,3 +393,169 @@ def test_list_album_facets_uses_the_album_column(tmp_path):
     assert "btrim(ut.custom_album)" in query
     assert "btrim(ut.custom_artist)" not in query
     assert args == (profile["id"], "", 20)
+
+
+def test_patch_track_accepts_metadata_at_the_length_limit(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    value = "x" * 200
+    db = FakeDatabase()
+    db.queue_fetchrow(
+        profile, {"id": track_id}, track_row(track_id=track_id, title=value)
+    )
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            f"/api/tracks/{track_id}",
+            json={"custom_title": f"  {value}  "},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == value
+    assert db.calls[1][2] == (track_id, profile["id"], value)
+
+
+def test_patch_track_trims_a_whitespace_only_value_to_clear_it(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(
+        profile, {"id": track_id}, track_row(track_id=track_id, album="")
+    )
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            f"/api/tracks/{track_id}",
+            json={"custom_album": "   "},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["album"] == ""
+    assert db.calls[1][2] == (track_id, profile["id"], "")
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 201},
+        {"offset": -1},
+    ],
+)
+def test_list_tracks_rejects_out_of_range_pagination(tmp_path, params):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks", params=params, headers=_headers(profile)
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert len(db.calls) == 1
+
+
+def test_list_artist_facets_clamps_a_negative_limit(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+    db.queue_fetch([])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks/artists",
+            params={"limit": -5},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+    assert db.calls[1][2] == (profile["id"], "", 1)
+
+
+def test_list_facets_db_failure_is_503(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=1)
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get("/api/tracks/albums", headers=_headers(profile))
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+
+
+def test_patch_track_db_failure_is_503(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=1)
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            f"/api/tracks/{uuid4()}",
+            json={"custom_title": "Renamed"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+
+
+def test_patch_track_requires_an_approved_user(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = profile_row(is_approved=False)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            f"/api/tracks/{uuid4()}",
+            json={"custom_title": "Renamed"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "approval_required"
+    assert all(" set " not in call[1].lower() for call in db.calls)
+
+
+def test_list_facets_requires_an_approved_user(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = profile_row(is_approved=False)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get("/api/tracks/artists", headers=_headers(profile))
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "approval_required"
+    assert len(db.calls) == 1
+
+
+def test_patch_track_rejects_an_invalid_uuid(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.patch(
+            "/api/tracks/not-a-uuid",
+            json={"custom_title": "Renamed"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert all(" set " not in call[1].lower() for call in db.calls)
