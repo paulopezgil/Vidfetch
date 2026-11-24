@@ -45,6 +45,17 @@ This section accumulates the change groups as they land on `dev`.
   menu, reorder them with up/down controls, remove tracks, play the playlist,
   rename it, and delete it. Playlists show a four-tile cover collage and a live
   track count, and imported source playlists are listed separately.
+- **Playlist picker.** A dedicated `/playlists/:id/add` view (not in the sidebar)
+  reuses the Tracks layout with only one control per row: add when the song is
+  not in the playlist, check when it is. Playlist detail links straight to it.
+- **Offline metadata.** Library, playlist, and facet reads are cached in
+  IndexedDB and served when the network is down. Track metadata, cover, and
+  curated-playlist edits queue locally and replay FIFO on reconnect, with an
+  offline banner, pending count, and an offline-capable profile boot.
+- **Offline media and two-phase downloads.** Completed audio jobs transfer to
+  the device automatically into Cache Storage. The player prefers the local
+  blob, the production service worker serves the app shell offline, and each
+  song shows a cloud → spinner → check save control.
 
 ### Changed
 
@@ -54,6 +65,10 @@ This section accumulates the change groups as they land on `dev`.
   `/imported/:id`.
 - Curated playlists live at `/playlists/:id`; imported source playlists moved to
   `/imported/:id`, and their back links return to `/playlists`.
+- Per-song download buttons are replaced by the offline save control; video and
+  image files keep their download buttons and playlist ZIP export is unchanged.
+- Download activity now appears only on Home (active and recently finished),
+  never in Tracks.
 
 ### Database
 
@@ -87,11 +102,23 @@ This section accumulates the change groups as they land on `dev`.
   saw the row and Artists view update, then restored the original metadata and
   removed the cover. Created a curated playlist, added the track from the `•••`
   menu, played the playlist, removed the track, and deleted the playlist.
+- Offline E2E: saved a 33.7 MB song (Cache Storage + IndexedDB verified), saw a
+  newly finished audio job transfer automatically, then stopped the backend and
+  played the saved song with **zero** `/api/media` requests. Removing the saved
+  copy returned the cloud state and playback continued.
+- Offline metadata E2E: with the transport blocked, cached tracks rendered, a
+  track edit and playlist rename queued, reconnect flushed both in order, and
+  the profile/session booted the shell offline.
+- Playlist picker E2E: `/playlists/:id/add` showed only add/check controls,
+  adding flipped the row to check and the count to 1, removing flipped it back,
+  and playlist detail exposed **Afegeix tracks**.
+- Service worker: production preview kept the app shell (`/login`) rendering
+  after the server stopped; cached JS/CSS/manifest were present.
 
 ### Roadmap and progress
 
 The release is delivered as six change groups, all targeting this single
-`v2.3.0` release. Overall progress: **4 of 6 complete**.
+`v2.3.0` release. Overall progress: **5 of 6 complete**.
 
 | # | Change group | Frontend | Backend | Status |
 | --- | --- | --- | --- | --- |
@@ -99,12 +126,13 @@ The release is delivered as six change groups, all targeting this single
 | 2 | **New shell + player** | Four-tab navigation (Home, Tracks, Playlists, Artists & Albums); Home focuses on import and active downloads; persistent player bar with queue | Minor player/session state; signed stream URLs already exist | ✅ Done |
 | 3 | **Browse views** | Date-grouped Tracks with quick search; Artists/Albums cards and drill-down | Server-side search over resolved title, artist, and album | ✅ Done |
 | 4 | **Playlists + metadata editing** | User playlist grid/detail/reorder; track `•••` menu; Edit Details modal; artist/album autocomplete; cover upload | User playlist CRUD and ordering; metadata updates; cover storage; per-user isolation | ✅ Done |
-| 5 | **Offline-first + two-phase download** | Local IndexedDB metadata and media cache; offline playback; queued mutations and sync status | Sync/push endpoints, `updated_at` + last-write-wins, tombstones, idempotent replay, per-device state | ⬜ Planned |
+| 5 | **Offline-first + two-phase download** | IndexedDB metadata/media cache, queued edits, offline playback, automatic client transfer, service worker, save-state button | Existing owner-scoped mutations replayed FIFO; `updated_at`/tombstones on track and playlist rows | ✅ Done |
 | 6 | **Hardening** | Offline and multi-device QA, storage limits, accessibility and performance | Backfill verification, conflict/race tests, quota handling | ⬜ Planned |
 
 Group 1 is the foundation the remaining groups build on: track identity, custom
 metadata fields, and the owner-scoped read path are already in place on `dev`.
 Group 2 adds the navigation shell the rest of the release hangs off, group 3
-turns the Tracks and Artists/Albums destinations into browsable views, and
-group 4 adds the editing, cover, and curated-playlist workflows.
+turns the Tracks and Artists/Albums destinations into browsable views, group 4
+adds the editing, cover, and curated-playlist workflows, and group 5 makes the
+library usable offline with automatic two-phase transfers.
 
