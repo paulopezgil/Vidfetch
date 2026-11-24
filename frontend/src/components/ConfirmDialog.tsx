@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import Button from "./Button";
 
 interface ConfirmDialogProps {
@@ -12,7 +12,7 @@ interface ConfirmDialogProps {
 }
 
 const FOCUSABLE =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Material 3 basic dialog with predictable focus management. */
 export default function ConfirmDialog({
@@ -24,8 +24,15 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const titleId = useId();
+  const messageId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const onCancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
     if (!open) return;
@@ -33,11 +40,13 @@ export default function ConfirmDialog({
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onCancel();
+        event.preventDefault();
+        onCancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
+      const focusable =
+        dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
       if (!focusable || focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -55,25 +64,32 @@ export default function ConfirmDialog({
       window.removeEventListener("keydown", onKey);
       restoreRef.current?.focus?.();
     };
-  }, [open, onCancel]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/32 p-4"
+      role="presentation"
       onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
     >
       <div
         ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
         className="w-full max-w-[560px] rounded-xl bg-surface-container-high p-6 text-on-surface shadow-elevation-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-headline-small">{title}</h2>
-        <div className="mt-4 text-body-medium text-on-surface-variant">
+        <h2 id={titleId} className="text-headline-small">
+          {title}
+        </h2>
+        <div
+          id={messageId}
+          className="mt-4 text-body-medium text-on-surface-variant"
+        >
           {message}
         </div>
         <div className="mt-6 flex justify-end gap-2">

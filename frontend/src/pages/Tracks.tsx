@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type {
-  DownloadJob,
-  LibraryItem,
-  PlaylistV2,
-} from "../types/v2";
+import type { PlaylistV2, Track } from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
 import {
   deletePlaylist,
   downloadPlaylistZip,
   getMediaToken,
-  listLibrary,
   listPlaylists,
+  listTracks,
   removeFromLibrary,
   triggerDownload,
   withDownloadFlag,
 } from "../lib/api";
+import {
+  extensionOf,
+  groupTracksByDay,
+  mediaTypeFor,
+  type MediaType,
+} from "../lib/trackDisplay";
 import Thumbnail from "../components/Thumbnail";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
@@ -26,20 +28,22 @@ import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
-import JobCard from "../components/JobCard";
+import Menu from "../components/Menu";
+import AddToPlaylistDialog from "../components/AddToPlaylistDialog";
+import TrackEditDialog from "../components/TrackEditDialog";
+import SearchBar from "../components/SearchBar";
 import Button from "../components/Button";
 import StatusChip from "../components/StatusChip";
+import OfflineButton from "../components/OfflineButton";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { usePlayer } from "../player/PlayerProvider";
 
 type Tab = "all" | "videos" | "audio" | "images" | "playlists";
-type MediaType = "video" | "audio" | "image";
 
 const PAGE = 20;
 const PLAYLIST_LIMIT = 100;
-/** Finished jobs stay in the "completed recently" strip for this long. */
-const RECENT_WINDOW_MS = 10 * 60 * 1000;
 
 const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "Tot" },
@@ -49,41 +53,10 @@ const tabs: { value: Tab; label: string }[] = [
   { value: "playlists", label: "Llistes" },
 ];
 
-const AUDIO_EXTENSIONS = new Set([
-  "mp3",
-  "m4a",
-  "aac",
-  "wav",
-  "flac",
-  "ogg",
-  "opus",
-]);
-
-const IMAGE_EXTENSIONS = new Set([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "avif",
-  "bmp",
-]);
-
 interface PreviewState {
   title: string;
   mediaType: MediaType;
   src: string;
-}
-
-function extensionOf(item: LibraryItem): string {
-  return item.output_ext.replace(/^\./, "").toLowerCase();
-}
-
-function mediaTypeFor(item: LibraryItem): MediaType {
-  const ext = extensionOf(item);
-  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
-  if (IMAGE_EXTENSIONS.has(ext)) return "image";
-  return "video";
 }
 
 /** Human label for the stored yt-dlp selector. */
@@ -94,56 +67,72 @@ function formatLabel(selector: string): string {
   return "Millor qualitat";
 }
 
-function isRecentJob(job: DownloadJob): boolean {
-  const stamp = job.completed_at ?? job.updated_at;
-  const time = Date.parse(stamp);
-  return Number.isFinite(time) && Date.now() - time < RECENT_WINDOW_MS;
-}
-
-export default function Library() {
+export default function Tracks() {
   const toast = useToast();
-  const { activeJobs, finishedJobs, cancelJob, jobs } = useDownloads();
-  const [items, setItems] = useState<LibraryItem[]>([]);
+  const { jobs } = useDownloads();
+  const [items, setItems] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistV2[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
+  const [searchInput, setSearchInput] = useState("");
+  /** Trimmed query that actually reaches `GET /api/tracks`. */
+  const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<{
     kind: "file" | "playlist";
     id: string;
     label: string;
   } | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [editing, setEditing] = useState<Track | null>(null);
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
+
+  const searchActive = query.length > 0;
+
+  const submitSearch = useCallback((value: string) => {
+    const next = value.trim();
+    setQuery((current) => (current === next ? current : next));
+    setOffset(0);
+  }, []);
+
+  function handleSearchChange(value: string) {
+    setSearchInput(value);
+    // Clearing the field drops the filter immediately, without a submit.
+    if (value.trim() === "" && query !== "") {
+      setQuery("");
+      setOffset(0);
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [libraryPage, playlistPage] = await Promise.all([
-        listLibrary({ limit: PAGE, offset }),
+      const [trackPage, playlistPage] = await Promise.all([
+        listTracks({ limit: PAGE, offset, q: query || undefined }),
         listPlaylists({ limit: PLAYLIST_LIMIT, offset: 0 }),
       ]);
-      setItems(libraryPage.items);
-      setTotal(libraryPage.total);
+      setItems(trackPage.items);
+      setTotal(trackPage.total);
       setPlaylists(playlistPage.items);
       setError(null);
     } catch (e) {
       setError(
         e instanceof Error
           ? e.message
-          : "No s’ha pogut carregar la biblioteca.",
+          : "No s’han pogut carregar els tracks.",
       );
     } finally {
       setLoading(false);
     }
-  }, [offset]);
+  }, [offset, query]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Reload the library whenever a download reaches `ready`, so the new asset
+  // Reload the tracks whenever a download reaches `ready`, so the new asset
   // appears without a manual refresh. Keep polling updates from causing a
   // reload on every tick by comparing the set of ready jobs.
   const readySignature = useMemo(
@@ -162,23 +151,12 @@ export default function Library() {
     void refresh();
   }, [readySignature, refresh]);
 
-  const recentFinished = useMemo(
-    () =>
-      finishedJobs
-        .filter(
-          (job) => job.status === "ready" || job.status === "failed",
-        )
-        .filter(isRecentJob)
-        .slice(0, 3),
-    [finishedJobs],
-  );
-
   async function confirmDelete() {
     if (!pendingDelete) return;
     try {
       if (pendingDelete.kind === "file") {
         await removeFromLibrary(pendingDelete.id);
-        toast("Element tret de la biblioteca", "success");
+        toast("Track amagat", "success");
       } else {
         await deletePlaylist(pendingDelete.id);
         toast("Llista de reproducció eliminada", "success");
@@ -196,7 +174,7 @@ export default function Library() {
   }
 
   const openPreview = useCallback(
-    async (item: LibraryItem) => {
+    async (item: Track) => {
       try {
         const token = await getMediaToken(item.asset_id);
         setPreview({
@@ -216,74 +194,71 @@ export default function Library() {
     [toast],
   );
 
+  const handleTrackSaved = useCallback(
+    (updated: Track) => {
+      // Update the row immediately, then reload so totals and signed cover
+      // URLs come from the API.
+      setItems((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      toast("Track actualitzat", "success");
+      void refresh();
+    },
+    [refresh, toast],
+  );
+
   // Items downloaded as part of a playlist are reachable through the playlist
   // detail view; keep them out of the individual-file sections.
   const individualItems = useMemo(
     () => items.filter((item) => !item.playlist_id),
     [items],
   );
-  const videoItems = individualItems.filter(
-    (item) => mediaTypeFor(item) === "video",
-  );
-  const audioItems = individualItems.filter(
-    (item) => mediaTypeFor(item) === "audio",
-  );
-  const imageItems = individualItems.filter(
-    (item) => mediaTypeFor(item) === "image",
+
+  // Apply the filter chips before grouping so every day section only holds the
+  // media types the active chip allows.
+  const visibleTracks = useMemo(() => {
+    if (tab === "playlists") return [];
+    return individualItems.filter((item) => {
+      if (tab === "all") return true;
+      const mediaType = mediaTypeFor(item);
+      if (tab === "videos") return mediaType === "video";
+      if (tab === "images") return mediaType === "image";
+      return mediaType === "audio";
+    });
+  }, [individualItems, tab]);
+
+  const trackDays = useMemo(
+    () => groupTracksByDay(visibleTracks),
+    [visibleTracks],
   );
 
-  const visibleVideos = tab === "all" || tab === "videos" ? videoItems : [];
-  const visibleAudio = tab === "all" || tab === "audio" ? audioItems : [];
-  const visibleImages = tab === "all" || tab === "images" ? imageItems : [];
-  const visiblePlaylists =
-    tab === "all" || tab === "playlists" ? playlists : [];
+  const visiblePlaylists = useMemo(() => {
+    if (tab !== "all" && tab !== "playlists") return [];
+    if (!searchActive) return playlists;
+    const needle = query.toLocaleLowerCase("ca-ES");
+    return playlists.filter((playlist) =>
+      playlist.title.toLocaleLowerCase("ca-ES").includes(needle),
+    );
+  }, [tab, playlists, searchActive, query]);
 
-  const isEmpty =
-    visibleVideos.length === 0 &&
-    visibleAudio.length === 0 &&
-    visibleImages.length === 0 &&
-    visiblePlaylists.length === 0;
+  const isEmpty = visibleTracks.length === 0 && visiblePlaylists.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
-      {activeJobs.length > 0 || recentFinished.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="px-1 text-title-medium text-on-surface">
-            Descàrregues
-          </h2>
-          {activeJobs.length > 0 ? (
-            <div className="space-y-3">
-              {activeJobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  onCancel={async (jobId) => {
-                    await cancelJob(jobId);
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
-          {recentFinished.length > 0 ? (
-            <div className="space-y-2">
-              <h3 className="px-1 text-label-large text-on-surface-variant">
-                Acabades fa poc
-              </h3>
-              <div className="space-y-3">
-                {recentFinished.map((job) => (
-                  <JobCard key={job.id} job={job} />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+      <SearchBar
+        value={searchInput}
+        onChange={handleSearchChange}
+        onSubmit={() => submitSearch(searchInput)}
+        label="Cerca tracks"
+        placeholder="Cerca per títol, artista o àlbum"
+        loading={loading}
+      />
 
       {loading ? (
         <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-          <Spinner /> S’està carregant la biblioteca…
+          <Spinner /> S’estan carregant els tracks…
         </div>
       ) : (
         <>
@@ -326,22 +301,23 @@ export default function Library() {
             </section>
           ) : null}
 
-          {visibleVideos.length > 0 ? (
-            <section className="space-y-2">
-              {tab === "all" ? (
-                <h2 className="px-1 text-title-medium text-on-surface">
-                  Vídeos
-                </h2>
-              ) : null}
+          {trackDays.map((day) => (
+            <section key={day.key} className="space-y-2">
+              <h2 className="px-1 text-title-medium text-on-surface">
+                {day.label}
+              </h2>
               <Card
                 variant="outlined"
                 className="divide-y divide-outline-variant overflow-hidden"
               >
-                {visibleVideos.map((item) => (
+                {day.items.map((item) => (
                   <FileRow
                     key={item.job_id}
                     item={item}
+                    queue={day.items}
                     onPreview={() => void openPreview(item)}
+                    onEdit={() => setEditing(item)}
+                    onAddToPlaylist={() => setAddTarget(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
@@ -353,78 +329,28 @@ export default function Library() {
                 ))}
               </Card>
             </section>
-          ) : null}
-
-          {visibleAudio.length > 0 ? (
-            <section className="space-y-2">
-              {tab === "all" ? (
-                <h2 className="px-1 text-title-medium text-on-surface">
-                  Àudio
-                </h2>
-              ) : null}
-              <Card
-                variant="outlined"
-                className="divide-y divide-outline-variant overflow-hidden"
-              >
-                {visibleAudio.map((item) => (
-                  <FileRow
-                    key={item.job_id}
-                    item={item}
-                    onPreview={() => void openPreview(item)}
-                    onDelete={() =>
-                      setPendingDelete({
-                        kind: "file",
-                        id: item.job_id,
-                        label: item.title,
-                      })
-                    }
-                  />
-                ))}
-              </Card>
-            </section>
-          ) : null}
-
-          {visibleImages.length > 0 ? (
-            <section className="space-y-2">
-              {tab === "all" ? (
-                <h2 className="px-1 text-title-medium text-on-surface">
-                  Imatges
-                </h2>
-              ) : null}
-              <Card
-                variant="outlined"
-                className="divide-y divide-outline-variant overflow-hidden"
-              >
-                {visibleImages.map((item) => (
-                  <FileRow
-                    key={item.job_id}
-                    item={item}
-                    onPreview={() => void openPreview(item)}
-                    onDelete={() =>
-                      setPendingDelete({
-                        kind: "file",
-                        id: item.job_id,
-                        label: item.title,
-                      })
-                    }
-                  />
-                ))}
-              </Card>
-            </section>
-          ) : null}
+          ))}
 
           {!error && isEmpty ? (
-            <EmptyState
-              icon="folder_open"
-              title={
-                tab === "all" ? "La biblioteca és buida" : "Aquí no hi ha res"
-              }
-              description={
-                tab === "all"
-                  ? "Els vídeos i les llistes de reproducció que descarreguis apareixeran aquí."
-                  : "Prova un altre filtre o descarrega contingut nou des de l’Inici."
-              }
-            />
+            searchActive ? (
+              <EmptyState
+                icon="search_off"
+                title="Cap resultat per a la cerca"
+                description={`No hi ha cap track que coincideixi amb «${query}». Prova un altre terme o neteja la cerca.`}
+              />
+            ) : (
+              <EmptyState
+                icon="folder_open"
+                title={
+                  tab === "all" ? "Encara no hi ha tracks" : "Aquí no hi ha res"
+                }
+                description={
+                  tab === "all"
+                    ? "Els vídeos i les llistes de reproducció que descarreguis apareixeran aquí."
+                    : "Prova un altre filtre o descarrega contingut nou des de l’Inici."
+                }
+              />
+            )
           ) : null}
 
           {total > PAGE && tab !== "playlists" ? (
@@ -459,7 +385,7 @@ export default function Library() {
         open={pendingDelete !== null}
         title={
           pendingDelete?.kind === "file"
-            ? "Voleu treure el fitxer de la biblioteca?"
+            ? "Voleu treure el track?"
             : "Voleu eliminar la llista de reproducció?"
         }
         message={
@@ -469,7 +395,7 @@ export default function Library() {
               <span className="font-medium text-on-surface">
                 {pendingDelete.label}
               </span>{" "}
-              de la vostra biblioteca. El fitxer compartit no s’elimina i la
+              dels vostres tracks. El fitxer compartit no s’elimina i la
               descàrrega es conserva a l’historial.
             </>
           ) : (
@@ -494,20 +420,43 @@ export default function Library() {
         src={preview?.src ?? ""}
         onClose={() => setPreview(null)}
       />
+
+      <TrackEditDialog
+        open={editing !== null}
+        track={editing}
+        onClose={() => setEditing(null)}
+        onSaved={handleTrackSaved}
+      />
+
+      <AddToPlaylistDialog
+        open={addTarget !== null}
+        track={addTarget}
+        onClose={() => setAddTarget(null)}
+      />
     </div>
   );
 }
 
 function FileRow({
   item,
+  queue,
   onDelete,
+  onEdit,
+  onAddToPlaylist,
   onPreview,
 }: {
-  item: LibraryItem;
+  item: Track;
+  /** Visible rows that form the play queue for this section. */
+  queue: Track[];
   onDelete: () => void;
+  onEdit: () => void;
+  onAddToPlaylist: () => void;
   onPreview: () => void;
 }) {
   const toast = useToast();
+  const { current, isPlaying, playTrack, togglePlay } = usePlayer();
+  const playerActive = current?.id === item.id;
+  const playerPlaying = playerActive && isPlaying;
   const mediaType = mediaTypeFor(item);
   const isImage = mediaType === "image";
   const icon =
@@ -515,6 +464,10 @@ function FileRow({
   const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
   const [downloading, setDownloading] = useState(false);
   const ext = extensionOf(item);
+  const credit = [item.artist, item.album]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join(" · ");
 
   async function handleDownload() {
     if (downloading) return;
@@ -535,7 +488,7 @@ function FileRow({
   return (
     <div className="flex flex-wrap items-center gap-3 p-4">
       <Thumbnail
-        src={token?.thumbnail_url ?? null}
+        src={item.cover_url ?? token?.thumbnail_url ?? null}
         icon={icon}
         className="aspect-video w-20"
       />
@@ -547,41 +500,82 @@ function FileRow({
           <StatusChip status={item.status} />
         </div>
         <p className="mt-0.5 text-body-small text-on-surface-variant">
-          {formatBytes(item.file_size_bytes)} ·{" "}
+          {formatBytes(item.file_size_bytes ?? 0)} ·{" "}
           {(ext || "fitxer").toUpperCase()} ·{" "}
-          {formatLabel(item.format_selector)} · {formatDate(item.created_at)}
+          {credit ? `${credit} · ` : ""}
+          {formatLabel(item.format_selector)} · {formatDate(item.downloaded_at)}
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
-        <IconButton
-          variant="tonal"
-          label={isImage ? "Mostra la imatge" : "Reprodueix"}
-          onClick={onPreview}
-        >
-          <Icon
-            name={isImage ? "image" : "play_arrow"}
-            className="text-[20px]"
-          />
-        </IconButton>
-        <IconButton
-          variant="tonal"
-          label="Descarrega el fitxer"
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-        >
-          {downloading ? (
-            <Spinner className="text-[20px]" />
-          ) : (
-            <Icon name="download" className="text-[20px]" />
-          )}
-        </IconButton>
-        <IconButton
-          variant="danger"
-          label="Treu el fitxer de la biblioteca"
-          onClick={onDelete}
-        >
+        {isImage ? (
+          <IconButton
+            variant="tonal"
+            label="Mostra la imatge"
+            onClick={onPreview}
+          >
+            <Icon name="image" className="text-[20px]" />
+          </IconButton>
+        ) : (
+          <>
+            <IconButton
+              variant={playerActive ? "filled" : "tonal"}
+              label={playerPlaying ? "Pausa" : "Reprodueix"}
+              onClick={() =>
+                playerActive ? togglePlay() : playTrack(item, queue)
+              }
+            >
+              <Icon
+                name={playerPlaying ? "pause" : "play_arrow"}
+                className="text-[20px]"
+              />
+            </IconButton>
+            <IconButton
+              variant="tonal"
+              label="Obre la previsualització"
+              onClick={onPreview}
+            >
+              <Icon name="open_in_new" className="text-[20px]" />
+            </IconButton>
+          </>
+        )}
+        {mediaType === "audio" ? (
+          // Songs use the offline-state control instead of a one-shot file
+          // download: the second phase of an audio job is automatic.
+          <OfflineButton assetId={item.asset_id} title={item.title} />
+        ) : (
+          <IconButton
+            variant="tonal"
+            label="Descarrega el fitxer"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <Spinner className="text-[20px]" />
+            ) : (
+              <Icon name="download" className="text-[20px]" />
+            )}
+          </IconButton>
+        )}
+        <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
           <Icon name="delete" className="text-[20px]" />
         </IconButton>
+        <Menu
+          label="Més accions"
+          actions={[
+            {
+              id: "add-to-playlist",
+              label: "Afegeix a una playlist",
+              icon: "playlist_add",
+              onSelect: onAddToPlaylist,
+            },
+            {
+              id: "edit",
+              label: "Edita els detalls",
+              icon: "edit",
+              onSelect: onEdit,
+            },
+          ]}
+        />
       </div>
     </div>
   );
@@ -640,7 +634,7 @@ function PlaylistRow({
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
         <Link
-          to={`/library/playlist/${playlist.id}`}
+          to={`/imported/${playlist.id}`}
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary-container px-4 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
         >
           <Icon name="folder_open" className="text-[18px]" /> Mostra

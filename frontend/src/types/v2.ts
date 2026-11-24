@@ -113,27 +113,59 @@ export type PlaylistItemStatus =
   | "failed"
   | "cancelled";
 
-/** One ready asset in the caller's library (`GET /api/library`). */
-export interface LibraryItem {
-  job_id: string;
+/** One ready track owned by the caller (`GET /api/tracks`). */
+export interface Track {
+  id: string;
   asset_id: string;
+  job_id: string;
+  canonical_id: string;
   title: string;
-  file_size_bytes: number;
-  output_ext: string;
+  artist: string;
+  album: string;
+  cover_path: string | null;
+  /** Short-lived signed URL for the uploaded cover, when one exists. */
+  cover_url: string | null;
   thumbnail_path: string | null;
-  created_at: string;
-  status: DownloadJobStatus;
+  duration_seconds: number | null;
+  file_size_bytes: number | null;
+  output_ext: string | null;
   format_selector: string;
   /** Set when the asset was produced by a playlist item job. */
-  playlist_id?: string | null;
+  playlist_id: string | null;
+  status: DownloadJobStatus;
+  downloaded_at: string;
+  updated_at: string;
 }
 
-/** Paginated response for `GET /api/library`. */
-export interface LibraryList {
-  items: LibraryItem[];
+/** Paginated response for `GET /api/tracks`. */
+export interface TrackList {
+  items: Track[];
   total: number;
   limit: number;
   offset: number;
+}
+
+/**
+ * Editable track metadata (`PATCH /api/tracks/{track_id}`).
+ *
+ * Every field is the user's override; an empty string clears it so the
+ * original job/asset metadata shows through again.
+ */
+export interface TrackUpdate {
+  custom_title?: string;
+  custom_artist?: string;
+  custom_album?: string;
+}
+
+/** One autocomplete suggestion for an artist or album facet. */
+export interface FacetItem {
+  name: string;
+  track_count: number;
+}
+
+/** Response for `GET /api/tracks/artists` and `GET /api/tracks/albums`. */
+export interface FacetList {
+  items: FacetItem[];
 }
 
 /** A playlist owned by the caller (`GET /api/playlists`). */
@@ -185,6 +217,45 @@ export interface PlaylistList {
   total: number;
   limit: number;
   offset: number;
+}
+
+/**
+ * A curated playlist owned by the caller (`GET /api/user-playlists`).
+ *
+ * Unlike `PlaylistV2`, which mirrors a downloaded source playlist, a curated
+ * playlist holds an explicit, user-ordered selection of the caller's tracks.
+ */
+export interface UserPlaylist {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  /** Relative cover path, when a custom cover exists. */
+  cover_path: string | null;
+  track_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/user-playlists/{playlist_id}` — playlist plus ordered tracks. */
+export interface UserPlaylistDetail extends UserPlaylist {
+  items: Track[];
+}
+
+/** Paginated response for `GET /api/user-playlists`. */
+export interface UserPlaylistList {
+  items: UserPlaylist[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Request body for creating or renaming a curated playlist. */
+export interface UserPlaylistInput {
+  /** Trimmed name, 1–200 characters. */
+  name: string;
+  /** Optional description, up to 500 characters. */
+  description?: string;
 }
 
 /**

@@ -9,9 +9,18 @@ import {
 } from "react";
 import type { AuthError, Session } from "@supabase/supabase-js";
 import type { Profile } from "../types/auth";
-import { getMe } from "../lib/api";
+import { getMe, isNetworkError } from "../lib/api";
 import { isLocalAuthEnabled } from "../lib/env";
 import { supabase, supabaseConfigError } from "../lib/supabase";
+import {
+  cacheProfile,
+  clearCachedProfile,
+  readCachedProfile,
+} from "../offline/profile";
+import { clearCachedResponsesAndQueue } from "../offline/db";
+import { isOffline, resetOfflineStatus } from "../offline/status";
+import { flushQueue, resetQueueFlush } from "../offline/sync";
+import { setActivePlaylistTitle } from "../navigation";
 
 /** Outcome of a development-only email/password sign-up. */
 export interface PasswordSignUpResult {
@@ -105,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(supabaseConfigError);
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (userId?: string | null) => {
     if (!supabase) {
       setError(supabaseConfigError);
       setProfile(null);
@@ -115,7 +124,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const next = await getMe();
       setProfile(next);
       setError(null);
+      // Keep a per-user copy so a reload without connectivity can still boot
+      // the shell instead of bouncing to the login or error screen.
+      cacheProfile(next);
+      // The profile is only reachable with a valid session, so this is the
+      // natural moment to replay edits queued while offline.
+      void flushQueue();
     } catch (e) {
+      if (userId && (isNetworkError(e) || isOffline())) {
+        const cached = readCachedProfile(userId);
+        if (cached) {
+          setProfile(cached);
+          setError(null);
+          return;
+        }
+      }
       setProfile(null);
       setError(describeError(e));
     }
@@ -140,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
-      await loadProfile();
+      await loadProfile(next.user.id);
       if (active) setLoading(false);
     }
 
@@ -194,7 +217,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.origin },
+        options: {
+          redirectTo: window.location.origin,
+          // Always show the Google account chooser, so "Canvia de compte"
+          // really lets the user pick a different account on the same browser
+          // instead of silently reusing the last one.
+          queryParams: { prompt: "select_account" },
+        },
       });
       if (signInError) setError(signInError.message);
     } catch (e) {
@@ -234,17 +263,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (!supabase) return;
+    const userId = session?.user.id ?? null;
     setError(null);
+    // Stop any running replay first: its queued edits belong to this account
+    // and must not be written back after the local queues are cleared.
+    resetQueueFlush();
     try {
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) setError(signOutError.message);
     } catch (e) {
       setError(describeError(e));
     } finally {
+      // Multiple accounts share one browser: drop everything identity-scoped
+      // so the next account never sees this library or replays its edits.
+      // Offline media (saved songs) is global and stays untouched.
+      await clearCachedResponsesAndQueue();
+      resetOfflineStatus();
+      setActivePlaylistTitle(null);
+      if (userId) clearCachedProfile(userId);
       setSession(null);
       setProfile(null);
     }
-  }, []);
+  }, [session]);
 
   const refreshProfile = useCallback(async () => {
     if (!supabase) {
@@ -252,8 +292,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     setError(null);
-    await loadProfile();
-  }, [loadProfile]);
+    await loadProfile(session?.user.id);
+  }, [loadProfile, session]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

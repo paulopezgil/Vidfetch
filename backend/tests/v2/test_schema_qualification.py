@@ -8,10 +8,12 @@ dedicated deployment must never leak a reference to ``public``.
 from __future__ import annotations
 
 import asyncio
+import base64
 from uuid import uuid4
 
 from backend.app.services import admin_inventory, assets, jobs, library, playlists
-from backend.app.services import profiles
+from backend.app.services import profiles, tracks, user_playlists
+from backend.app.services.storage import Storage
 from backend.tests.v2.fakes import (
     FakeDatabase,
     asset_row,
@@ -19,6 +21,8 @@ from backend.tests.v2.fakes import (
     library_row,
     playlist_row,
     profile_row,
+    track_row,
+    user_playlist_row,
 )
 
 
@@ -190,6 +194,26 @@ def test_library_hide_uses_configured_schema():
     assert 'update "vidfetch".download_jobs' in db.calls[0][1]
 
 
+def test_tracks_queries_use_configured_schema():
+    owner = uuid4()
+    db = _vidfetch_db()
+    db.queue_fetchrow({"total": 1})
+    db.queue_fetch([track_row()])
+
+    page, total = run(tracks.list_tracks(db, owner))
+
+    assert total == 1
+    assert len(page) == 1
+    _assert_qualified(db)
+    count_query = db.calls[0][1]
+    assert 'from "vidfetch".user_tracks ut' in count_query
+    assert 'join "vidfetch".media_assets a on a.id = ut.asset_id' in count_query
+    assert 'from "vidfetch".download_jobs j' in count_query
+    page_query = db.calls[1][1]
+    assert 'from "vidfetch".user_tracks ut' in page_query
+    assert 'from "vidfetch".download_jobs j' in page_query
+
+
 def test_admin_job_inventory_uses_configured_schema():
     db = _vidfetch_db()
     db.queue_fetchrow({"total": 1})
@@ -237,3 +261,205 @@ def test_admin_delete_asset_uses_configured_schema():
     assert 'from "vidfetch".download_jobs' in db.calls[1][1]
     assert 'delete from "vidfetch".media_assets' in db.calls[2][1]
     assert 'insert into "vidfetch".admin_audit_log' in db.calls[3][1]
+
+
+def test_curated_playlist_queries_use_configured_schema():
+    owner = uuid4()
+    playlist = user_playlist_row(user_id=owner)
+    db = _vidfetch_db()
+    db.queue_fetchrow({"total": 1})
+    db.queue_fetch([playlist])
+
+    items, total = run(user_playlists.list_user_playlists(db, owner))
+
+    assert total == 1
+    assert items == [playlist]
+    _assert_qualified(db)
+    total_query = db.calls[0][1]
+    assert 'from "vidfetch".user_playlists p' in total_query
+    page_query = db.calls[1][1]
+    assert 'from "vidfetch".user_playlists p' in page_query
+    assert 'from "vidfetch".user_playlist_tracks t' in page_query
+    assert 'join "vidfetch".media_assets a on a.id = ut.asset_id' in page_query
+    assert 'from "vidfetch".download_jobs j' in page_query
+
+
+def test_curated_playlist_detail_uses_configured_schema():
+    owner = uuid4()
+    playlist = user_playlist_row(user_id=owner)
+    track = track_row()
+    db = _vidfetch_db()
+    db.queue_fetchrow(playlist)
+    db.queue_fetch([{"user_track_id": track["id"]}])
+    db.queue_fetch([track])
+
+    result = run(
+        user_playlists.get_playlist_with_tracks(db, playlist["id"], owner)
+    )
+
+    assert result is not None
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_playlists p' in db.calls[0][1]
+    assert 'from "vidfetch".user_playlist_tracks t' in db.calls[1][1]
+    assert 'from "vidfetch".user_tracks ut' in db.calls[2][1]
+    assert 'from "vidfetch".download_jobs j' in db.calls[2][1]
+
+
+def test_curated_playlist_writes_use_configured_schema():
+    owner = uuid4()
+    playlist = user_playlist_row(user_id=owner)
+    db = _vidfetch_db()
+    db.queue_fetchrow(playlist)
+    run(
+        user_playlists.create_user_playlist(
+            db, owner, name="Mix", description=""
+        )
+    )
+    _assert_qualified(db)
+    assert 'insert into "vidfetch".user_playlists' in db.calls[0][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow(playlist)
+    run(
+        user_playlists.update_user_playlist(
+            db, playlist["id"], owner, {"name": "Renamed"}
+        )
+    )
+    _assert_qualified(db)
+    assert 'update "vidfetch".user_playlists p' in db.calls[0][1]
+    assert 'from "vidfetch".user_playlist_tracks t' in db.calls[0][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": playlist["id"]})
+    assert run(
+        user_playlists.delete_user_playlist(db, playlist["id"], owner)
+    ) is True
+    _assert_qualified(db)
+    assert 'update "vidfetch".user_playlists' in db.calls[0][1]
+
+
+def test_curated_playlist_mutations_use_configured_schema():
+    owner = uuid4()
+    playlist = user_playlist_row(user_id=owner)
+    track = track_row()
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": playlist["id"]})
+    db.queue_fetchrow({"id": track["id"]})
+    run(
+        user_playlists.add_track(
+            db, playlist["id"], owner, track["id"]
+        )
+    )
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_playlists p' in db.calls[0][1]
+    assert 'from "vidfetch".user_tracks ut' in db.calls[1][1]
+    assert 'insert into "vidfetch".user_playlist_tracks' in db.calls[2][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": playlist["id"]})
+    db.queue_fetchrow({"position": 0})
+    assert run(
+        user_playlists.remove_track(
+            db, playlist["id"], owner, track["id"]
+        )
+    ) is True
+    _assert_qualified(db)
+    assert 'delete from "vidfetch".user_playlist_tracks' in db.calls[1][1]
+    assert 'update "vidfetch".user_playlist_tracks t' in db.calls[2][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": playlist["id"]})
+    db.queue_fetch([{"user_track_id": track["id"]}])
+    run(
+        user_playlists.reorder_tracks(
+            db, playlist["id"], owner, [track["id"]]
+        )
+    )
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_playlist_tracks t' in db.calls[1][1]
+    assert 'update "vidfetch".user_playlist_tracks' in db.calls[2][1]
+
+
+def test_track_detail_and_metadata_queries_use_configured_schema():
+    owner, track_id = uuid4(), uuid4()
+    db = _vidfetch_db()
+    db.queue_fetchrow(track_row(track_id=track_id))
+
+    assert run(tracks.get_track(db, track_id, owner))["id"] == track_id
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_tracks ut' in db.calls[0][1]
+    assert '"vidfetch".media_assets a' in db.calls[0][1]
+    assert 'from "vidfetch".download_jobs j' in db.calls[0][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": track_id})
+    db.queue_fetchrow(track_row(track_id=track_id))
+    run(tracks.update_track(db, track_id, owner, {"custom_title": "Renamed"}))
+    _assert_qualified(db)
+    assert 'update "vidfetch".user_tracks ut' in db.calls[0][1]
+    assert 'from "vidfetch".media_assets a' in db.calls[0][1]
+    assert 'from "vidfetch".download_jobs j' in db.calls[0][1]
+    assert 'from "vidfetch".user_tracks ut' in db.calls[1][1]
+
+    db = _vidfetch_db()
+    db.queue_fetch([])
+    run(tracks.list_facets(db, owner, kind="artist"))
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_tracks ut' in db.calls[0][1]
+
+
+def test_track_cover_queries_use_configured_schema(tmp_path):
+    owner, track_id = uuid4(), uuid4()
+    storage = Storage(tmp_path / "downloads")
+    storage.ensure_directories()
+    payload = base64.b64encode(b"\x89PNG\r\n\x1a\npixels").decode("ascii")
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": track_id, "cover_path": None})
+    relative = run(
+        tracks.set_cover(
+            db,
+            storage,
+            track_id,
+            owner,
+            content_type="image/png",
+            data=payload,
+        )
+    )
+    assert relative == f"covers/{owner}/{track_id}.png"
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_tracks ut' in db.calls[0][1]
+    assert 'update "vidfetch".user_tracks' in db.calls[1][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"id": track_id, "cover_path": None})
+    assert run(tracks.delete_cover(db, storage, track_id, owner)) is True
+    _assert_qualified(db)
+    assert 'update "vidfetch".user_tracks' in db.calls[1][1]
+
+    db = _vidfetch_db()
+    db.queue_fetchrow({"cover_path": None})
+    assert run(tracks.resolve_cover_path(db, storage, track_id, owner)) is None
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_tracks ut' in db.calls[0][1]
+
+
+def test_curated_playlist_read_helpers_use_configured_schema():
+    owner = uuid4()
+    playlist = user_playlist_row(user_id=owner)
+
+    db = _vidfetch_db()
+    db.queue_fetchrow(playlist)
+    assert (
+        run(user_playlists.get_user_playlist(db, playlist["id"], owner))["id"]
+        == playlist["id"]
+    )
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_playlists p' in db.calls[0][1]
+
+    db = _vidfetch_db()
+    db.queue_fetch([{"user_track_id": uuid4()}])
+    run(user_playlists.list_track_ids(db, playlist["id"]))
+    _assert_qualified(db)
+    assert 'from "vidfetch".user_playlist_tracks t' in db.calls[0][1]

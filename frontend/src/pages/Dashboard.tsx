@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FormatName, InfoResult, OperationType } from "../types";
-import type { MediaInfo } from "../types/v2";
+import type { DownloadJob, MediaInfo } from "../types/v2";
 import { getInfo } from "../lib/api";
 import UrlInput from "../components/UrlInput";
 import InfoPreview from "../components/InfoPreview";
@@ -9,6 +9,15 @@ import EmptyState from "../components/EmptyState";
 import Spinner from "../components/Spinner";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
+
+/** Show finished jobs for this long after they reach a terminal state. */
+const RECENT_WINDOW_MS = 10 * 60 * 1000;
+
+function isRecentJob(job: DownloadJob): boolean {
+  const stamp = job.completed_at ?? job.updated_at;
+  const time = Date.parse(stamp);
+  return Number.isFinite(time) && Date.now() - time < RECENT_WINDOW_MS;
+}
 
 /** Adapt the v2 `MediaInfo` payload to the shape `InfoPreview` renders. */
 function toInfoResult(info: MediaInfo): InfoResult {
@@ -42,12 +51,21 @@ function newIdempotencyKey(): string {
 
 export default function Dashboard() {
   const toast = useToast();
-  const { activeJobs, createJob, cancelJob } = useDownloads();
+  const { activeJobs, finishedJobs, createJob, cancelJob } = useDownloads();
   const [info, setInfo] = useState<InfoResult | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [submittedUrl, setSubmittedUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const recentFinished = useMemo(
+    () =>
+      finishedJobs
+        .filter((job) => job.status === "ready" || job.status === "failed")
+        .filter(isRecentJob)
+        .slice(0, 3),
+    [finishedJobs],
+  );
 
   const handleFetch = useCallback(async (url: string) => {
     setInfoLoading(true);
@@ -147,6 +165,19 @@ export default function Dashboard() {
           </p>
         )}
       </section>
+
+      {recentFinished.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-title-medium text-on-surface">
+            Acabades fa poc
+          </h2>
+          <div className="space-y-3">
+            {recentFinished.map((job) => (
+              <JobCard key={job.id} job={job} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

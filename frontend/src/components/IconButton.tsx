@@ -4,8 +4,10 @@ type Variant = "standard" | "filled" | "tonal" | "outlined" | "danger";
 type Size = "sm" | "md";
 
 interface IconButtonProps {
-  /** Required accessible name; also used as the tooltip. */
+  /** Required accessible name; also used as the tooltip by default. */
   label: string;
+  /** Longer tooltip text when it should differ from the accessible name. */
+  title?: string;
   variant?: Variant;
   size?: Size;
   className?: string;
@@ -14,6 +16,8 @@ interface IconButtonProps {
   href?: string;
   type?: "button" | "submit";
   disabled?: boolean;
+  /** Toggle state for controls such as the offline-save button. */
+  ariaPressed?: boolean;
   onClick?: () => void;
 }
 
@@ -37,6 +41,7 @@ const sizes: Record<Size, string> = {
 
 export default function IconButton({
   label,
+  title,
   variant = "standard",
   size = "sm",
   className = "",
@@ -44,13 +49,14 @@ export default function IconButton({
   href,
   type = "button",
   disabled,
+  ariaPressed,
   onClick,
 }: IconButtonProps) {
   const classes = `inline-flex shrink-0 items-center justify-center rounded-full transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38] ${variants[variant]} ${sizes[size]} ${className}`;
 
   if (href) {
     return (
-      <a href={href} className={classes} title={label} aria-label={label}>
+      <a href={href} className={classes} title={title ?? label} aria-label={label}>
         {children}
       </a>
     );
@@ -61,8 +67,9 @@ export default function IconButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={ariaPressed}
       className={classes}
-      title={label}
+      title={title ?? label}
       aria-label={label}
     >
       {children}
