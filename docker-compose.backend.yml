@@ -1,0 +1,179 @@
+name: vidfetch-backend
+
+# Canonical backend-only deployment for a VPS or home server.
+#
+#   cp .env.example .env   # then fill in the secrets
+#   docker compose -f docker-compose.backend.yml up -d --build
+#
+# This file replaces the former `docker-compose.prod.yml`: there is one
+# backend-only Compose file now, and the frontend is built and served
+# separately (Vercel or any static host) against `PUBLIC_API_URL`.
+#
+# It bundles a PostgreSQL 16 container with persistent `pgdata` and
+# `vidfetch_downloads` volumes, applies `db/migrations` once per start, and runs
+# the FastAPI backend. No hosted database project, CLI, or cloud provider is
+# required.
+#
+# Required secrets: POSTGRES_PASSWORD and MEDIA_TOKEN_SECRET. The variables
+# default to empty here so `docker compose config` stays valid in any checkout,
+# but the stack refuses to start without them: PostgreSQL's entrypoint aborts on
+# an empty superuser password and the backend aborts with a ConfigError naming
+# the missing MEDIA_TOKEN_SECRET.
+#
+# First administrator: the stack never creates a default account. Create one
+# explicitly (recommended: the host-side script):
+#
+#   DATABASE_URL=postgresql://... python3 scripts/create_admin.py \
+#     --email you@example.com --password '...' --admin
+#
+# or run the optional Compose profile once:
+#
+#   docker compose -f docker-compose.backend.yml --profile bootstrap run --rm bootstrap
+#
+# Terminate TLS with Caddy/nginx in front of port 8000 and point PUBLIC_API_URL
+# and CORS_ORIGINS at the public HTTPS origins.
+
+# Shared connection string: the bundled database over the Compose network.
+x-database-url: &database-url "postgresql://${POSTGRES_USER:-vidfetch}:${POSTGRES_PASSWORD:-}@db:5432/${POSTGRES_DB:-vidfetch}"
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL
+  # -------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: vidfetch-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vidfetch}
+      POSTGRES_USER: ${POSTGRES_USER:-vidfetch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    # No host port by default. Uncomment to allow local `psql` access from the
+    # host only (bind to loopback, never to 0.0.0.0):
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  # -------------------------------------------------------------------------
+  # One-shot migration runner
+  #
+  # Applies `db/migrations/*.sql` in filename order, one transaction per file.
+  # For a custom schema, render the migrations on the host first:
+  #
+  #   DB_SCHEMA=vidfetch python3 scripts/render_migrations.py
+  #
+  # and set the same DB_SCHEMA in `.env`.
+  # -------------------------------------------------------------------------
+  migrate:
+    image: postgres:16-alpine
+    container_name: vidfetch-migrate
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-}
+      DATABASE_URL: *database-url
+    volumes:
+      - ./db/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        for path in $$(ls /migrations/*.sql | sort); do
+          echo "applying $${path}"
+          psql "$${DATABASE_URL}" -v ON_ERROR_STOP=1 -1 -f "$${path}"
+        done
+        echo "migrations complete"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Backend API + download worker
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+    container_name: vidfetch-backend
+    env_file:
+      # Deployment secrets and tuning values. Optional so exported shell
+      # variables work too; `.env` is the documented path.
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: *database-url
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      DOWNLOAD_DIR: /app/downloads
+      # Required: signs short-lived media/thumbnail URLs.
+      MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:-}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-2592000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - vidfetch_downloads:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  # -------------------------------------------------------------------------
+  # Optional first-administrator bootstrap
+  #
+  # Disabled by default: production must not auto-create an account. Run it
+  # explicitly with `--profile bootstrap`, set BOOTSTRAP_ADMIN_EMAIL and
+  # BOOTSTRAP_ADMIN_PASSWORD for that one run, then remove them again.
+  # Validation happens in the container so `docker compose config` stays valid
+  # without the bootstrap credentials.
+  # -------------------------------------------------------------------------
+  bootstrap:
+    profiles: ["bootstrap"]
+    build:
+      context: ./backend
+    container_name: vidfetch-bootstrap
+    env_file:
+      # Optional so exported shell variables work too; `.env` is the
+      # documented path.
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: *database-url
+      DB_SCHEMA: ${DB_SCHEMA:-public}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        : "$${BOOTSTRAP_ADMIN_EMAIL:?set BOOTSTRAP_ADMIN_EMAIL for the bootstrap profile}"
+        : "$${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD for the bootstrap profile}"
+        exec python -m backend.app.cli.create_admin \
+          --email "$${BOOTSTRAP_ADMIN_EMAIL}" \
+          --password "$${BOOTSTRAP_ADMIN_PASSWORD}" \
+          --admin
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  pgdata:
+  vidfetch_downloads:
