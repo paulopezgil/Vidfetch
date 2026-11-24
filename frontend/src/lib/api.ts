@@ -18,6 +18,10 @@ import type {
   Track,
   TrackList,
   TrackUpdate,
+  UserPlaylist,
+  UserPlaylistDetail,
+  UserPlaylistInput,
+  UserPlaylistList,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
 
@@ -549,6 +553,106 @@ export function deletePlaylist(playlistId: string): Promise<void> {
   return apiFetch<void>(`/playlists/${encodeURIComponent(playlistId)}`, {
     method: "DELETE",
   });
+}
+
+export interface UserPlaylistQuery {
+  limit?: number;
+  offset?: number;
+}
+
+/** Resolve signed cover URLs for every track in a curated playlist. */
+function resolveUserPlaylistDetail(
+  detail: UserPlaylistDetail,
+): UserPlaylistDetail {
+  return { ...detail, items: detail.items.map(resolveTrackCover) };
+}
+
+/** `GET /api/user-playlists` — the caller's curated playlists. */
+export function listUserPlaylists(
+  params: UserPlaylistQuery = {},
+): Promise<UserPlaylistList> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const suffix = query.toString();
+  return apiFetch<UserPlaylistList>(
+    `/user-playlists${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+/** `POST /api/user-playlists` — create a curated playlist. */
+export function createUserPlaylist(
+  input: UserPlaylistInput,
+): Promise<UserPlaylist> {
+  return apiFetch<UserPlaylist>("/user-playlists", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET /api/user-playlists/{playlist_id}` — playlist plus ordered tracks. */
+export function getUserPlaylist(
+  playlistId: string,
+): Promise<UserPlaylistDetail> {
+  return apiFetch<UserPlaylistDetail>(
+    `/user-playlists/${encodeURIComponent(playlistId)}`,
+  ).then(resolveUserPlaylistDetail);
+}
+
+/** `PATCH /api/user-playlists/{playlist_id}` — rename or edit description. */
+export function updateUserPlaylist(
+  playlistId: string,
+  input: Partial<UserPlaylistInput>,
+): Promise<UserPlaylist> {
+  return apiFetch<UserPlaylist>(
+    `/user-playlists/${encodeURIComponent(playlistId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+/** `DELETE /api/user-playlists/{playlist_id}` — remove a curated playlist. */
+export function deleteUserPlaylist(playlistId: string): Promise<void> {
+  return apiFetch<void>(`/user-playlists/${encodeURIComponent(playlistId)}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * `POST /api/user-playlists/{playlist_id}/tracks` — append a track.
+ *
+ * Idempotent: adding a track that is already in the playlist returns the
+ * unchanged detail instead of creating a duplicate.
+ */
+export function addUserPlaylistTrack(
+  playlistId: string,
+  trackId: string,
+): Promise<UserPlaylistDetail> {
+  return apiFetch<UserPlaylistDetail>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/tracks`,
+    { method: "POST", body: JSON.stringify({ track_id: trackId }) },
+  ).then(resolveUserPlaylistDetail);
+}
+
+/** `DELETE /api/user-playlists/{playlist_id}/tracks/{track_id}` */
+export function removeUserPlaylistTrack(
+  playlistId: string,
+  trackId: string,
+): Promise<void> {
+  return apiFetch<void>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** `PUT /api/user-playlists/{playlist_id}/tracks/order` — persist order. */
+export function reorderUserPlaylistTracks(
+  playlistId: string,
+  trackIds: string[],
+): Promise<UserPlaylistDetail> {
+  return apiFetch<UserPlaylistDetail>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/tracks/order`,
+    { method: "PUT", body: JSON.stringify({ track_ids: trackIds }) },
+  ).then(resolveUserPlaylistDetail);
 }
 
 /** `POST /api/media/{asset_id}/token` — mint a short-lived signed URL. */
