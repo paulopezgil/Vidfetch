@@ -23,13 +23,24 @@ This section accumulates the change groups as they land on `dev`.
 - **Tracks destination.** The former Library page now reads the tracks API and
   exposes the same download strip, filters, playlists, preview, delete, and
   pagination behavior. Track rows show artist and album when they are set.
+- **Four-tab shell and persistent player.** Home, Tracks, Playlists, and
+  Artists & Albums are top-level destinations. A Spotify-style player bar is
+  docked across every approved route with a queue, auto-advance, seek, volume,
+  signed-URL refresh, and a play action on track rows.
+- **Playlists page.** A responsive grid of the user's imported playlists with
+  cover, channel, and item count, linking into the playlist detail view.
+- **Artists & Albums page.** A toggle between artist and album groupings built
+  from track metadata, with circular artist cards, album cards, and per-card
+  track drill-downs.
 
 ### Changed
 
-- The sidebar destination "Biblioteca" is now "Tracks" (`/tracks`).
-- `/library` redirects to `/tracks`; playlist detail keeps its existing route
-  until the navigation restructure lands.
-- Playlist-detail back links now return to Tracks.
+- The sidebar destination "Biblioteca" is now "Tracks" (`/tracks`), and the
+  in-app home label is now "Home".
+- `/library` redirects to `/tracks`; `/library/playlist/:id` redirects to
+  `/playlists/:id`.
+- Playlist detail now lives at `/playlists/:id`, and its back links return to
+  `/playlists`.
 
 ### Database
 
@@ -45,18 +56,21 @@ This section accumulates the change groups as they land on `dev`.
 - Mutation check: breaking the `library_hidden = false` visibility predicate
   fails `test_list_tracks_scopes_visibility_and_orders_newest_downloaded_first`.
 - Frontend: `npm run build` green; preview serves `/` and `/tracks` with HTTP 200.
+- Shell: build green (122 modules); preview serves `/`, `/tracks`, `/playlists`,
+  `/artists`, and `/playlists/:id` with HTTP 200; navigation exposes exactly the
+  four destinations plus Admin.
 - Live local stack: `GET /api/tracks` returns the backfilled track with
   `status: "ready"`; unauthenticated requests get 401.
 
 ### Roadmap and progress
 
 The release is delivered as six change groups, all targeting this single
-`v2.3.0` release. Overall progress: **1 of 6 complete**.
+`v2.3.0` release. Overall progress: **2 of 6 complete**.
 
 | # | Change group | Frontend | Backend | Status |
 | --- | --- | --- | --- | --- |
 | 1 | **Per-user track model** | Tracks page reads the new API | `user_tracks` table, backfill/trigger, `GET /api/tracks` | ✅ Done |
-| 2 | **New shell + player** | Four-tab navigation (Home, Tracks, Playlists, Artists & Albums); Home focuses on import and active downloads; persistent player bar with queue | Minor player/session state; signed stream URLs already exist | ⬜ Planned |
+| 2 | **New shell + player** | Four-tab navigation (Home, Tracks, Playlists, Artists & Albums); Home focuses on import and active downloads; persistent player bar with queue | Minor player/session state; signed stream URLs already exist | ✅ Done |
 | 3 | **Browse views** | Date-grouped Tracks, quick search, `•••` track menus; Artists/Albums cards and drill-down | Read endpoints for grouped artist/album views | ⬜ Planned |
 | 4 | **Playlists + metadata editing** | User playlist grid/detail/reorder; Edit Details modal; artist/album autocomplete; cover upload | User playlist CRUD and ordering; metadata updates; cover storage; per-user isolation | ⬜ Planned |
 | 5 | **Offline-first + two-phase download** | Local IndexedDB metadata and media cache; offline playback; queued mutations and sync status | Sync/push endpoints, `updated_at` + last-write-wins, tombstones, idempotent replay, per-device state | ⬜ Planned |
@@ -64,4 +78,5 @@ The release is delivered as six change groups, all targeting this single
 
 Group 1 is the foundation the remaining groups build on: track identity, custom
 metadata fields, and the owner-scoped read path are already in place on `dev`.
+Group 2 adds the navigation shell the rest of the release hangs off.
 
