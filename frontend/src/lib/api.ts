@@ -9,12 +9,15 @@ import type {
   CreateDownloadPayload,
   DownloadJob,
   DownloadJobList,
+  FacetList,
   MediaInfo,
   MediaToken,
   PlaylistDetailV2,
   PlaylistList,
   PlaylistStatus,
+  Track,
   TrackList,
+  TrackUpdate,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
 
@@ -195,6 +198,24 @@ function filenameFromContentDisposition(value: string | null): string | null {
   return quoted?.[1]?.trim() || null;
 }
 
+/** Largest cover art the API accepts, enforced here before reading the file. */
+export const MAX_COVER_BYTES = 5 * 1024 * 1024;
+
+/** Cover formats accepted by `POST /api/tracks/{track_id}/cover`. */
+export const COVER_CONTENT_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
+/** Resolve a signed cover URL against the API origin when it is relative. */
+function resolveTrackCover(track: Track): Track {
+  const cover = track.cover_url;
+  if (!cover) return track;
+  const resolved = resolveApiUrl(cover);
+  return resolved === cover ? track : { ...track, cover_url: resolved };
+}
+
 /** Authenticated binary fetch, used for on-demand archives and exports. */
 export async function fetchBlob(
   path: string,
@@ -369,7 +390,126 @@ export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
   const q = params.q?.trim();
   if (q) query.set("q", q);
   const suffix = query.toString();
-  return apiFetch<TrackList>(`/tracks${suffix ? `?${suffix}` : ""}`);
+  return apiFetch<TrackList>(
+    `/tracks${suffix ? `?${suffix}` : ""}`,
+  ).then((page) => ({ ...page, items: page.items.map(resolveTrackCover) }));
+}
+
+/**
+ * `PATCH /api/tracks/{track_id}` — override the track's editable metadata.
+ *
+ * Empty strings clear an override, restoring the original job metadata.
+ */
+export function updateTrack(
+  trackId: string,
+  payload: TrackUpdate,
+): Promise<Track> {
+  return apiFetch<Track>(`/tracks/${encodeURIComponent(trackId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }).then(resolveTrackCover);
+}
+
+function listFacets(path: string, q?: string, limit = 20): Promise<FacetList> {
+  const query = new URLSearchParams();
+  const term = q?.trim();
+  if (term) query.set("q", term);
+  query.set("limit", String(limit));
+  return apiFetch<FacetList>(`${path}?${query.toString()}`);
+}
+
+/** `GET /api/tracks/artists` — artist suggestions with track counts. */
+export function listArtistFacets(q?: string, limit = 20): Promise<FacetList> {
+  return listFacets("/tracks/artists", q, limit);
+}
+
+/** `GET /api/tracks/albums` — album suggestions with track counts. */
+export function listAlbumFacets(q?: string, limit = 20): Promise<FacetList> {
+  return listFacets("/tracks/albums", q, limit);
+}
+
+/** Signed cover descriptor returned after an upload. */
+export interface TrackCover {
+  cover_path: string | null;
+  cover_url: string | null;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else {
+        reject(
+          new ApiError(
+            "No s’ha pogut llegir la imatge.",
+            0,
+            "cover_read_failed",
+          ),
+        );
+      }
+    };
+    reader.onerror = () =>
+      reject(
+        new ApiError(
+          "No s’ha pogut llegir la imatge.",
+          0,
+          "cover_read_failed",
+        ),
+      );
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * `POST /api/tracks/{track_id}/cover` — replace a track's cover art.
+ *
+ * The API takes JSON (`content_type` plus base64 `data`), so the file is read
+ * as a data URL. Size and MIME type are checked before reading to fail fast.
+ */
+export async function uploadTrackCover(
+  trackId: string,
+  file: File,
+): Promise<TrackCover> {
+  if (file.size > MAX_COVER_BYTES) {
+    throw new ApiError(
+      "La imatge supera el límit de 5 MiB.",
+      0,
+      "cover_too_large",
+    );
+  }
+  if (!(COVER_CONTENT_TYPES as readonly string[]).includes(file.type)) {
+    throw new ApiError(
+      "Format no admès. Fes servir JPEG, PNG o WebP.",
+      0,
+      "cover_type_unsupported",
+    );
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const comma = dataUrl.indexOf(",");
+  const match = /^data:([^;]+);base64$/.exec(dataUrl.slice(0, comma));
+  const contentType = match?.[1] ?? file.type;
+  const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+
+  const cover = await apiFetch<TrackCover>(
+    `/tracks/${encodeURIComponent(trackId)}/cover`,
+    {
+      method: "POST",
+      body: JSON.stringify({ content_type: contentType, data }),
+    },
+  );
+  return {
+    ...cover,
+    cover_url: cover.cover_url ? resolveApiUrl(cover.cover_url) : null,
+  };
+}
+
+/** `DELETE /api/tracks/{track_id}/cover` — remove the custom cover art. */
+export function deleteTrackCover(trackId: string): Promise<void> {
+  return apiFetch<void>(`/tracks/${encodeURIComponent(trackId)}/cover`, {
+    method: "DELETE",
+  });
 }
 
 /** `DELETE /api/library/{job_id}` — remove one asset from the library. */

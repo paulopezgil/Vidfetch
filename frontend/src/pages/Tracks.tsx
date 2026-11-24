@@ -22,6 +22,8 @@ import FilterChip from "../components/FilterChip";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
+import Menu from "../components/Menu";
+import TrackEditDialog from "../components/TrackEditDialog";
 import JobCard from "../components/JobCard";
 import SearchBar from "../components/SearchBar";
 import Button from "../components/Button";
@@ -169,6 +171,7 @@ export default function Tracks() {
     label: string;
   } | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [editing, setEditing] = useState<Track | null>(null);
 
   const searchActive = query.length > 0;
 
@@ -284,6 +287,19 @@ export default function Tracks() {
       }
     },
     [toast],
+  );
+
+  const handleTrackSaved = useCallback(
+    (updated: Track) => {
+      // Update the row immediately, then reload so totals and signed cover
+      // URLs come from the API.
+      setItems((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      toast("Track actualitzat", "success");
+      void refresh();
+    },
+    [refresh, toast],
   );
 
   // Items downloaded as part of a playlist are reachable through the playlist
@@ -428,6 +444,7 @@ export default function Tracks() {
                     item={item}
                     queue={day.items}
                     onPreview={() => void openPreview(item)}
+                    onEdit={() => setEditing(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
@@ -530,6 +547,13 @@ export default function Tracks() {
         src={preview?.src ?? ""}
         onClose={() => setPreview(null)}
       />
+
+      <TrackEditDialog
+        open={editing !== null}
+        track={editing}
+        onClose={() => setEditing(null)}
+        onSaved={handleTrackSaved}
+      />
     </div>
   );
 }
@@ -538,12 +562,14 @@ function FileRow({
   item,
   queue,
   onDelete,
+  onEdit,
   onPreview,
 }: {
   item: Track;
   /** Visible rows that form the play queue for this section. */
   queue: Track[];
   onDelete: () => void;
+  onEdit: () => void;
   onPreview: () => void;
 }) {
   const toast = useToast();
@@ -581,7 +607,7 @@ function FileRow({
   return (
     <div className="flex flex-wrap items-center gap-3 p-4">
       <Thumbnail
-        src={token?.thumbnail_url ?? null}
+        src={item.cover_url ?? token?.thumbnail_url ?? null}
         icon={icon}
         className="aspect-video w-20"
       />
@@ -646,6 +672,17 @@ function FileRow({
         <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
           <Icon name="delete" className="text-[20px]" />
         </IconButton>
+        <Menu
+          label="Més accions"
+          actions={[
+            {
+              id: "edit",
+              label: "Edita els detalls",
+              icon: "edit",
+              onSelect: onEdit,
+            },
+          ]}
+        />
       </div>
     </div>
   );
