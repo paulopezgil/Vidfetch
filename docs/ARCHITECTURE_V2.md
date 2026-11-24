@@ -781,7 +781,6 @@ Admin mutations are audited in `admin_audit_log`.
 | `/dashboard` | Approved | URL submission and active jobs |
 | `/library` | Approved | Ready media |
 | `/playlists/:id` | Approved, owner | Playlist detail and ZIP |
-| `/history` | Approved | Job history |
 | `/admin` | Admin | Admin overview |
 | `/admin/users` | Admin | User approval/role management |
 
