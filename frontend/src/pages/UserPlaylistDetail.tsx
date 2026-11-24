@@ -328,9 +328,12 @@ export default function UserPlaylistDetail() {
                 <Icon name="play_arrow" className="text-[18px]" />
                 Play
               </Button>
-              <Button variant="outlined" onClick={() => navigate("/tracks")}>
-                <Icon name="library_music" className="text-[18px]" />
-                Browse tracks
+              <Button
+                variant="outlined"
+                onClick={() => navigate(`/playlists/${detail.id}/add`)}
+              >
+                <Icon name="playlist_add" className="text-[18px]" />
+                Afegeix tracks
               </Button>
             </div>
           </div>
@@ -359,12 +362,15 @@ export default function UserPlaylistDetail() {
       ) : (
         <EmptyState
           icon="queue_music"
-          title="This playlist is empty"
-          description="Open the Tracks tab, use a track’s ••• menu and choose “Afegeix a una playlist” to add songs here."
+          title="Aquesta playlist és buida"
+          description="Afegeix tracks de la vostra biblioteca per començar a escoltar-los en ordre."
           action={
-            <Button variant="outlined" onClick={() => navigate("/tracks")}>
-              <Icon name="library_music" className="text-[18px]" />
-              Go to Tracks
+            <Button
+              variant="outlined"
+              onClick={() => navigate(`/playlists/${detail.id}/add`)}
+            >
+              <Icon name="playlist_add" className="text-[18px]" />
+              Afegeix tracks
             </Button>
           }
         />

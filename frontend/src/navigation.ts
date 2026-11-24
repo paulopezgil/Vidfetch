@@ -59,6 +59,9 @@ export function titleForPath(
   if (pathname === "/") return "Home";
   if (pathname === "/tracks") return "Tracks";
   if (pathname === "/playlists") return "Playlists";
+  if (pathname.startsWith("/playlists/") && /\/add\/?$/.test(pathname)) {
+    return "Afegeix tracks";
+  }
   if (pathname.startsWith("/playlists/")) {
     return playlistTitle?.trim() || "Playlist";
   }
