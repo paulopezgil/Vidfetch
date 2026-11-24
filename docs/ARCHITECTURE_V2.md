@@ -778,9 +778,13 @@ Admin mutations are audited in `admin_audit_log`.
 | --- | --- | --- |
 | `/login` | Anonymous | Google sign-in |
 | `/pending` | Authenticated, not approved | Awaiting approval |
-| `/dashboard` | Approved | URL submission and active jobs |
-| `/library` | Approved | Ready media |
-| `/playlists/:id` | Approved, owner | Playlist detail and ZIP |
+| `/` | Approved | Home: import and download activity |
+| `/tracks` | Approved | Tracks library, search, and offline save state |
+| `/playlists` | Approved | Curated and imported playlists |
+| `/playlists/:id` | Approved, owner | Curated playlist detail |
+| `/playlists/:id/add` | Approved, owner | Add-tracks picker |
+| `/imported/:id` | Approved, owner | Imported source playlist detail and ZIP |
+| `/artists` | Approved | Artists & Albums views |
 | `/admin` | Admin | Admin overview |
 | `/admin/users` | Admin | User approval/role management |
 

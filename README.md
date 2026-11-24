@@ -236,7 +236,7 @@ things `yt-dlp` does not provide:
 - a friendly web interface
 - accounts and access control
 - a way to stop the same popular video being downloaded repeatedly
-- a per-user library and download history
+- a per-user library with tracks, curated playlists, and offline playback
 - safe in-browser preview and download links
 - a queue that survives restarts and reports progress
 
@@ -270,7 +270,7 @@ flowchart LR
 
 | Layer | Technology | Responsibility |
 | --- | --- | --- |
-| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Material Design 3, `supabase-js` | Login, route guards, dashboard, library, playlists, admin panel |
+| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Material Design 3, `supabase-js` | Login, route guards, home, tracks, playlists, artists & albums, player, offline library, admin panel |
 | **Backend** | FastAPI, Python, `asyncpg`, Pydantic, PyJWT | JWT verification, approval checks, job API, media streaming, admin API |
 | **Download engine** | `yt-dlp` + FFmpeg | Metadata extraction, downloads, merging, MP3 conversion, subtitles |
 | **Data & auth** | Supabase Auth + Postgres | Google OAuth, profiles, approval, jobs, cache registry, playlists |
@@ -463,7 +463,7 @@ frontend/
   src/
     auth/                Supabase session provider and route guards
     downloads/           polling provider
-    pages/               Login, Pending, Dashboard, Library, Playlist, Admin
+    pages/               Login, Pending, Dashboard, Tracks, Playlists, Artists/Albums, Admin
     lib/                 Supabase client, API client, media-token hook
 
 supabase/

@@ -4,7 +4,7 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
-## [Unreleased] — v2.3.0
+## [v2.3.0] — 2026-11-24
 
 Target release for the Spotify-style navigation and personal-library rewrite.
 This section accumulates the change groups as they land on `dev`.

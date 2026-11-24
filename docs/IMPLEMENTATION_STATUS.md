@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.2.1` released** |
+| Status | **`v2.3.0` released** |
 | Baseline | `v1.9.0` |
-| Current released version | `v2.2.1` |
+| Current released version | `v2.3.0` |
 | Branch | `main` |
 | Last updated | 2026-11-24 |
 
@@ -50,12 +50,19 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 - [x] Backend requirements moved into `backend/`.
 - [x] Removed the all-in-one root Dockerfile/entrypoint.
 - [x] Local and production setup documentation (`README.md`, `docs/V2_SETUP.md`).
+- [x] Per-user track model with editable metadata, artist/album facets, and cover art.
+- [x] Four-tab shell, persistent player, date-grouped Tracks search, and Artists/Albums views.
+- [x] Curated playlists, playlist picker, reorder, play, and Add to playlist.
+- [x] Offline metadata cache, queued edits, offline media cache, automatic two-phase transfers, and the production service worker.
+- [x] Account menu with switch-account/sign-out and identity-scoped offline cleanup.
+- [x] Release hardening: isolation/validation/ordering tests, storage overview, code splitting, and accessibility.
 
 ## Pending
 
 - [x] Final release checks and `v2.1.0` release/tag from `main`.
 - [x] Final release checks and `v2.2.0` release/tag from `main`.
 - [x] Final release checks and `v2.2.1` release/tag from `main`.
+- [x] Final release checks and `v2.3.0` release/tag from `main`.
 - [ ] Live production smoke test on Vercel + VPS + Supabase Cloud.
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming endpoint.
@@ -66,7 +73,11 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest | 521 passed |
+| Backend pytest | 699 passed |
+| Frontend production build | Passed; 24 lazy JS chunks |
+| Offline media | Saved song played with the backend stopped and zero media requests |
+| Offline metadata | Cached reads, queued edits, FIFO flush on reconnect |
+| Account menu | Logout clears responses/queue and keeps saved media |
 | Configuration tab removal | Nav, route, page, and legacy client deleted; build + serve 200 |
 | History tab removal | Nav, route, page, and dead types deleted; build + serve 200 |
 | Frontend production build | Passed |
