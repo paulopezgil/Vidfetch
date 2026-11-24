@@ -14,7 +14,6 @@ import Dashboard from "./pages/Dashboard";
 import Library from "./pages/Library";
 import PlaylistDetail from "./pages/PlaylistDetail";
 import History from "./pages/History";
-import Settings from "./pages/Settings";
 
 /** Navigation shell shared by every approved application route. */
 function AppShell() {
@@ -55,7 +54,6 @@ export default function App() {
                     element={<PlaylistDetail />}
                   />
                   <Route path="/history" element={<History />} />
-                  <Route path="/settings" element={<Settings />} />
 
                   <Route element={<RequireAdmin />}>
                     <Route path="/admin" element={<AdminPage />} />
