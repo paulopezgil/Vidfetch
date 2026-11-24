@@ -1,6 +1,6 @@
 -- RLS coverage for the v2 application tables that must have no direct client
 -- access: media_assets, download_jobs, playlists, playlist_items,
--- user_tracks, and admin_audit_log.
+-- user_tracks, user_playlists, user_playlist_tracks, and admin_audit_log.
 --
 -- Run with:
 --   supabase start
@@ -11,7 +11,7 @@
 
 begin;
 
-select plan(50);
+select plan(66);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as the postgres role)
@@ -55,6 +55,20 @@ values (
     'ffffffff-ffff-ffff-ffff-ffffffffffff',
     '11111111-1111-1111-1111-111111111111',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+);
+
+insert into public.user_playlists (id, user_id, name)
+values (
+    '99999999-9999-9999-9999-999999999999',
+    '11111111-1111-1111-1111-111111111111',
+    'Test playlist'
+);
+
+insert into public.user_playlist_tracks (playlist_id, user_track_id, position)
+values (
+    '99999999-9999-9999-9999-999999999999',
+    'ffffffff-ffff-ffff-ffff-ffffffffffff',
+    0
 );
 
 insert into public.playlists (id, user_id, canonical_id, options_hash)
@@ -107,11 +121,13 @@ select is(
                'playlists',
                'playlist_items',
                'user_tracks',
+               'user_playlists',
+               'user_playlist_tracks',
                'admin_audit_log'
            )
            and c.relrowsecurity
     ),
-    6,
+    9,
     'RLS is enabled on every application table'
 );
 
@@ -126,6 +142,8 @@ select is(
                'playlists',
                'playlist_items',
                'user_tracks',
+               'user_playlists',
+               'user_playlist_tracks',
                'admin_audit_log'
            )
     ),
@@ -272,6 +290,59 @@ select throws_ok(
            where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'$sql$,
     '42501', null,
     'authenticated cannot delete user_tracks'
+);
+
+-- user_playlists
+select throws_ok(
+    $sql$select * from public.user_playlists$sql$,
+    '42501', null,
+    'authenticated cannot select user_playlists'
+);
+select throws_ok(
+    $sql$insert into public.user_playlists (user_id, name)
+         values ('11111111-1111-1111-1111-111111111111', 'Direct')$sql$,
+    '42501', null,
+    'authenticated cannot insert user_playlists'
+);
+select throws_ok(
+    $sql$update public.user_playlists
+             set name = 'changed'
+           where id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'authenticated cannot update user_playlists'
+);
+select throws_ok(
+    $sql$delete from public.user_playlists
+           where id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'authenticated cannot delete user_playlists'
+);
+
+-- user_playlist_tracks
+select throws_ok(
+    $sql$select * from public.user_playlist_tracks$sql$,
+    '42501', null,
+    'authenticated cannot select user_playlist_tracks'
+);
+select throws_ok(
+    $sql$insert into public.user_playlist_tracks (playlist_id, user_track_id, position)
+         values ('99999999-9999-9999-9999-999999999999',
+                 'ffffffff-ffff-ffff-ffff-ffffffffffff', 1)$sql$,
+    '42501', null,
+    'authenticated cannot insert user_playlist_tracks'
+);
+select throws_ok(
+    $sql$update public.user_playlist_tracks
+             set position = 5
+           where playlist_id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'authenticated cannot update user_playlist_tracks'
+);
+select throws_ok(
+    $sql$delete from public.user_playlist_tracks
+           where playlist_id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'authenticated cannot delete user_playlist_tracks'
 );
 
 -- admin_audit_log
@@ -439,6 +510,59 @@ select throws_ok(
            where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'$sql$,
     '42501', null,
     'anonymous cannot delete user_tracks'
+);
+
+-- user_playlists
+select throws_ok(
+    $sql$select * from public.user_playlists$sql$,
+    '42501', null,
+    'anonymous cannot select user_playlists'
+);
+select throws_ok(
+    $sql$insert into public.user_playlists (user_id, name)
+         values ('11111111-1111-1111-1111-111111111111', 'Direct')$sql$,
+    '42501', null,
+    'anonymous cannot insert user_playlists'
+);
+select throws_ok(
+    $sql$update public.user_playlists
+             set name = 'changed'
+           where id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'anonymous cannot update user_playlists'
+);
+select throws_ok(
+    $sql$delete from public.user_playlists
+           where id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'anonymous cannot delete user_playlists'
+);
+
+-- user_playlist_tracks
+select throws_ok(
+    $sql$select * from public.user_playlist_tracks$sql$,
+    '42501', null,
+    'anonymous cannot select user_playlist_tracks'
+);
+select throws_ok(
+    $sql$insert into public.user_playlist_tracks (playlist_id, user_track_id, position)
+         values ('99999999-9999-9999-9999-999999999999',
+                 'ffffffff-ffff-ffff-ffff-ffffffffffff', 1)$sql$,
+    '42501', null,
+    'anonymous cannot insert user_playlist_tracks'
+);
+select throws_ok(
+    $sql$update public.user_playlist_tracks
+             set position = 5
+           where playlist_id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'anonymous cannot update user_playlist_tracks'
+);
+select throws_ok(
+    $sql$delete from public.user_playlist_tracks
+           where playlist_id = '99999999-9999-9999-9999-999999999999'$sql$,
+    '42501', null,
+    'anonymous cannot delete user_playlist_tracks'
 );
 
 -- admin_audit_log
