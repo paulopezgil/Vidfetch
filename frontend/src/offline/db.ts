@@ -1,9 +1,10 @@
 /**
  * IndexedDB-backed offline store.
  *
- * Two object stores:
+ * Three object stores:
  *  - `responses`: cacheable GET bodies, keyed by the normalized API path.
  *  - `queue`: mutations that failed on the network and await a replay.
+ *  - `media`: one small metadata row per media copy held in Cache Storage.
  *
  * The module fails closed: when IndexedDB is unavailable (private mode,
  * blocked storage, older browser) every helper resolves to an empty/failed
@@ -30,15 +31,43 @@ export interface QueuedRequest {
 /** Fields accepted by {@link enqueue}; the rest are generated locally. */
 export type NewQueuedRequest = Pick<QueuedRequest, "path" | "method" | "body">;
 
+/**
+ * Metadata for one media file copied into Cache Storage.
+ *
+ * The blob itself lives in the `vidfetch-media-v1` cache; this row keeps the
+ * size and MIME type so the UI can show saved state and storage usage without
+ * touching the (much larger) binary cache.
+ */
+export interface OfflineMediaEntry {
+  assetId: string;
+  /** Size of the stored blob in bytes. */
+  size: number;
+  /** Epoch milliseconds when the copy finished saving. */
+  savedAt: number;
+  /** MIME type reported by the media response. */
+  mime: string;
+}
+
 const DB_NAME = "vidfetch-offline";
-const DB_VERSION = 1;
+/** v2 adds the `media` store; the v1 stores are created on the same upgrade. */
+const DB_VERSION = 2;
 
 /** Object store for cached GET responses. */
 export const RESPONSES_STORE = "responses";
 /** Object store for queued mutations. */
 export const QUEUE_STORE = "queue";
+/** Object store for offline media metadata. */
+export const MEDIA_STORE = "media";
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+/**
+ * How long an `open` request may stay blocked before the store is treated as
+ * unavailable. Another tab running an older build holds the previous version
+ * open; without this bound every caller would wait forever and offline media
+ * would look like a hang instead of a clean online-only fallback.
+ */
+const OPEN_TIMEOUT_MS = 4_000;
 
 function openDatabase(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
@@ -50,9 +79,14 @@ function openDatabase(): Promise<IDBDatabase | null> {
     }
 
     let settled = false;
+    let timer: number | null = null;
     const finish = (db: IDBDatabase | null) => {
       if (settled) return;
       settled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
       resolve(db);
     };
 
@@ -66,10 +100,33 @@ function openDatabase(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(QUEUE_STORE)) {
           db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
         }
+        // v2: metadata for locally cached media blobs.
+        if (!db.objectStoreNames.contains(MEDIA_STORE)) {
+          db.createObjectStore(MEDIA_STORE, { keyPath: "assetId" });
+        }
       };
-      request.onsuccess = () => finish(request.result);
+      request.onsuccess = () => {
+        if (settled) {
+          // The timeout already failed this attempt; do not leak the handle.
+          try {
+            request.result.close();
+          } catch {
+            // Nothing else to do with a connection we cannot use.
+          }
+          return;
+        }
+        finish(request.result);
+      };
       request.onerror = () => finish(null);
       request.onblocked = () => finish(null);
+      timer = window.setTimeout(() => {
+        try {
+          request.result?.close();
+        } catch {
+          // No usable connection to close.
+        }
+        finish(null);
+      }, OPEN_TIMEOUT_MS);
     } catch {
       finish(null);
     }
@@ -239,4 +296,32 @@ export function countQueue(): Promise<number> {
   return runRead<number>(QUEUE_STORE, (store) => store.count())
     .then((count) => count ?? 0)
     .catch(() => 0);
+}
+
+/** Read the metadata row for one offline media copy. */
+export function readMediaEntry(
+  assetId: string,
+): Promise<OfflineMediaEntry | null> {
+  return runRead<OfflineMediaEntry>(MEDIA_STORE, (store) => store.get(assetId));
+}
+
+/** Insert or replace the metadata row for one offline media copy. */
+export function putMediaEntry(entry: OfflineMediaEntry): Promise<boolean> {
+  return runWrite(MEDIA_STORE, (store) => {
+    store.put(entry);
+  });
+}
+
+/** Remove one media metadata row. */
+export function deleteMediaEntry(assetId: string): Promise<boolean> {
+  return runWrite(MEDIA_STORE, (store) => {
+    store.delete(assetId);
+  });
+}
+
+/** Every known offline media metadata row. */
+export function listMediaEntries(): Promise<OfflineMediaEntry[]> {
+  return runRead<OfflineMediaEntry[]>(MEDIA_STORE, (store) => store.getAll())
+    .then((entries) => entries ?? [])
+    .catch(() => []);
 }

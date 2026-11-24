@@ -28,6 +28,7 @@ import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
+import OfflineButton from "../components/OfflineButton";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
@@ -522,18 +523,22 @@ function ItemRow({
             >
               <Icon name="play_arrow" className="text-[20px]" />
             </IconButton>
-            <IconButton
-              variant="tonal"
-              label="Descarrega el fitxer"
-              onClick={() => void handleFileDownload()}
-              disabled={downloadingFile}
-            >
-              {downloadingFile ? (
-                <Spinner className="text-[20px]" />
-              ) : (
-                <Icon name="download" className="text-[20px]" />
-              )}
-            </IconButton>
+            {mediaType === "audio" ? (
+              <OfflineButton assetId={item.asset_id} title={item.title} />
+            ) : (
+              <IconButton
+                variant="tonal"
+                label="Descarrega el fitxer"
+                onClick={() => void handleFileDownload()}
+                disabled={downloadingFile}
+              >
+                {downloadingFile ? (
+                  <Spinner className="text-[20px]" />
+                ) : (
+                  <Icon name="download" className="text-[20px]" />
+                )}
+              </IconButton>
+            )}
           </>
         ) : item.status === "downloading" || busy ? (
           <span className="px-2">

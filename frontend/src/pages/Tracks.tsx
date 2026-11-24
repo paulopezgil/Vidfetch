@@ -29,6 +29,7 @@ import JobCard from "../components/JobCard";
 import SearchBar from "../components/SearchBar";
 import Button from "../components/Button";
 import StatusChip from "../components/StatusChip";
+import OfflineButton from "../components/OfflineButton";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
@@ -668,18 +669,24 @@ function FileRow({
             </IconButton>
           </>
         )}
-        <IconButton
-          variant="tonal"
-          label="Descarrega el fitxer"
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-        >
-          {downloading ? (
-            <Spinner className="text-[20px]" />
-          ) : (
-            <Icon name="download" className="text-[20px]" />
-          )}
-        </IconButton>
+        {mediaType === "audio" ? (
+          // Songs use the offline-state control instead of a one-shot file
+          // download: the second phase of an audio job is automatic.
+          <OfflineButton assetId={item.asset_id} title={item.title} />
+        ) : (
+          <IconButton
+            variant="tonal"
+            label="Descarrega el fitxer"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <Spinner className="text-[20px]" />
+            ) : (
+              <Icon name="download" className="text-[20px]" />
+            )}
+          </IconButton>
+        )}
         <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
           <Icon name="delete" className="text-[20px]" />
         </IconButton>

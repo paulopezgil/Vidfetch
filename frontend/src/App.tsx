@@ -17,6 +17,7 @@ import NavigationRail from "./components/NavigationRail";
 import NavigationBar from "./components/NavigationBar";
 import { AuthProvider } from "./auth/AuthProvider";
 import { RequireAdmin, RequireApproved, RequireAuth } from "./auth/guards";
+import AutoOfflineTransfer from "./offline/AutoOfflineTransfer";
 import LoginPage from "./pages/LoginPage";
 import PendingPage from "./pages/PendingPage";
 import AdminPage from "./pages/AdminPage";
@@ -32,6 +33,7 @@ function AppShell() {
   return (
     <DownloadsProvider>
       <PlayerProvider>
+        <AutoOfflineTransfer />
         <div className="flex h-full bg-surface text-on-surface">
           <NavigationDrawer />
           <NavigationRail />
