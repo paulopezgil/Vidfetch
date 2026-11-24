@@ -9,7 +9,6 @@ export interface Destination {
 export const destinations: Destination[] = [
   { to: "/", label: "Inici", icon: "home", end: true },
   { to: "/library", label: "Biblioteca", icon: "video_library" },
-  { to: "/history", label: "Historial", icon: "history" },
 ];
 
 /** Admin-only destination, appended for accounts with `app_role = 'admin'`. */
@@ -29,7 +28,6 @@ export function titleForPath(pathname: string): string {
   if (pathname === "/") return "Inici";
   if (pathname.startsWith("/library/playlist")) return "Llista de reproducció";
   if (pathname.startsWith("/library")) return "Biblioteca";
-  if (pathname.startsWith("/history")) return "Historial";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";
 }

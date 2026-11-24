@@ -109,17 +109,6 @@ export interface PlaylistDetail extends Playlist {
   failed_count: number;
 }
 
-export interface HistoryEntry extends Task {
-  file_exists: boolean;
-}
-
-export interface HistoryPage {
-  items: HistoryEntry[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
 export interface LibraryResponse {
   files: LibraryFile[];
   playlists: Playlist[];
