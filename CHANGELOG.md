@@ -55,7 +55,16 @@ This section accumulates the change groups as they land on `dev`.
 - **Offline media and two-phase downloads.** Completed audio jobs transfer to
   the device automatically into Cache Storage. The player prefers the local
   blob, the production service worker serves the app shell offline, and each
-  song shows a cloud → spinner → check save control.
+  song shows a cloud → spinner → check save control. Saved songs are permanent:
+  there is no per-song or bulk un-download action.
+- **Account menu.** A top-bar avatar (Google image or initials) opens the
+  account menu with the email/role, **Canvia de compte**, **Tanca la sessió**,
+  and an admin shortcut. Sign-out clears the cached responses, pending offline
+  queue, and per-user profile, while keeping saved media.
+- **Hardening.** A read-only offline storage overview (usage, quota, persistence
+  state), queue cap (200), quota-error cleanup, permanent-save semantics,
+  route-level code splitting (24 chunks), skip link, dialog focus handling, and
+  reduced-motion support.
 
 ### Changed
 
@@ -67,6 +76,8 @@ This section accumulates the change groups as they land on `dev`.
   `/imported/:id`, and their back links return to `/playlists`.
 - Per-song download buttons are replaced by the offline save control; video and
   image files keep their download buttons and playlist ZIP export is unchanged.
+- Saved songs cannot be un-downloaded; the check state is a permanent status
+  indicator and the storage dialog is read-only.
 - Download activity now appears only on Home (active and recently finished),
   never in Tracks.
 
@@ -83,7 +94,8 @@ This section accumulates the change groups as they land on `dev`.
 
 ### Verification
 
-- Backend: `python3 -m pytest backend/tests -q` → 629 passed.
+- Backend: `python3 -m pytest backend/tests -q` → 699 passed (baseline 629;
+  70 new hardening cases).
 - Mutation check: breaking the `library_hidden = false` visibility predicate
   fails `test_list_tracks_scopes_visibility_and_orders_newest_downloaded_first`;
   removing the artist/album search predicates fails the matching search tests;
@@ -104,8 +116,8 @@ This section accumulates the change groups as they land on `dev`.
   menu, played the playlist, removed the track, and deleted the playlist.
 - Offline E2E: saved a 33.7 MB song (Cache Storage + IndexedDB verified), saw a
   newly finished audio job transfer automatically, then stopped the backend and
-  played the saved song with **zero** `/api/media` requests. Removing the saved
-  copy returned the cloud state and playback continued.
+  played the saved song with **zero** `/api/media` requests. The saved state is
+  permanent and has no removal affordance.
 - Offline metadata E2E: with the transport blocked, cached tracks rendered, a
   track edit and playlist rename queued, reconnect flushed both in order, and
   the profile/session booted the shell offline.
@@ -114,11 +126,20 @@ This section accumulates the change groups as they land on `dev`.
   and playlist detail exposed **Afegeix tracks**.
 - Service worker: production preview kept the app shell (`/login`) rendering
   after the server stopped; cached JS/CSS/manifest were present.
+- Backend hardening: per-user isolation, visibility consistency, input limits,
+  cover symlink rejection, reorder permutations, error mapping, and schema
+  qualification covered; two real defects fixed (cover symlink bypass, playlist
+  detail count drift).
+- Account E2E: avatar/menu render, logout returns to `/login`, cached responses
+  and queue drop to 0 while 2 saved media copies remain, and logging back in
+  restores the shell.
+- Frontend hardening: 24 JS chunks, `/`, `/tracks`, `/playlists`, `/artists`
+  return 200; skip link, dialog focus, and read-only storage dialog verified.
 
 ### Roadmap and progress
 
 The release is delivered as six change groups, all targeting this single
-`v2.3.0` release. Overall progress: **5 of 6 complete**.
+`v2.3.0` release. Overall progress: **6 of 6 complete**.
 
 | # | Change group | Frontend | Backend | Status |
 | --- | --- | --- | --- | --- |
@@ -127,12 +148,13 @@ The release is delivered as six change groups, all targeting this single
 | 3 | **Browse views** | Date-grouped Tracks with quick search; Artists/Albums cards and drill-down | Server-side search over resolved title, artist, and album | ✅ Done |
 | 4 | **Playlists + metadata editing** | User playlist grid/detail/reorder; track `•••` menu; Edit Details modal; artist/album autocomplete; cover upload | User playlist CRUD and ordering; metadata updates; cover storage; per-user isolation | ✅ Done |
 | 5 | **Offline-first + two-phase download** | IndexedDB metadata/media cache, queued edits, offline playback, automatic client transfer, service worker, save-state button | Existing owner-scoped mutations replayed FIFO; `updated_at`/tombstones on track and playlist rows | ✅ Done |
-| 6 | **Hardening** | Offline and multi-device QA, storage limits, accessibility and performance | Backfill verification, conflict/race tests, quota handling | ⬜ Planned |
+| 6 | **Hardening** | Read-only storage overview, queue cap/quota safety, permanent saves, code splitting, accessibility, reduced motion | 70 isolation/validation/ordering/error-mapping tests; cover symlink and count-drift fixes | ✅ Done |
 
 Group 1 is the foundation the remaining groups build on: track identity, custom
 metadata fields, and the owner-scoped read path are already in place on `dev`.
 Group 2 adds the navigation shell the rest of the release hangs off, group 3
 turns the Tracks and Artists/Albums destinations into browsable views, group 4
-adds the editing, cover, and curated-playlist workflows, and group 5 makes the
-library usable offline with automatic two-phase transfers.
+adds the editing, cover, and curated-playlist workflows, group 5 makes the
+library usable offline with automatic two-phase transfers, and group 6 hardens
+storage, accessibility, and the API.
 
