@@ -94,3 +94,20 @@ def test_verify_password_treats_a_corrupt_hash_as_a_mismatch():
 
 def test_dummy_verification_always_fails():
     assert dummy_verify_password("whatever") is False
+
+
+def test_dummy_hash_is_a_real_argon2id_hash():
+    """The timing-equalizing hash must parse, not fail fast as invalid.
+
+    A corrupt constant would still make ``verify_password`` return False, but
+    without doing any hashing work, silently reintroducing the timing leak it
+    exists to prevent.
+    """
+    import backend.app.core.security as security_module
+    from argon2 import PasswordHasher
+    from argon2.exceptions import VerifyMismatchError
+
+    dummy = security_module._DUMMY_PASSWORD_HASH
+    assert dummy.startswith("$argon2id$")
+    with pytest.raises(VerifyMismatchError):
+        PasswordHasher().verify(dummy, "not-the-calibration-password")

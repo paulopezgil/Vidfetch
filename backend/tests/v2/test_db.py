@@ -77,6 +77,7 @@ class FakeConnection:
         self.rows: list[dict[str, Any]] = []
         self.status = "UPDATE 1"
         self.error: BaseException | None = None
+        self.close_error: BaseException | None = None
         self.delay = 0.0
         self.closed = False
 
@@ -87,6 +88,8 @@ class FakeConnection:
         return FakeTransaction(self.log)
 
     async def close(self) -> None:
+        if self.close_error is not None:
+            raise self.close_error
         self.closed = True
 
 
@@ -102,18 +105,45 @@ class FakeAcquire:
 
 
 class FakePool:
-    def __init__(self, connection: FakeConnection | None = None) -> None:
+    """Mirror the psycopg pool surface: ``connection()`` and ``close()``."""
+
+    def __init__(self, conn: FakeConnection | None = None) -> None:
         self.log: list[str] = []
-        self.connection = connection or FakeConnection(self.log)
-        self.acquire_count = 0
+        self.conn = conn or FakeConnection(self.log)
+        self.connection_count = 0
         self.closed = False
 
-    def acquire(self) -> FakeAcquire:
-        self.acquire_count += 1
-        return FakeAcquire(self.connection)
+    def connection(self) -> FakeAcquire:
+        self.connection_count += 1
+        return FakeAcquire(self.conn)
 
     async def close(self) -> None:
         self.closed = True
+
+
+class ConnectionOnlyPool:
+    """A pool with only the real psycopg API, so ``acquire()`` cannot work.
+
+    Any other attribute access fails loudly: a Database that reaches for the
+    asyncpg-style ``acquire()`` breaks this test instead of production.
+    """
+
+    def __init__(self, conn: FakeConnection) -> None:
+        self.conn = conn
+        self.connection_count = 0
+        self.closed = False
+
+    def connection(self) -> FakeAcquire:
+        self.connection_count += 1
+        return FakeAcquire(self.conn)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    def __getattr__(self, name: str):
+        raise AssertionError(
+            f"Database touched pool.{name}; psycopg pools expose connection()"
+        )
 
 
 def run(coro):
@@ -193,7 +223,7 @@ def test_adapter_rejects_out_of_range_indices(query, args):
 
 def test_fetch_translates_placeholders_before_execution():
     pool = FakePool()
-    pool.connection.rows = [{"n": 7, "label": "seventy"}, {"n": 7, "label": "x"}]
+    pool.conn.rows = [{"n": 7, "label": "seventy"}, {"n": 7, "label": "x"}]
     database = Database(pool)
 
     rows = run(
@@ -203,32 +233,32 @@ def test_fetch_translates_placeholders_before_execution():
     )
 
     assert rows == [{"n": 7, "label": "seventy"}, {"n": 7, "label": "x"}]
-    assert pool.acquire_count == 1
-    assert pool.connection.calls == [
+    assert pool.connection_count == 1
+    assert pool.conn.calls == [
         ("select %s::int as n, '%%' || %s as label", (7, "x"))
     ]
 
 
 def test_fetch_passes_no_parameters_for_parameterless_sql():
     pool = FakePool()
-    pool.connection.rows = [{"one": 1}]
+    pool.conn.rows = [{"one": 1}]
 
     rows = run(Database(pool).fetch("select 1 as one"))
 
     assert rows == [{"one": 1}]
-    assert pool.connection.calls == [("select 1 as one", None)]
+    assert pool.conn.calls == [("select 1 as one", None)]
 
 
 def test_fetchrow_returns_one_row_or_none():
     pool = FakePool()
     database = Database(pool)
 
-    pool.connection.rows = [{"id": 1}, {"id": 2}]
+    pool.conn.rows = [{"id": 1}, {"id": 2}]
     assert run(database.fetchrow("select * from t where id = $1", 1)) == {
         "id": 1
     }
 
-    pool.connection.rows = []
+    pool.conn.rows = []
     assert run(database.fetchrow("select * from t where id = $1", 2)) is None
 
 
@@ -246,7 +276,7 @@ def test_execute_returns_the_psycopg_status_tag():
     )
 
     assert status == "UPDATE 1"
-    assert pool.connection.calls[0][1] is not None
+    assert pool.conn.calls[0][1] is not None
 
 
 def test_touch_accessed_counts_rows_from_the_status_tag():
@@ -255,23 +285,32 @@ def test_touch_accessed_counts_rows_from_the_status_tag():
     pool = FakePool()
     database = Database(pool)
 
-    pool.connection.status = "UPDATE 1"
+    pool.conn.status = "UPDATE 1"
     assert run(assets.touch_accessed(database, asset_id)) is True
-    assert pool.connection.calls[0][0].count("%s") == 2
+    assert pool.conn.calls[0][0].count("%s") == 2
 
-    pool.connection.status = "UPDATE 0"
+    pool.conn.status = "UPDATE 0"
     assert run(assets.touch_accessed(database, asset_id)) is False
 
 
 def test_fetch_times_out_and_discards_the_connection():
     pool = FakePool()
-    pool.connection.delay = 5.0
+    pool.conn.delay = 5.0
     database = Database(pool)
 
     with pytest.raises(TimeoutError):
         run(database.fetch("select 1", timeout=0.01))
 
-    assert pool.connection.closed is True
+    assert pool.conn.closed is True
+
+
+def test_timeout_is_not_masked_by_a_failing_connection_close():
+    pool = FakePool()
+    pool.conn.delay = 5.0
+    pool.conn.close_error = db_module.psycopg.OperationalError("socket is gone")
+
+    with pytest.raises(TimeoutError):
+        run(Database(pool).fetch("select 1", timeout=0.01))
 
 
 def test_transaction_commits_on_success():
@@ -286,7 +325,7 @@ def test_transaction_commits_on_success():
 
     assert result == []
     assert pool.log == ["begin", "commit"]
-    assert pool.connection.calls == [("select %s::int as n", (1,))]
+    assert pool.conn.calls == [("select %s::int as n", (1,))]
 
 
 def test_transaction_rolls_back_on_error():
@@ -309,7 +348,7 @@ def test_transaction_rolls_back_on_error():
 def test_database_errors_are_propagated_unchanged():
     pool = FakePool()
     error = db_module.psycopg.errors.UniqueViolation("duplicate key")
-    pool.connection.error = error
+    pool.conn.error = error
     database = Database(pool)
 
     with pytest.raises(db_module.psycopg.errors.UniqueViolation):
@@ -324,6 +363,26 @@ def test_close_closes_pool():
     run(Database(pool).close())
 
     assert pool.closed is True
+
+
+def test_database_uses_psycopg_pool_connection_api_only():
+    """A pool exposing only ``connection()`` is enough (no ``acquire()``)."""
+    log: list[str] = []
+    conn = FakeConnection(log)
+    conn.rows = [{"one": 1}]
+    pool = ConnectionOnlyPool(conn)
+
+    assert run(Database(pool).fetchrow("select 1 as one")) == {"one": 1}
+    assert run(Database(pool).execute("update t set x = $1", 1)) == "UPDATE 1"
+    assert pool.connection_count == 2
+
+    async def in_transaction() -> None:
+        async with Database(pool).transaction() as connection:
+            await connection.execute("update t set x = 1")
+
+    run(in_transaction())
+    assert pool.connection_count == 3
+    assert log == ["begin", "commit"]
 
 
 def test_database_requires_a_pool():

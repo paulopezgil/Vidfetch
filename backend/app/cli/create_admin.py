@@ -5,10 +5,11 @@ Usage::
     python -m backend.app.cli.create_admin --email admin@example.com \\
         --password '...' [--admin]
 
-The command is idempotent: an existing account gets the new password, is marked
-approved, and receives the requested role. It reads ``DATABASE_URL`` and
-``DB_SCHEMA`` from the environment and never prints the password, its hash, or
-any connection string.
+The command is idempotent: an existing account gets the new password and is
+marked approved. Its application role is only changed when ``--admin`` is
+passed, so re-running a password reset cannot silently demote an administrator.
+It reads ``DATABASE_URL`` and ``DB_SCHEMA`` from the environment and never
+prints the password, its hash, or any connection string.
 """
 from __future__ import annotations
 
@@ -41,7 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--admin",
         action="store_true",
-        help="Grant the admin application role (default: user).",
+        help=(
+            "Grant the admin application role. Without it a new account is a "
+            "regular user and an existing account keeps its current role."
+        ),
     )
     return parser
 
@@ -80,12 +84,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    f"select id from {schema_sql}.profiles "
+                    f"select id, app_role from {schema_sql}.profiles "
                     "where lower(email) = %s",
                     (email,),
                 )
                 existing = cursor.fetchone()
                 if existing is None:
+                    effective_role = role
                     cursor.execute(
                         f"insert into {schema_sql}.profiles "
                         "(email, password_hash, is_approved, app_role, "
@@ -94,7 +99,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         (email, password_hash, role),
                     )
                     created = True
-                else:
+                elif args.admin:
+                    effective_role = role
                     cursor.execute(
                         f"update {schema_sql}.profiles "
                         "set password_hash = %s, is_approved = true, "
@@ -105,6 +111,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                         (password_hash, role, existing["id"]),
                     )
                     created = False
+                else:
+                    # Re-running a password reset must not silently demote an
+                    # administrator: the role only changes when asked for.
+                    effective_role = existing.get("app_role") or "user"
+                    cursor.execute(
+                        f"update {schema_sql}.profiles "
+                        "set password_hash = %s, is_approved = true, "
+                        "approved_at = coalesce(approved_at, now()), "
+                        "updated_at = now() "
+                        "where id = %s",
+                        (password_hash, existing["id"]),
+                    )
+                    created = False
             connection.commit()
     except psycopg.Error:
         # Driver messages can include host/user details; keep them off stdout
@@ -113,7 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     verb = "Created" if created else "Updated"
-    print(f"{verb} {role} account {email} (approved).")
+    print(f"{verb} {effective_role} account {email} (approved).")
     return 0
 
 

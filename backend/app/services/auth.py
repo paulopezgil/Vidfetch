@@ -221,6 +221,10 @@ async def login(
     an account exists.
     """
     secret = password if isinstance(password, str) else ""
+    if len(secret) > MAX_PASSWORD_LENGTH:
+        # Never feed an arbitrarily large value to Argon2 (or the database):
+        # it can only ever fail, and no stored password is that long.
+        raise InvalidCredentialsError()
 
     try:
         address = normalize_email(email)

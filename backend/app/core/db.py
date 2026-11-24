@@ -123,7 +123,12 @@ class Connection:
         except TimeoutError:
             # The server may still be working on a cancelled statement, so the
             # connection is not reusable. Close it and let the pool replace it.
-            await self._connection.close()
+            # Closing is best effort: a broken socket must not mask the timeout
+            # with a different exception.
+            try:
+                await self._connection.close()
+            except Exception:  # noqa: BLE001 - the timeout is the real error
+                pass
             raise
 
     async def fetch(
@@ -205,7 +210,10 @@ class Database:
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[Connection]:
-        async with self._pool.acquire() as connection:
+        # psycopg pools expose ``connection()`` as the async context manager
+        # that checks a connection out and returns it on exit. (asyncpg's
+        # ``acquire()`` does not exist here.)
+        async with self._pool.connection() as connection:
             yield Connection(connection)
 
     async def fetch(

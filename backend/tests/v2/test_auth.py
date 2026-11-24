@@ -264,6 +264,23 @@ def test_login_with_a_malformed_email_is_also_invalid_credentials(tmp_path):
     assert db.calls == []
 
 
+def test_login_rejects_an_overlong_password_without_touching_the_database(
+    tmp_path,
+):
+    settings = make_settings(tmp_path)
+    db = FakeDatabase()
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "alice@example.test", "password": "x" * 500},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_credentials"
+    assert db.calls == []
+
+
 def test_login_requires_a_configured_database(tmp_path):
     settings = make_settings(tmp_path)
 
@@ -347,6 +364,19 @@ def test_revoke_user_sessions_can_keep_the_current_session():
     query, args = db.calls[0][1], db.calls[0][2]
     assert "where user_id = $1 and token_hash <> $2" in query
     assert args == (user_id, hash_session_token("current-token"))
+
+
+def test_revoke_user_sessions_without_a_keep_token_removes_all_of_them():
+    user_id = uuid4()
+    db = FakeDatabase()
+
+    run(auth.revoke_user_sessions(db, user_id))
+
+    query, args = db.calls[0][1], db.calls[0][2]
+    assert "delete from" in query and "auth_sessions" in query
+    assert "where user_id = $1" in query
+    assert "token_hash" not in query
+    assert args == (user_id,)
 
 
 # ---------------------------------------------------------------------------

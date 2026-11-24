@@ -92,7 +92,8 @@ def test_create_admin_inserts_an_approved_admin(monkeypatch, capsys, fake_connec
     (connection,) = created
     assert connection.committed is True
     (select_query, select_args), (insert_query, insert_args) = connection.calls
-    assert "select id from" in select_query and "lower(email) = %s" in select_query
+    assert "select id, app_role from" in select_query
+    assert "lower(email) = %s" in select_query
     assert select_args == ("admin@example.test",)
     assert "insert into" in insert_query
     assert "is_approved, app_role" in insert_query
@@ -110,7 +111,7 @@ def test_create_admin_inserts_an_approved_admin(monkeypatch, capsys, fake_connec
 def test_create_admin_updates_an_existing_account(monkeypatch, capsys, fake_connect):
     created, state = fake_connect
     user_id = uuid4()
-    state["rows"] = [{"id": user_id}]
+    state["rows"] = [{"id": user_id, "app_role": "user"}]
     _env(monkeypatch, DB_SCHEMA="vidfetch")
 
     code = cli.main(["--email", "admin@example.test", "--password", PASSWORD])
@@ -121,11 +122,51 @@ def test_create_admin_updates_an_existing_account(monkeypatch, capsys, fake_conn
     assert select_args == ("admin@example.test",)
     assert 'update "vidfetch".profiles' in update_query
     assert "set password_hash = %s, is_approved = true" in update_query
+    # Without --admin the existing role is preserved, not demoted.
+    assert "app_role" not in update_query
     assert update_args[0] != PASSWORD
     assert verify_password(update_args[0], PASSWORD)
-    assert update_args[1] == "user"
-    assert update_args[2] == user_id
+    assert update_args[1] == user_id
     assert "Updated user account admin@example.test" in capsys.readouterr().out
+
+
+def test_create_admin_reports_the_preserved_role(monkeypatch, capsys, fake_connect):
+    created, state = fake_connect
+    user_id = uuid4()
+    state["rows"] = [{"id": user_id, "app_role": "admin"}]
+    _env(monkeypatch)
+
+    code = cli.main(["--email", "admin@example.test", "--password", PASSWORD])
+
+    assert code == 0
+    (connection,) = created
+    (select_query, _), (update_query, update_args) = connection.calls
+    assert "select id, app_role" in select_query
+    assert "app_role" not in update_query
+    assert update_args[1] == user_id
+    assert "Updated admin account admin@example.test" in capsys.readouterr().out
+
+
+def test_create_admin_grants_admin_to_an_existing_account(
+    monkeypatch, capsys, fake_connect
+):
+    created, state = fake_connect
+    user_id = uuid4()
+    state["rows"] = [{"id": user_id, "app_role": "user"}]
+    _env(monkeypatch)
+
+    code = cli.main(
+        ["--email", "admin@example.test", "--password", PASSWORD, "--admin"]
+    )
+
+    assert code == 0
+    (connection,) = created
+    (_, _), (update_query, update_args) = connection.calls
+    assert "app_role = %s" in update_query
+    assert update_args[1] == "admin"
+    assert update_args[2] == user_id
+    assert verify_password(update_args[0], PASSWORD)
+    assert "Updated admin account admin@example.test" in capsys.readouterr().out
 
 
 def test_create_admin_requires_a_database_url(monkeypatch, capsys, fake_connect):
