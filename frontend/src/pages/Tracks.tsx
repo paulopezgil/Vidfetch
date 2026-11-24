@@ -40,7 +40,7 @@ import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
 import { usePlayer } from "../player/PlayerProvider";
 
-type Tab = "all" | "videos" | "audio" | "images" | "playlists";
+type Tab = "all" | "videos" | "audio" | "playlists";
 
 const PAGE = 20;
 const PLAYLIST_LIMIT = 100;
@@ -49,7 +49,6 @@ const tabs: { value: Tab; label: string }[] = [
   { value: "all", label: "Tot" },
   { value: "videos", label: "Vídeos" },
   { value: "audio", label: "Àudio" },
-  { value: "images", label: "Imatges" },
   { value: "playlists", label: "Llistes" },
 ];
 
@@ -215,15 +214,16 @@ export default function Tracks() {
   );
 
   // Apply the filter chips before grouping so every day section only holds the
-  // media types the active chip allows.
+  // media types the active chip allows. Images never belong to the music/video
+  // library, so they are excluded from every chip, including «Tot».
   const visibleTracks = useMemo(() => {
     if (tab === "playlists") return [];
     return individualItems.filter((item) => {
-      if (tab === "all") return true;
       const mediaType = mediaTypeFor(item);
+      if (mediaType === "image") return false;
       if (tab === "videos") return mediaType === "video";
-      if (tab === "images") return mediaType === "image";
-      return mediaType === "audio";
+      if (tab === "audio") return mediaType === "audio";
+      return true;
     });
   }, [individualItems, tab]);
 
@@ -458,9 +458,7 @@ function FileRow({
   const playerActive = current?.id === item.id;
   const playerPlaying = playerActive && isPlaying;
   const mediaType = mediaTypeFor(item);
-  const isImage = mediaType === "image";
-  const icon =
-    mediaType === "audio" ? "music_note" : isImage ? "image" : "movie";
+  const icon = mediaType === "audio" ? "music_note" : "movie";
   const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
   const [downloading, setDownloading] = useState(false);
   const ext = extensionOf(item);
@@ -507,37 +505,23 @@ function FileRow({
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
-        {isImage ? (
-          <IconButton
-            variant="tonal"
-            label="Mostra la imatge"
-            onClick={onPreview}
-          >
-            <Icon name="image" className="text-[20px]" />
-          </IconButton>
-        ) : (
-          <>
-            <IconButton
-              variant={playerActive ? "filled" : "tonal"}
-              label={playerPlaying ? "Pausa" : "Reprodueix"}
-              onClick={() =>
-                playerActive ? togglePlay() : playTrack(item, queue)
-              }
-            >
-              <Icon
-                name={playerPlaying ? "pause" : "play_arrow"}
-                className="text-[20px]"
-              />
-            </IconButton>
-            <IconButton
-              variant="tonal"
-              label="Obre la previsualització"
-              onClick={onPreview}
-            >
-              <Icon name="open_in_new" className="text-[20px]" />
-            </IconButton>
-          </>
-        )}
+        <IconButton
+          variant={playerActive ? "filled" : "tonal"}
+          label={playerPlaying ? "Pausa" : "Reprodueix"}
+          onClick={() => (playerActive ? togglePlay() : playTrack(item, queue))}
+        >
+          <Icon
+            name={playerPlaying ? "pause" : "play_arrow"}
+            className="text-[20px]"
+          />
+        </IconButton>
+        <IconButton
+          variant="tonal"
+          label="Obre la previsualització"
+          onClick={onPreview}
+        >
+          <Icon name="open_in_new" className="text-[20px]" />
+        </IconButton>
         {mediaType === "audio" ? (
           // Songs use the offline-state control instead of a one-shot file
           // download: the second phase of an audio job is automatic.

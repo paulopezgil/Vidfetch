@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ThemeProvider } from "./theme/ThemeProvider";
 import "./index.css";
 
 // The offline app shell is production-only: a service worker in dev would
@@ -15,6 +16,8 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </React.StrictMode>,
 );

@@ -150,7 +150,7 @@ export default function AdminPage() {
         <EmptyState
           icon="group"
           title="Encara no hi ha usuaris"
-          description="Quan algú iniciï sessió amb Google, el seu compte apareixerà aquí per aprovar-lo."
+          description="Quan algú creï un compte, apareixerà aquí per aprovar-lo."
         />
       ) : (
         <>
