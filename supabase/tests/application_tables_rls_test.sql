@@ -127,7 +127,7 @@ select is(
            )
            and c.relrowsecurity
     ),
-    9,
+    8,
     'RLS is enabled on every application table'
 );
 

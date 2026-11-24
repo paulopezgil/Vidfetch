@@ -130,6 +130,8 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 3.2.0
+      - name: Stop any stale local Supabase stack
+        run: supabase stop --no-backup || true
       - name: Start local Supabase
         run: supabase start
       - name: Apply migrations and seed
