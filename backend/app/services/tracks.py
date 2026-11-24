@@ -154,6 +154,15 @@ TRACKS_WHERE_BY_IDS = (
     "and ut.id = any($2::uuid[])"
 )
 
+# Whitelisted orderings. The title sort reuses the resolved-title expression
+# from ``TRACKS_COLUMNS`` so it orders by exactly what the client displays, and
+# falls back to the id for a deterministic tie-break (and therefore stable
+# pagination). A caller-supplied value is only ever a dictionary key.
+TRACK_SORTS: dict[str, str] = {
+    "downloaded": "ut.downloaded_at desc, ut.id desc",
+    "title": f"lower({TRACKS_TITLE}) asc, ut.id asc",
+}
+
 # The same ownership and visibility rules as TRACKS_WHERE, written as an
 # UPDATE guard so a caller can never edit a track that is hidden, deleted, or
 # no longer backed by a ready job/asset.
@@ -193,12 +202,18 @@ async def list_tracks(
     limit: int = 50,
     offset: int = 0,
     q: str | None = None,
+    sort: str = "downloaded",
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return one page of the caller's visible tracks, newest first.
+    """Return one page of the caller's visible tracks.
 
     ``q`` filters case-insensitively on the resolved title, artist, or album.
-    Whitespace-only input is treated as no filter.
+    Whitespace-only input is treated as no filter. ``sort`` is one of
+    :data:`TRACK_SORTS`: newest download first (the default) or resolved title
+    ascending. Both orderings tie-break on the track id, so paging is stable.
     """
+    order_by = TRACK_SORTS.get(str(sort))
+    if order_by is None:
+        raise ValueError("Invalid track sort.")
     owner = _as_uuid(user_id)
     limit, offset = _clamp(limit, offset)
     search = _normalize_search(q)
@@ -214,8 +229,7 @@ async def list_tracks(
 
     rows = await db.fetch(
         f"select {TRACKS_COLUMNS} {tracks_from} {TRACKS_WHERE} "
-        f"order by ut.downloaded_at desc, ut.id desc "
-        f"limit $3 offset $4",
+        f"order by {order_by} limit $3 offset $4",
         owner,
         search,
         limit,
