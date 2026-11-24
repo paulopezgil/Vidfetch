@@ -9,12 +9,12 @@ import type {
   CreateDownloadPayload,
   DownloadJob,
   DownloadJobList,
-  LibraryList,
   MediaInfo,
   MediaToken,
   PlaylistDetailV2,
   PlaylistList,
   PlaylistStatus,
+  TrackList,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
 
@@ -354,20 +354,18 @@ export function cancelDownload(jobId: string): Promise<DownloadJob> {
   );
 }
 
-export interface LibraryQuery {
+export interface TrackQuery {
   limit?: number;
   offset?: number;
 }
 
-/** `GET /api/library` — the caller's ready assets, newest first. */
-export function listLibrary(
-  params: LibraryQuery = {},
-): Promise<LibraryList> {
+/** `GET /api/tracks` — the caller's ready tracks, newest first. */
+export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   const suffix = query.toString();
-  return apiFetch<LibraryList>(`/library${suffix ? `?${suffix}` : ""}`);
+  return apiFetch<TrackList>(`/tracks${suffix ? `?${suffix}` : ""}`);
 }
 
 /** `DELETE /api/library/{job_id}` — remove one asset from the library. */
