@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.1.0` released** |
+| Status | **`v2.2.0` released** |
 | Baseline | `v1.9.0` |
-| Current released version | `v2.1.0` |
+| Current released version | `v2.2.0` |
 | Branch | `main` |
-| Last updated | 2026-11-22 |
+| Last updated | 2026-11-24 |
 
 This is the implementation checklist for the current development cycle. The root
 `README.md` documents the shipped application; `docs/V2_SETUP.md` has the
@@ -43,6 +43,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 - [x] Local `docker-compose.yml` with frontend + backend + local Supabase.
 - [x] Supabase CLI wrapper and local administrator bootstrap.
 - [x] Absolute media URLs via `PUBLIC_API_URL`.
+- [x] Removed the user-facing configuration screen.
 - [x] Vercel config (`frontend/vercel.json`).
 - [x] Backend-only VPS stack (`docker-compose.prod.yml`).
 - [x] Backend requirements moved into `backend/`.
@@ -52,6 +53,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 ## Pending
 
 - [x] Final release checks and `v2.1.0` release/tag from `main`.
+- [x] Final release checks and `v2.2.0` release/tag from `main`.
 - [ ] Live production smoke test on Vercel + VPS + Supabase Cloud.
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming endpoint.
@@ -63,6 +65,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 | Check | Result |
 | --- | --- |
 | Backend pytest | 521 passed |
+| Configuration tab removal | Nav, route, page, and legacy client deleted; build + serve 200 |
 | Frontend production build | Passed |
 | Frontend local Docker image | Built; Vite dev server serves 200 |
 | Backend Docker image | Built; non-root; `/api/health` 200; no frontend/tests in image |
