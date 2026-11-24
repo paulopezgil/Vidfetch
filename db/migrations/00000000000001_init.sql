@@ -69,6 +69,7 @@ create table if not exists "public".media_assets (
     format_selector       text not null default '',
     output_ext            text,
     file_path             text,
+    thumbnail_path        text,
     file_size_bytes       bigint,
     file_sha256           text,
     status                text not null default 'processing'
@@ -90,7 +91,9 @@ create table if not exists "public".media_assets (
                 and file_path not like '/%'
                 and position('..' in file_path) = 0
             )
-        )
+        ),
+    constraint media_assets_thumbnail_path_relative
+        check (thumbnail_path is null or (thumbnail_path <> '' and thumbnail_path not like '/%'))
 );
 
 create index if not exists media_assets_status_lease_idx
@@ -154,6 +157,13 @@ create table if not exists "public".download_jobs (
     eta_seconds       integer,
     error             text not null default '',
     attempts          integer not null default 0,
+    cancel_requested  boolean not null default false,
+    item_index        integer not null default 0,
+    item_count        integer not null default 0,
+    current_item_title text not null default '',
+    current_item_progress numeric(5, 2) not null default 0
+                      check (current_item_progress >= 0 and current_item_progress <= 100),
+    library_hidden    boolean not null default false,
     created_at        timestamptz not null default now(),
     updated_at        timestamptz not null default now(),
     started_at        timestamptz,
@@ -169,6 +179,9 @@ create index if not exists download_jobs_status_created_idx
     on "public".download_jobs (status, created_at);
 create index if not exists download_jobs_asset_idx
     on "public".download_jobs (asset_id);
+create index if not exists download_jobs_user_library_idx
+    on "public".download_jobs (user_id, library_hidden, created_at desc)
+    where status = 'ready';
 
 -- ---------------------------------------------------------------------------
 -- downloaded playlist items
