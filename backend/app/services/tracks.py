@@ -16,7 +16,7 @@ import asyncio
 import base64
 import binascii
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 from uuid import UUID, uuid4
 
 from ..core.db import Database
@@ -149,6 +149,11 @@ TRACKS_WHERE_BY_ID = (
     "and a.status = 'ready'"
 )
 
+TRACKS_WHERE_BY_IDS = (
+    "where ut.user_id = $1 and ut.deleted_at is null and a.status = 'ready' "
+    "and ut.id = any($2::uuid[])"
+)
+
 # The same ownership and visibility rules as TRACKS_WHERE, written as an
 # UPDATE guard so a caller can never edit a track that is hidden, deleted, or
 # no longer backed by a ready job/asset.
@@ -234,6 +239,40 @@ async def get_track(
         owner,
     )
     return None if record is None else dict(record)
+
+
+async def list_tracks_by_ids(
+    db: Database,
+    user_id: str | UUID,
+    track_ids: Iterable[str | UUID],
+) -> list[dict[str, Any]]:
+    """Return the caller's visible tracks in the requested id order.
+
+    Tracks that are deleted, hidden, no longer backed by a ready job/asset, or
+    owned by somebody else are omitted. Duplicate ids are collapsed, so the
+    result is a subsequence of the requested ordering. An empty input skips the
+    query entirely.
+    """
+    owner = _as_uuid(user_id)
+    ordered: list[UUID] = []
+    seen: set[UUID] = set()
+    for value in track_ids:
+        identifier = _as_uuid(value)
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        ordered.append(identifier)
+    if not ordered:
+        return []
+
+    rows = await db.fetch(
+        f"select {TRACKS_COLUMNS} {_tracks_from(db.schema_sql)} "
+        f"{TRACKS_WHERE_BY_IDS}",
+        owner,
+        ordered,
+    )
+    by_id = {row["id"]: dict(row) for row in rows}
+    return [by_id[identifier] for identifier in ordered if identifier in by_id]
 
 
 async def update_track(

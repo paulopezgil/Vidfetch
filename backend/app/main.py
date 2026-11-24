@@ -26,6 +26,7 @@ from .api.routes import (
     me,
     playlists,
     tracks,
+    user_playlists,
 )
 from .core.config import Settings
 from .core.db import create_pool
@@ -120,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(media.router)
     app.include_router(playlists.router)
     app.include_router(tracks.router)
+    app.include_router(user_playlists.router)
 
     _add_root_json_route(app)
 

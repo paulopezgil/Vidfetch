@@ -390,6 +390,124 @@ class PlaylistList(_ORMModel):
     offset: int
 
 
+USER_PLAYLIST_NAME_MAX = 200
+USER_PLAYLIST_DESCRIPTION_MAX = 500
+
+
+def _trim_playlist_name(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Playlist name must be a string.")
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("Playlist name is required.")
+    if len(trimmed) > USER_PLAYLIST_NAME_MAX:
+        raise ValueError(
+            "Playlist name must be at most "
+            f"{USER_PLAYLIST_NAME_MAX} characters."
+        )
+    return trimmed
+
+
+def _trim_playlist_description(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("Playlist description must be a string.")
+    trimmed = value.strip()
+    if len(trimmed) > USER_PLAYLIST_DESCRIPTION_MAX:
+        raise ValueError(
+            "Playlist description must be at most "
+            f"{USER_PLAYLIST_DESCRIPTION_MAX} characters."
+        )
+    return trimmed
+
+
+class UserPlaylistOut(_ORMModel):
+    """A per-user curated playlist with a count of its visible tracks."""
+
+    id: UUID
+    user_id: UUID
+    name: str
+    description: str = ""
+    cover_path: str | None = None
+    track_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserPlaylistDetailOut(UserPlaylistOut):
+    """A curated playlist plus its visible tracks in playlist order."""
+
+    items: list[TrackOut] = Field(default_factory=list)
+
+
+class UserPlaylistList(_ORMModel):
+    """One page of the caller's curated playlists."""
+
+    items: list[UserPlaylistOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
+class UserPlaylistCreate(BaseModel):
+    """Create a curated playlist. The name and description are trimmed."""
+
+    name: str
+    description: str = ""
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name(cls, value: Any) -> str:
+        return _trim_playlist_name(value)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _validate_description(cls, value: Any) -> str:
+        return _trim_playlist_description(value)
+
+
+class UserPlaylistUpdate(BaseModel):
+    """Edit a curated playlist. An empty body is invalid."""
+
+    name: str | None = None
+    description: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return _trim_playlist_name(value)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _validate_description(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return _trim_playlist_description(value)
+
+    @model_validator(mode="after")
+    def _require_a_field(self) -> "UserPlaylistUpdate":
+        if not self.model_fields_set:
+            raise ValueError("At least one playlist field is required.")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Playlist name cannot be null.")
+        return self
+
+
+class UserPlaylistAddTrack(BaseModel):
+    """Add one of the caller's tracks to a curated playlist."""
+
+    track_id: UUID
+
+
+class UserPlaylistOrder(BaseModel):
+    """A complete, new ordering of a curated playlist's tracks."""
+
+    track_ids: list[UUID] = Field(default_factory=list)
+
+
 class InfoRequest(BaseModel):
     """Ask the backend to resolve metadata for a video or playlist URL."""
 
