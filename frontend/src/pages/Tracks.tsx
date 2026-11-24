@@ -28,6 +28,7 @@ import StatusChip from "../components/StatusChip";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { usePlayer } from "../player/PlayerProvider";
 
 type Tab = "all" | "videos" | "audio" | "images" | "playlists";
 type MediaType = "video" | "audio" | "image";
@@ -337,6 +338,7 @@ export default function Tracks() {
                   <FileRow
                     key={item.job_id}
                     item={item}
+                    queue={visibleVideos}
                     onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
@@ -366,6 +368,7 @@ export default function Tracks() {
                   <FileRow
                     key={item.job_id}
                     item={item}
+                    queue={visibleAudio}
                     onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
@@ -395,6 +398,7 @@ export default function Tracks() {
                   <FileRow
                     key={item.job_id}
                     item={item}
+                    queue={visibleImages}
                     onPreview={() => void openPreview(item)}
                     onDelete={() =>
                       setPendingDelete({
@@ -496,14 +500,20 @@ export default function Tracks() {
 
 function FileRow({
   item,
+  queue,
   onDelete,
   onPreview,
 }: {
   item: Track;
+  /** Visible rows that form the play queue for this section. */
+  queue: Track[];
   onDelete: () => void;
   onPreview: () => void;
 }) {
   const toast = useToast();
+  const { current, isPlaying, playTrack, togglePlay } = usePlayer();
+  const playerActive = current?.id === item.id;
+  const playerPlaying = playerActive && isPlaying;
   const mediaType = mediaTypeFor(item);
   const isImage = mediaType === "image";
   const icon =
@@ -554,16 +564,37 @@ function FileRow({
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
-        <IconButton
-          variant="tonal"
-          label={isImage ? "Mostra la imatge" : "Reprodueix"}
-          onClick={onPreview}
-        >
-          <Icon
-            name={isImage ? "image" : "play_arrow"}
-            className="text-[20px]"
-          />
-        </IconButton>
+        {isImage ? (
+          <IconButton
+            variant="tonal"
+            label="Mostra la imatge"
+            onClick={onPreview}
+          >
+            <Icon name="image" className="text-[20px]" />
+          </IconButton>
+        ) : (
+          <>
+            <IconButton
+              variant={playerActive ? "filled" : "tonal"}
+              label={playerPlaying ? "Pausa" : "Reprodueix"}
+              onClick={() =>
+                playerActive ? togglePlay() : playTrack(item, queue)
+              }
+            >
+              <Icon
+                name={playerPlaying ? "pause" : "play_arrow"}
+                className="text-[20px]"
+              />
+            </IconButton>
+            <IconButton
+              variant="tonal"
+              label="Obre la previsualització"
+              onClick={onPreview}
+            >
+              <Icon name="open_in_new" className="text-[20px]" />
+            </IconButton>
+          </>
+        )}
         <IconButton
           variant="tonal"
           label="Descarrega el fitxer"
@@ -637,7 +668,7 @@ function PlaylistRow({
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
         <Link
-          to={`/library/playlist/${playlist.id}`}
+          to={`/playlists/${playlist.id}`}
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary-container px-4 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
         >
           <Icon name="folder_open" className="text-[18px]" /> Mostra
