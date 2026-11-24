@@ -17,14 +17,27 @@ const LIBRARY_CACHE_PREFIXES = ["/tracks", "/playlists", "/user-playlists"];
 
 let flushing: Promise<void> | null = null;
 
+/**
+ * Bumped whenever the queue is abandoned (sign-out). A flush that started
+ * before the bump must stop touching the store and the banner: its entries
+ * belong to the account that queued them, so finishing would resurrect them
+ * for whoever signs in next.
+ */
+let flushGeneration = 0;
+
 function messageOf(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "No s’han pogut sincronitzar els canvis.";
 }
 
-async function runFlush(): Promise<void> {
+function isCurrent(generation: number): boolean {
+  return generation === flushGeneration;
+}
+
+async function runFlush(generation: number): Promise<void> {
   const entries = await listQueue();
+  if (!isCurrent(generation)) return;
   if (entries.length === 0) {
     setPending(0);
     return;
@@ -38,6 +51,8 @@ async function runFlush(): Promise<void> {
 
   try {
     for (const entry of entries) {
+      if (!isCurrent(generation)) return;
+
       let res: Response;
       try {
         res = await authorizedFetch(entry.path, {
@@ -45,6 +60,7 @@ async function runFlush(): Promise<void> {
           body: entry.body ?? undefined,
         });
       } catch (error) {
+        if (!isCurrent(generation)) return;
         if (isNetworkError(error)) {
           // Still offline: keep the entry and stop so FIFO order is preserved.
           await updateQueue({ ...entry, attempts: entry.attempts + 1 });
@@ -58,6 +74,7 @@ async function runFlush(): Promise<void> {
 
       // Any HTTP response means the server saw the request. A 4xx is a real
       // rejection (track deleted, playlist gone…) and must not block the queue.
+      if (!isCurrent(generation)) return;
       await removeQueue(entry.id);
       if (res.ok) {
         synced = true;
@@ -66,14 +83,29 @@ async function runFlush(): Promise<void> {
       }
     }
 
-    if (synced) {
+    if (synced && isCurrent(generation)) {
       await clearCachedResponses(LIBRARY_CACHE_PREFIXES);
     }
   } finally {
-    setPending(await countQueue());
-    setSyncing(false);
-    setLastError(lastError);
+    if (isCurrent(generation)) {
+      setPending(await countQueue());
+      setSyncing(false);
+      setLastError(lastError);
+    }
   }
+}
+
+/**
+ * Invalidate any in-flight replay and forget it.
+ *
+ * Called on sign-out: the queue is about to be cleared, so a flush that is
+ * waiting on the network must not write an entry back or re-arm the banner for
+ * the next account. Already-sent requests cannot be cancelled; they simply
+ * finish without touching local state.
+ */
+export function resetQueueFlush(): void {
+  flushGeneration += 1;
+  flushing = null;
 }
 
 /**
@@ -84,8 +116,11 @@ async function runFlush(): Promise<void> {
  */
 export function flushQueue(): Promise<void> {
   if (flushing) return flushing;
-  flushing = runFlush().finally(() => {
-    flushing = null;
+  const generation = flushGeneration;
+  const run = runFlush(generation).finally(() => {
+    // A sign-out may already have replaced this run; never drop the new one.
+    if (flushing === run) flushing = null;
   });
-  return flushing;
+  flushing = run;
+  return run;
 }

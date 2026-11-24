@@ -250,6 +250,26 @@ export function clearCachedResponses(prefixes: string[]): Promise<boolean> {
     .catch(() => false);
 }
 
+/**
+ * Drop every cached response and every queued mutation.
+ *
+ * Sign-out uses this: neither store is keyed by user, so leaving the data
+ * behind would show one account's library to the next account on the same
+ * browser and could replay that account's edits under the new identity. The
+ * `media` store is deliberately untouched — saved copies are global and stay
+ * available to every account on this browser.
+ */
+export async function clearCachedResponsesAndQueue(): Promise<void> {
+  await Promise.all([
+    runWrite(RESPONSES_STORE, (store) => {
+      store.clear();
+    }),
+    runWrite(QUEUE_STORE, (store) => {
+      store.clear();
+    }),
+  ]);
+}
+
 /** Append a mutation to the replay queue. `null` means it was not stored. */
 export async function enqueue(
   request: NewQueuedRequest,

@@ -100,6 +100,23 @@ export function markCacheServed(savedAt: number): void {
   update({ usingCache: true, cachedAt: savedAt, online: false });
 }
 
+/**
+ * Forget the queue/cache flags after a sign-out.
+ *
+ * The next account on this browser must not inherit the previous user's
+ * pending count, sync spinner, "served from cache" marker or last error. The
+ * connection state stays: it describes the browser, not the account.
+ */
+export function resetOfflineStatus(): void {
+  update({
+    pending: 0,
+    syncing: false,
+    usingCache: false,
+    cachedAt: null,
+    lastError: null,
+  });
+}
+
 /** Publish a freshly counted queue length. */
 export function setPending(pending: number): void {
   update({ pending: Math.max(0, pending) });
