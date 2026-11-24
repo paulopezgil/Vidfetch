@@ -23,6 +23,7 @@ import IconButton from "./IconButton";
 import Spinner from "./Spinner";
 import TextField from "./TextField";
 import Thumbnail from "./Thumbnail";
+import { useToast } from "./Toast";
 
 interface TrackEditDialogProps {
   open: boolean;
@@ -111,6 +112,7 @@ export default function TrackEditDialog({
   onClose,
   onSaved,
 }: TrackEditDialogProps) {
+  const toast = useToast();
   const headingId = useId();
   const artistListId = useId();
   const albumListId = useId();
@@ -256,23 +258,43 @@ export default function TrackEditDialog({
     setBusy(true);
     setError(null);
     try {
-      const updated = await updateTrack(track.id, {
+      const saved = await updateTrack(track.id, {
         custom_title: title.trim(),
         custom_artist: artist.trim(),
         custom_album: album.trim(),
       });
+      if (saved.queued) {
+        // Metadata is safely stored locally; the row keeps the old values until
+        // the replay reaches the server.
+        setBusy(false);
+        toast(saved.message, "info");
+        onClose();
+        return;
+      }
 
-      let coverUrl = updated.cover_url;
+      let coverUrl = saved.data.cover_url;
       if (coverFile) {
         const cover = await uploadTrackCover(track.id, coverFile);
-        coverUrl = cover.cover_url;
+        if (cover.queued) {
+          setBusy(false);
+          toast(cover.message, "info");
+          onClose();
+          return;
+        }
+        coverUrl = cover.data.cover_url;
       } else if (removeCover && hasStoredCover) {
-        await deleteTrackCover(track.id);
+        const removal = await deleteTrackCover(track.id);
+        if (removal.queued) {
+          setBusy(false);
+          toast(removal.message, "info");
+          onClose();
+          return;
+        }
         coverUrl = null;
       }
 
       setBusy(false);
-      onSaved({ ...updated, cover_url: coverUrl });
+      onSaved({ ...saved.data, cover_url: coverUrl });
       onClose();
     } catch (e) {
       setBusy(false);

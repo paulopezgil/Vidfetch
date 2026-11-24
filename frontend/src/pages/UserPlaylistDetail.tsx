@@ -27,6 +27,7 @@ import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
 import { usePlayer } from "../player/PlayerProvider";
 import { setActivePlaylistTitle } from "../navigation";
+import { QUEUED_MUTATION_MESSAGE } from "../offline/status";
 
 const AUDIO_EXTENSIONS = new Set([
   "mp3",
@@ -113,11 +114,16 @@ export default function UserPlaylistDetail() {
   useEffect(() => () => setActivePlaylistTitle(null), []);
 
   const handleSaved = useCallback(
-    (playlist: UserPlaylist) => {
+    (playlist: UserPlaylist, options?: { queued?: boolean }) => {
       setDetail((prev) =>
         prev && prev.id === playlist.id ? { ...prev, ...playlist } : prev,
       );
-      toast("Llista de reproducció actualitzada", "success");
+      toast(
+        options?.queued
+          ? QUEUED_MUTATION_MESSAGE
+          : "Llista de reproducció actualitzada",
+        options?.queued ? "info" : "success",
+      );
     },
     [toast],
   );
@@ -127,8 +133,11 @@ export default function UserPlaylistDetail() {
     setDeleting(true);
     try {
       // Only the curated playlist rows are removed; tracks stay in the library.
-      await deleteUserPlaylist(detail.id);
-      toast("Llista de reproducció eliminada", "success");
+      const result = await deleteUserPlaylist(detail.id);
+      toast(
+        result.queued ? result.message : "Llista de reproducció eliminada",
+        result.queued ? "info" : "success",
+      );
       setDeleteOpen(false);
       navigate("/playlists");
     } catch (e) {
@@ -148,7 +157,7 @@ export default function UserPlaylistDetail() {
       if (!detail || removingId || reordering) return;
       setRemovingId(track.id);
       try {
-        await removeUserPlaylistTrack(detail.id, track.id);
+        const result = await removeUserPlaylistTrack(detail.id, track.id);
         setDetail((prev) =>
           prev
             ? {
@@ -158,7 +167,10 @@ export default function UserPlaylistDetail() {
               }
             : prev,
         );
-        toast("Track tret de la llista", "success");
+        toast(
+          result.queued ? result.message : "Track tret de la llista",
+          result.queued ? "info" : "success",
+        );
       } catch (e) {
         toast(
           e instanceof Error
@@ -184,17 +196,22 @@ export default function UserPlaylistDetail() {
       if (!moved) return;
       nextItems.splice(target, 0, moved);
 
-      // Reorder optimistically, then persist the full id list. A failure
-      // reloads the server order instead of leaving the UI out of sync.
+      // Reorder optimistically, then persist the full id list. A queued result
+      // keeps the local order; a failure reloads the server order instead of
+      // leaving the UI out of sync.
       const previous = detail;
       setDetail({ ...detail, items: nextItems });
       setReordering(true);
       try {
-        const updated = await reorderUserPlaylistTracks(
+        const result = await reorderUserPlaylistTracks(
           detail.id,
           nextItems.map((item) => item.id),
         );
-        setDetail(updated);
+        if (result.queued) {
+          toast(result.message, "info");
+        } else {
+          setDetail(result.data);
+        }
       } catch (e) {
         setDetail(previous);
         toast(

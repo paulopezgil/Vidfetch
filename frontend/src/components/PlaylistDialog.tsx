@@ -19,8 +19,11 @@ interface PlaylistDialogProps {
   /** Playlist to edit, or `null`/omitted to create a new one. */
   playlist?: UserPlaylist | null;
   onClose: () => void;
-  /** Called with the created or updated playlist after a successful save. */
-  onSaved: (playlist: UserPlaylist) => void;
+  /**
+   * Called with the created or updated playlist. `queued` is true when the
+   * edit was stored locally and still awaits a replay.
+   */
+  onSaved: (playlist: UserPlaylist, options?: { queued?: boolean }) => void;
 }
 
 const NAME_MAX = 200;
@@ -142,19 +145,33 @@ export default function PlaylistDialog({
     setBusy(true);
     setError(null);
     try {
-      const saved =
-        playlist === null
-          ? await createUserPlaylist({
-              name: trimmedName,
-              ...(trimmedDescription
-                ? { description: trimmedDescription }
-                : {}),
-            })
-          : await updateUserPlaylist(playlist.id, {
+      if (playlist === null) {
+        // Creating a playlist needs a server-created id, so it stays online-only.
+        const created = await createUserPlaylist({
+          name: trimmedName,
+          ...(trimmedDescription ? { description: trimmedDescription } : {}),
+        });
+        onSaved(created);
+      } else {
+        const saved = await updateUserPlaylist(playlist.id, {
+          name: trimmedName,
+          description: trimmedDescription,
+        });
+        if (saved.queued) {
+          // No server id is needed for an edit, so the local copy is updated
+          // immediately and the request is replayed later.
+          onSaved(
+            {
+              ...playlist,
               name: trimmedName,
               description: trimmedDescription,
-            });
-      onSaved(saved);
+            },
+            { queued: true },
+          );
+        } else {
+          onSaved(saved.data);
+        }
+      }
       onClose();
     } catch (e) {
       setError(

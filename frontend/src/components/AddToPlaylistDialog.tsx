@@ -156,10 +156,15 @@ export default function AddToPlaylistDialog({
     setBusyId(playlist.id);
     setError(null);
     try {
-      const detail = await addUserPlaylistTrack(playlist.id, track.id);
+      const result = await addUserPlaylistTrack(playlist.id, track.id);
+      if (result.queued) {
+        toast(result.message, "info");
+        onClose();
+        return;
+      }
       // An unchanged count means the idempotent endpoint found the track
       // already in this playlist.
-      const alreadyThere = detail.track_count <= playlist.track_count;
+      const alreadyThere = result.data.track_count <= playlist.track_count;
       toast(
         alreadyThere
           ? `«${track.title}» ja era a «${playlist.name}»`
@@ -200,8 +205,13 @@ export default function AddToPlaylistDialog({
       setFormOpen(false);
       setNewName("");
       try {
-        await addUserPlaylistTrack(playlist.id, track.id);
-        toast(`«${track.title}» afegit a «${playlist.name}»`, "success");
+        const added = await addUserPlaylistTrack(playlist.id, track.id);
+        toast(
+          added.queued
+            ? added.message
+            : `«${track.title}» afegit a «${playlist.name}»`,
+          added.queued ? "info" : "success",
+        );
         onClose();
       } catch (e) {
         setError(

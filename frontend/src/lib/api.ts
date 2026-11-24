@@ -24,6 +24,15 @@ import type {
   UserPlaylistList,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
+import { countQueue, enqueue, readCache, writeCache } from "../offline/db";
+import {
+  QUEUED_MUTATION_MESSAGE,
+  isOffline,
+  markCacheServed,
+  reportNetworkFailure,
+  reportNetworkSuccess,
+  setPending,
+} from "../offline/status";
 
 /** Base URL for the v2 API. Same-origin `/api` by default. */
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -39,6 +48,30 @@ export class ApiError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+/**
+ * True when the request never reached the API (offline, DNS failure, CORS,
+ * connection reset). Real HTTP error responses are never classified this way.
+ */
+export function isNetworkError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.code === "network_error";
+}
+
+function networkError(): ApiError {
+  return new ApiError(
+    "No hi ha connexió amb el servidor.",
+    0,
+    "network_error",
+  );
+}
+
+function offlineUnavailable(): ApiError {
+  return new ApiError(
+    "Aquesta acció necessita connexió. Torna-ho a provar quan recuperis la xarxa.",
+    0,
+    "offline_unavailable",
+  );
 }
 
 function buildUrl(path: string): string {
@@ -70,7 +103,7 @@ export function resolveApiUrl(path: string): string {
   return normalized;
 }
 
-async function parseError(res: Response): Promise<ApiError> {
+export async function parseError(res: Response): Promise<ApiError> {
   let code = `http_${res.status}`;
   let message = res.statusText || `La petició ha fallat (${res.status}).`;
 
@@ -110,12 +143,25 @@ function authHeaders(init: RequestInit, token: string | null): Headers {
   return headers;
 }
 
-function request(
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function request(
   path: string,
   init: RequestInit,
   token: string | null,
 ): Promise<Response> {
-  return fetch(buildUrl(path), { ...init, headers: authHeaders(init, token) });
+  try {
+    return await fetch(buildUrl(path), {
+      ...init,
+      headers: authHeaders(init, token),
+    });
+  } catch (error) {
+    // Aborts are intentional cancellations, not a lost connection.
+    if (isAbortError(error)) throw error;
+    throw networkError();
+  }
 }
 
 async function readBody<T>(res: Response): Promise<T> {
@@ -131,9 +177,11 @@ async function readBody<T>(res: Response): Promise<T> {
  * Authenticated fetch that returns the raw response.
  *
  * The current Supabase access token is attached automatically. A `401`
- * triggers exactly one session refresh and one retry.
+ * triggers exactly one session refresh and one retry. Transport failures are
+ * wrapped in an `ApiError` with `status: 0` / `code: "network_error"` so
+ * callers can tell “offline” apart from a real HTTP error.
  */
-async function authorizedFetch(
+export async function authorizedFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
@@ -147,16 +195,36 @@ async function authorizedFetch(
 
   const { data: current, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
+    // An expired session that cannot be refreshed because the network is down
+    // is a transport failure too, so offline reads/mutations can still queue.
+    const transient =
+      sessionError.name === "AuthRetryableFetchError" ||
+      sessionError.status === 0 ||
+      sessionError.status === 503;
+    if (transient || isOffline()) throw networkError();
     throw new ApiError(sessionError.message, 0, "session_unavailable");
   }
 
-  let res = await request(path, init, current.session?.access_token ?? null);
+  let res: Response;
+  try {
+    res = await request(path, init, current.session?.access_token ?? null);
+  } catch (error) {
+    if (isNetworkError(error)) reportNetworkFailure(error.message);
+    throw error;
+  }
+  reportNetworkSuccess();
 
   if (res.status === 401) {
-    const { data: refreshed, error: refreshError } =
-      await supabase.auth.refreshSession();
-    if (!refreshError && refreshed.session) {
-      res = await request(path, init, refreshed.session.access_token);
+    try {
+      const { data: refreshed, error: refreshError } =
+        await supabase.auth.refreshSession();
+      if (!refreshError && refreshed.session) {
+        res = await request(path, init, refreshed.session.access_token);
+        reportNetworkSuccess();
+      }
+    } catch (error) {
+      // Keep the original 401 when the refresh itself cannot reach Supabase.
+      if (isNetworkError(error)) reportNetworkFailure(error.message);
     }
   }
 
@@ -164,17 +232,139 @@ async function authorizedFetch(
 }
 
 /**
+ * Normalized cache key for a GET path: trailing slashes dropped and query
+ * parameters sorted so equivalent requests share one entry.
+ */
+export function normalizeCacheKey(path: string): string {
+  const withoutHash = path.split("#")[0] ?? path;
+  const question = withoutHash.indexOf("?");
+  const rawPath = question >= 0 ? withoutHash.slice(0, question) : withoutHash;
+  const rawQuery = question >= 0 ? withoutHash.slice(question + 1) : "";
+  const cleanPath = rawPath.replace(/\/+$/, "") || "/";
+
+  const params = new URLSearchParams(rawQuery);
+  const sorted = [...params.entries()].sort(
+    ([a, av], [b, bv]) => a.localeCompare(b) || av.localeCompare(bv),
+  );
+  if (sorted.length === 0) return cleanPath;
+
+  const query = new URLSearchParams();
+  for (const [key, value] of sorted) query.append(key, value);
+  return `${cleanPath}?${query.toString()}`;
+}
+
+/**
+ * Media tokens, admin listings and binary downloads are never cached: they are
+ * short-lived or authorization-sensitive.
+ */
+const CACHEABLE_GET_PATHS: readonly RegExp[] = [
+  /^\/tracks$/,
+  /^\/tracks\/(?:artists|albums)$/,
+  /^\/playlists$/,
+  /^\/playlists\/[^/]+$/,
+  /^\/user-playlists$/,
+  /^\/user-playlists\/[^/]+$/,
+];
+
+function isCacheableGet(path: string, method: string): boolean {
+  if (method !== "GET") return false;
+  const cleanPath = normalizeCacheKey(path).split("?")[0] ?? "";
+  return CACHEABLE_GET_PATHS.some((pattern) => pattern.test(cleanPath));
+}
+
+/**
  * Authenticated JSON fetch.
  *
- * Non-2xx responses are parsed into an `ApiError`.
+ * Cacheable GETs are network-first: a successful response is copied to the
+ * local read cache, and a transport failure falls back to the cached body when
+ * one exists. Non-2xx responses are parsed into an `ApiError` and never cached.
  */
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const res = await authorizedFetch(path, init);
+  const method = (init.method ?? "GET").toUpperCase();
+  const cacheable = isCacheableGet(path, method)
+    ? normalizeCacheKey(path)
+    : null;
+
+  let res: Response;
+  try {
+    res = await authorizedFetch(path, init);
+  } catch (error) {
+    if (cacheable && isNetworkError(error)) {
+      const cached = await readCache(cacheable);
+      if (cached) {
+        markCacheServed(cached.savedAt);
+        return cached.body as T;
+      }
+    }
+    throw error;
+  }
+
   if (!res.ok) throw await parseError(res);
-  return readBody<T>(res);
+
+  const body = await readBody<T>(res);
+  if (cacheable) {
+    void writeCache(cacheable, body);
+  }
+  return body;
+}
+
+/**
+ * Marker returned when a mutation was stored locally instead of sent: the API
+ * has not been updated yet and will receive the request when the connection
+ * returns.
+ */
+export interface QueuedMutationResult {
+  queued: true;
+  /** User-facing copy shared by every queued mutation. */
+  message: string;
+}
+
+/** Outcome of a mutation that may be replayed later. */
+export type MutationResult<T> =
+  | { queued: false; data: T }
+  | QueuedMutationResult;
+
+/**
+ * Upper bound for a serialized queued body. Cover uploads are base64 JSON and
+ * a 5 MiB image encodes to roughly 6.7 MiB, so this leaves some headroom.
+ */
+const MAX_QUEUED_BODY_CHARS = 8 * 1024 * 1024;
+
+/**
+ * Run a mutation, storing it in the offline queue when the network is down.
+ *
+ * Only transport failures are queued: HTTP errors are real answers from the
+ * server and are rethrown untouched. When IndexedDB refuses the entry the
+ * original network error is rethrown instead of pretending the change is safe.
+ */
+export async function apiMutation<T>(
+  path: string,
+  init: RequestInit = {},
+  options: { queueable?: boolean } = {},
+): Promise<MutationResult<T>> {
+  try {
+    const data = await apiFetch<T>(path, init);
+    return { queued: false, data };
+  } catch (error) {
+    if (!isNetworkError(error) || options.queueable === false) throw error;
+
+    const rawBody = init.body;
+    if (rawBody != null && typeof rawBody !== "string") throw error;
+    if (rawBody != null && rawBody.length > MAX_QUEUED_BODY_CHARS) throw error;
+
+    const entry = await enqueue({
+      path,
+      method: (init.method ?? "POST").toUpperCase(),
+      body: rawBody ?? null,
+    });
+    if (!entry) throw error;
+
+    setPending(await countQueue());
+    return { queued: true, message: QUEUED_MUTATION_MESSAGE };
+  }
 }
 
 /** A binary response plus the filename suggested by the server, if any. */
@@ -404,14 +594,20 @@ export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
  *
  * Empty strings clear an override, restoring the original job metadata.
  */
-export function updateTrack(
+export async function updateTrack(
   trackId: string,
   payload: TrackUpdate,
-): Promise<Track> {
-  return apiFetch<Track>(`/tracks/${encodeURIComponent(trackId)}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  }).then(resolveTrackCover);
+): Promise<MutationResult<Track>> {
+  const result = await apiMutation<Track>(
+    `/tracks/${encodeURIComponent(trackId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+  return result.queued
+    ? result
+    : { queued: false, data: resolveTrackCover(result.data) };
 }
 
 function listFacets(path: string, q?: string, limit = 20): Promise<FacetList> {
@@ -474,7 +670,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 export async function uploadTrackCover(
   trackId: string,
   file: File,
-): Promise<TrackCover> {
+): Promise<MutationResult<TrackCover>> {
   if (file.size > MAX_COVER_BYTES) {
     throw new ApiError(
       "La imatge supera el límit de 5 MiB.",
@@ -496,22 +692,28 @@ export async function uploadTrackCover(
   const contentType = match?.[1] ?? file.type;
   const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 
-  const cover = await apiFetch<TrackCover>(
+  const result = await apiMutation<TrackCover>(
     `/tracks/${encodeURIComponent(trackId)}/cover`,
     {
       method: "POST",
       body: JSON.stringify({ content_type: contentType, data }),
     },
   );
+  if (result.queued) return result;
   return {
-    ...cover,
-    cover_url: cover.cover_url ? resolveApiUrl(cover.cover_url) : null,
+    queued: false,
+    data: {
+      ...result.data,
+      cover_url: result.data.cover_url
+        ? resolveApiUrl(result.data.cover_url)
+        : null,
+    },
   };
 }
 
 /** `DELETE /api/tracks/{track_id}/cover` — remove the custom cover art. */
-export function deleteTrackCover(trackId: string): Promise<void> {
-  return apiFetch<void>(`/tracks/${encodeURIComponent(trackId)}/cover`, {
+export function deleteTrackCover(trackId: string): Promise<MutationResult<void>> {
+  return apiMutation<void>(`/tracks/${encodeURIComponent(trackId)}/cover`, {
     method: "DELETE",
   });
 }
@@ -580,14 +782,25 @@ export function listUserPlaylists(
   );
 }
 
-/** `POST /api/user-playlists` — create a curated playlist. */
-export function createUserPlaylist(
+/**
+ * `POST /api/user-playlists` — create a curated playlist.
+ *
+ * Online-only: the row id is created by the server, so there is no safe
+ * offline stand-in. Offline callers get a friendly `offline_unavailable`.
+ */
+export async function createUserPlaylist(
   input: UserPlaylistInput,
 ): Promise<UserPlaylist> {
-  return apiFetch<UserPlaylist>("/user-playlists", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  if (isOffline()) throw offlineUnavailable();
+  try {
+    return await apiFetch<UserPlaylist>("/user-playlists", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    if (isNetworkError(error)) throw offlineUnavailable();
+    throw error;
+  }
 }
 
 /** `GET /api/user-playlists/{playlist_id}` — playlist plus ordered tracks. */
@@ -603,16 +816,18 @@ export function getUserPlaylist(
 export function updateUserPlaylist(
   playlistId: string,
   input: Partial<UserPlaylistInput>,
-): Promise<UserPlaylist> {
-  return apiFetch<UserPlaylist>(
+): Promise<MutationResult<UserPlaylist>> {
+  return apiMutation<UserPlaylist>(
     `/user-playlists/${encodeURIComponent(playlistId)}`,
     { method: "PATCH", body: JSON.stringify(input) },
   );
 }
 
 /** `DELETE /api/user-playlists/{playlist_id}` — remove a curated playlist. */
-export function deleteUserPlaylist(playlistId: string): Promise<void> {
-  return apiFetch<void>(`/user-playlists/${encodeURIComponent(playlistId)}`, {
+export function deleteUserPlaylist(
+  playlistId: string,
+): Promise<MutationResult<void>> {
+  return apiMutation<void>(`/user-playlists/${encodeURIComponent(playlistId)}`, {
     method: "DELETE",
   });
 }
@@ -623,36 +838,42 @@ export function deleteUserPlaylist(playlistId: string): Promise<void> {
  * Idempotent: adding a track that is already in the playlist returns the
  * unchanged detail instead of creating a duplicate.
  */
-export function addUserPlaylistTrack(
+export async function addUserPlaylistTrack(
   playlistId: string,
   trackId: string,
-): Promise<UserPlaylistDetail> {
-  return apiFetch<UserPlaylistDetail>(
+): Promise<MutationResult<UserPlaylistDetail>> {
+  const result = await apiMutation<UserPlaylistDetail>(
     `/user-playlists/${encodeURIComponent(playlistId)}/tracks`,
     { method: "POST", body: JSON.stringify({ track_id: trackId }) },
-  ).then(resolveUserPlaylistDetail);
+  );
+  return result.queued
+    ? result
+    : { queued: false, data: resolveUserPlaylistDetail(result.data) };
 }
 
 /** `DELETE /api/user-playlists/{playlist_id}/tracks/{track_id}` */
 export function removeUserPlaylistTrack(
   playlistId: string,
   trackId: string,
-): Promise<void> {
-  return apiFetch<void>(
+): Promise<MutationResult<void>> {
+  return apiMutation<void>(
     `/user-playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}`,
     { method: "DELETE" },
   );
 }
 
 /** `PUT /api/user-playlists/{playlist_id}/tracks/order` — persist order. */
-export function reorderUserPlaylistTracks(
+export async function reorderUserPlaylistTracks(
   playlistId: string,
   trackIds: string[],
-): Promise<UserPlaylistDetail> {
-  return apiFetch<UserPlaylistDetail>(
+): Promise<MutationResult<UserPlaylistDetail>> {
+  const result = await apiMutation<UserPlaylistDetail>(
     `/user-playlists/${encodeURIComponent(playlistId)}/tracks/order`,
     { method: "PUT", body: JSON.stringify({ track_ids: trackIds }) },
-  ).then(resolveUserPlaylistDetail);
+  );
+  return result.queued
+    ? result
+    : { queued: false, data: resolveUserPlaylistDetail(result.data) };
 }
 
 /** `POST /api/media/{asset_id}/token` — mint a short-lived signed URL. */

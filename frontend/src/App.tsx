@@ -11,6 +11,7 @@ import { DownloadsProvider } from "./downloads/DownloadsProvider";
 import { PlayerProvider } from "./player/PlayerProvider";
 import PlayerBar from "./components/PlayerBar";
 import TopAppBar from "./components/TopAppBar";
+import OfflineBanner from "./components/OfflineBanner";
 import NavigationDrawer from "./components/NavigationDrawer";
 import NavigationRail from "./components/NavigationRail";
 import NavigationBar from "./components/NavigationBar";
@@ -36,6 +37,7 @@ function AppShell() {
           <NavigationRail />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopAppBar />
+            <OfflineBanner />
             <main className="min-h-0 flex-1 overflow-y-auto">
               <Outlet />
             </main>
