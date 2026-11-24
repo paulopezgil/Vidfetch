@@ -5,8 +5,9 @@ Usage:
     DATABASE_URL=postgresql://... python3 scripts/promote_admin.py \
         --email you@example.com
 
-The user must have signed in with Google at least once so that the
-``auth.users`` trigger has created their ``public.profiles`` row.
+The account must already exist in the application ``profiles`` table. Create it
+with ``scripts/create_admin.py`` (or the backend's ``create_admin`` module) and
+then use this script to approve/promote an existing local account.
 
 This script is intentionally separate from the application runtime. It never
 prints the database URL or any token.
@@ -14,12 +15,11 @@ prints the database URL or any token.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import re
 import sys
 
-import asyncpg
+import psycopg
 
 _SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _RESERVED = {
@@ -29,6 +29,8 @@ _RESERVED = {
     "graphql",
     "graphql_public",
     "information_schema",
+    "pg_catalog",
+    "pg_toast",
     "realtime",
     "vault",
 }
@@ -39,7 +41,6 @@ def application_schema() -> str:
     if (
         not _SCHEMA_RE.fullmatch(schema)
         or schema.startswith("pg_")
-        or schema.startswith("supabase_")
         or schema in _RESERVED
     ):
         raise SystemExit(
@@ -48,50 +49,51 @@ def application_schema() -> str:
     return schema
 
 
-async def promote(email: str) -> int:
-    database_url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL")
+def promote(email: str) -> int:
+    database_url = os.getenv("DATABASE_URL")
     if not database_url:
         print(
-            "DATABASE_URL (or SUPABASE_DB_URL) is not set.",
+            "DATABASE_URL is not set.",
             file=sys.stderr,
         )
         return 2
 
     schema = application_schema()
-    connection = await asyncpg.connect(database_url)
-    try:
-        row = await connection.fetchrow(
+    with psycopg.connect(database_url) as connection:
+        row = connection.execute(
             f"""
             update "{schema}".profiles
                set is_approved = true,
                    app_role = 'admin',
                    approved_at = now(),
                    approved_by = id
-             where lower(email) = lower($1)
+             where lower(email) = lower(%s)
          returning id, email
             """,
-            email.strip(),
-        )
-    finally:
-        await connection.close()
+            (email.strip(),),
+        ).fetchone()
 
     if row is None:
         print(
-            f"No profile found for {email!r}. Sign in with Google first, then "
-            "run this command again.",
+            f"No profile found for {email!r}. Create the account first with "
+            "scripts/create_admin.py, then run this command again.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"Promoted {row['email']} ({row['id']}) to approved administrator.")
+    print(f"Promoted {row[1]} ({row[0]}) to approved administrator.")
     return 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--email", required=True, help="Google account email")
-    args = parser.parse_args()
-    return asyncio.run(promote(args.email))
+    parser.add_argument("--email", required=True, help="Account email")
+    args = parser.parse_args(argv)
+    try:
+        return promote(args.email)
+    except (OSError, psycopg.Error) as exc:
+        print(f"Promotion failed: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

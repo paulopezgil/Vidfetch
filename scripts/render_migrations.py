@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Vidfetch Supabase migration templates for a configured schema.
+"""Render the Vidfetch PostgreSQL migration templates for a configured schema.
 
 The templates in ``db/templates`` contain a single ``{{schema}}``
 placeholder. Rendering with the default ``public`` schema reproduces the
@@ -37,7 +37,7 @@ RESERVED_SCHEMAS = frozenset(
         "vault",
     }
 )
-RESERVED_PREFIXES = ("pg_", "supabase_")
+RESERVED_PREFIXES = ("pg_",)
 PLACEHOLDER = "{{schema}}"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATES_DIR = REPO_ROOT / "db" / "templates"
@@ -48,8 +48,8 @@ def validate_schema(raw: str) -> str:
     """Validate a schema name using the same contract as the backend.
 
     The name must be a lowercase PostgreSQL identifier no longer than 63
-    characters. Supabase-managed schemas and ``pg_*`` internals are rejected so
-    a misconfigured deployment cannot overwrite platform objects.
+    characters. ``pg_*`` internals and platform-owned schemas are rejected so
+    a misconfigured deployment cannot overwrite system objects.
     """
     schema = (raw or "").strip()
     if not SCHEMA_PATTERN.fullmatch(schema):
@@ -59,7 +59,7 @@ def validate_schema(raw: str) -> str:
     if schema in RESERVED_SCHEMAS or schema.startswith(RESERVED_PREFIXES):
         raise ValueError(
             f"Invalid DB_SCHEMA {schema!r}: this schema is managed by Postgres "
-            "or Supabase and cannot host application tables."
+            "and cannot host application tables."
         )
     return schema
 
@@ -133,7 +133,7 @@ def resolve_schema(cli_schema: str | None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Render Vidfetch Supabase migrations for a configured schema."
+        description="Render Vidfetch PostgreSQL migrations for a configured schema."
     )
     parser.add_argument(
         "--schema",

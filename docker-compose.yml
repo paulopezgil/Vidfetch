@@ -4,44 +4,105 @@ name: vidfetch
 #
 #   docker compose up --build
 #
-# Starts the Vite frontend, the FastAPI backend, and the official Supabase CLI
-# local stack (Postgres, Auth, Studio, etc.). No Supabase Cloud account is
-# required for local development.
+# Starts the Vite frontend, the FastAPI backend, and a bundled PostgreSQL 16
+# database. Everything runs from this repository: there is no external
+# database project, CLI wrapper, or second Docker stack involved.
 #
-# Supabase Cloud is only used in production: the Vercel frontend and the VPS
-# backend point at the same hosted project through environment variables.
+# Local accounts are stored in Postgres (`profiles` + `auth_sessions`). The
+# `bootstrap` service creates the development administrator once the migrations
+# have run; its credentials are public, disposable values.
+#
+# For a backend-only deployment see `docker-compose.backend.yml`, which is the
+# canonical production Compose file.
 
 services:
   # -------------------------------------------------------------------------
-  # Local Supabase
+  # PostgreSQL
   #
-  # The CLI starts the official local Supabase containers through the mounted
-  # Docker socket. Host networking lets the CLI's own health checks reach the
-  # host-published Postgres/Auth ports (127.0.0.1:54322 and :54321).
+  # No host port is published on purpose: the backend reaches the database over
+  # the Compose network, and a fixed host port is a common source of "port is
+  # already allocated" failures. `docker compose exec db psql ...` works for
+  # debugging.
   # -------------------------------------------------------------------------
-  supabase:
-    build:
-      context: ./docker/supabase
-    container_name: vidfetch-supabase
-    network_mode: host
-    working_dir: ${PWD}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${PWD}:${PWD}
+  db:
+    image: postgres:16-alpine
+    container_name: vidfetch-db
     environment:
-      # The local config enables the Google provider, so the CLI needs these
-      # values. Local email/password auth does not use them.
-      SUPABASE_AUTH_GOOGLE_CLIENT_ID: ${SUPABASE_AUTH_GOOGLE_CLIENT_ID:-local-placeholder}
-      SUPABASE_AUTH_GOOGLE_SECRET: ${SUPABASE_AUTH_GOOGLE_SECRET:-local-placeholder}
+      POSTGRES_DB: vidfetch
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # Wait for the Auth service, not just the CLI process: the CLI can report
-      # a healthy wrapper before the local services are fully ready.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:54321/auth/v1/health >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
-      timeout: 10s
-      retries: 60
-      start_period: 30s
-    stop_grace_period: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # One-shot migration runner
+  #
+  # Applies every `db/migrations/*.sql` file in filename order inside its own
+  # transaction. For a custom schema, render the migrations first:
+  #
+  #   DB_SCHEMA=vidfetch python3 scripts/render_migrations.py
+  #
+  # then set DB_SCHEMA=vidfetch for the backend.
+  # -------------------------------------------------------------------------
+  migrate:
+    image: postgres:16-alpine
+    container_name: vidfetch-migrate
+    environment:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vidfetch
+    volumes:
+      - ./db/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        for path in $$(ls /migrations/*.sql | sort); do
+          echo "applying $${path}"
+          psql "$${DATABASE_URL}" -v ON_ERROR_STOP=1 -1 -f "$${path}"
+        done
+        echo "migrations complete"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Local administrator bootstrap
+  #
+  # Creates admin@local.test / password123 as an approved administrator through
+  # the backend CLI. Development convenience only: `docker-compose.backend.yml`
+  # never runs it by default.
+  # -------------------------------------------------------------------------
+  bootstrap:
+    build:
+      context: ./backend
+    container_name: vidfetch-bootstrap
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vidfetch
+      DB_SCHEMA: public
+      LOCAL_ADMIN_EMAIL: admin@local.test
+      LOCAL_ADMIN_PASSWORD: password123
+    command:
+      - python
+      - -m
+      - backend.app.cli.create_admin
+      - --email
+      - ${LOCAL_ADMIN_EMAIL:-admin@local.test}
+      - --password
+      - ${LOCAL_ADMIN_PASSWORD:-password123}
+      - --admin
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: "no"
 
   # -------------------------------------------------------------------------
@@ -54,16 +115,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Local Supabase CLI defaults. These are fixed local-development values,
-      # not production secrets.
-      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:54322/postgres
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vidfetch
       DB_SCHEMA: public
-      SUPABASE_URL: http://host.docker.internal:54321
-      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
-      SUPABASE_JWKS_URL: http://host.docker.internal:54321/auth/v1/.well-known/jwks.json
-      SUPABASE_JWT_ISSUER: http://127.0.0.1:54321/auth/v1
-      SUPABASE_JWT_AUDIENCE: authenticated
+      # Local-development signing key, not a production secret.
       MEDIA_TOKEN_SECRET: local-dev-media-token-secret
       PUBLIC_API_URL: http://localhost:8000
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
@@ -73,11 +127,11 @@ services:
       ALLOW_PRIVATE_URLS: "false"
     volumes:
       - vidfetch_downloads:/app/downloads
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
-      supabase:
+      db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
       interval: 10s
@@ -85,9 +139,13 @@ services:
       retries: 20
       start_period: 20s
     restart: unless-stopped
+    stop_grace_period: 30s
 
   # -------------------------------------------------------------------------
   # Frontend (Vite dev server for HMR)
+  #
+  # The frontend authenticates against the FastAPI backend only; it never talks
+  # to the database and needs no provider keys.
   # -------------------------------------------------------------------------
   frontend:
     build:
@@ -96,10 +154,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_SUPABASE_URL: http://127.0.0.1:54321
-      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
       VITE_API_BASE: http://localhost:8000/api
-      VITE_ENABLE_LOCAL_AUTH: "true"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -108,29 +163,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # -------------------------------------------------------------------------
-  # Local administrator bootstrap
-  #
-  # Creates admin@local.test / password123 and approves the profile. This is a
-  # development convenience only; it is never part of the production stack.
-  # -------------------------------------------------------------------------
-  local-bootstrap:
-    build:
-      context: ./docker/local-bootstrap
-    container_name: vidfetch-local-bootstrap
-    environment:
-      SUPABASE_URL: http://host.docker.internal:54321
-      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
-      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:54322/postgres
-      DB_SCHEMA: public
-      LOCAL_ADMIN_EMAIL: admin@local.test
-      LOCAL_ADMIN_PASSWORD: password123
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      supabase:
-        condition: service_healthy
-    restart: "no"
-
 volumes:
+  pgdata:
   vidfetch_downloads:
