@@ -782,7 +782,6 @@ Admin mutations are audited in `admin_audit_log`.
 | `/library` | Approved | Ready media |
 | `/playlists/:id` | Approved, owner | Playlist detail and ZIP |
 | `/history` | Approved | Job history |
-| `/settings` | Approved | Account and app info |
 | `/admin` | Admin | Admin overview |
 | `/admin/users` | Admin | User approval/role management |
 
@@ -1078,7 +1077,7 @@ database:
 | Disk-space guard | Keep | `MIN_FREE_DISK_MB` |
 | Secret redaction | Keep | Required for errors/logs |
 | PWA installability | Keep | Verify after auth routes |
-| Settings/health | Keep | Extend health with DB/auth/storage |
+| Settings/health | Drop | No user-facing config screen; `/api/health` remains |
 | Anonymous single-user mode | Drop | Replaced by authenticated approved users |
 | SQLite persistence | Replace | Supabase Postgres |
 
