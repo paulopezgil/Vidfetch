@@ -24,7 +24,13 @@ import type {
   UserPlaylistList,
 } from "../types/v2";
 import { supabase, supabaseConfigError } from "./supabase";
-import { countQueue, enqueue, readCache, writeCache } from "../offline/db";
+import {
+  MAX_QUEUED_MUTATIONS,
+  countQueue,
+  enqueue,
+  readCache,
+  writeCache,
+} from "../offline/db";
 import {
   QUEUED_MUTATION_MESSAGE,
   isOffline,
@@ -333,12 +339,18 @@ export type MutationResult<T> =
  */
 const MAX_QUEUED_BODY_CHARS = 8 * 1024 * 1024;
 
+/** Shown when the offline mutation queue already holds its maximum entries. */
+export const OFFLINE_QUEUE_FULL_MESSAGE =
+  "La cua sense connexió és plena (200 canvis). Connecta’t per sincronitzar els canvis abans d’afegir-ne més.";
+
 /**
  * Run a mutation, storing it in the offline queue when the network is down.
  *
  * Only transport failures are queued: HTTP errors are real answers from the
  * server and are rethrown untouched. When IndexedDB refuses the entry the
  * original network error is rethrown instead of pretending the change is safe.
+ * A full queue is rejected with an explicit `ApiError`, never by dropping the
+ * new mutation silently.
  */
 export async function apiMutation<T>(
   path: string,
@@ -354,6 +366,16 @@ export async function apiMutation<T>(
     const rawBody = init.body;
     if (rawBody != null && typeof rawBody !== "string") throw error;
     if (rawBody != null && rawBody.length > MAX_QUEUED_BODY_CHARS) throw error;
+
+    const pending = await countQueue();
+    setPending(pending);
+    if (pending >= MAX_QUEUED_MUTATIONS) {
+      throw new ApiError(
+        OFFLINE_QUEUE_FULL_MESSAGE,
+        0,
+        "offline_queue_full",
+      );
+    }
 
     const entry = await enqueue({
       path,

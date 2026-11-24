@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from "react";
 import { getMediaToken } from "../lib/api";
 import {
-  deleteMediaEntry,
   listMediaEntries,
   putMediaEntry,
   readMediaEntry,
   type OfflineMediaEntry,
 } from "./db";
+import { requestPersistentStorageOnce } from "./storage";
 
 /**
  * Local media cache.
@@ -31,6 +31,26 @@ const STORAGE_UNAVAILABLE =
   "Aquest navegador no permet desar mitjans per a escoltar sense connexió.";
 
 const SAVE_FAILED = "No s’ha pogut desar el fitxer per a escoltar sense connexió.";
+
+/**
+ * Shown when the browser refuses a media copy for lack of space.
+ *
+ * The cloud copy stays untouched: only the local transfer is abandoned.
+ */
+export const QUOTA_EXCEEDED_MESSAGE =
+  "No hi ha prou espai al dispositiu per desar aquesta cançó sense connexió.";
+
+/** Normalize the different quota error shapes across browsers. */
+function isQuotaError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const name = "name" in error ? String(error.name) : "";
+  const message = "message" in error ? String(error.message) : "";
+  return (
+    name === "QuotaExceededError" ||
+    name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    /quota/i.test(message)
+  );
+}
 
 const AUDIO_EXTENSIONS = new Set([
   "mp3",
@@ -121,16 +141,6 @@ function adoptEntry(entry: OfflineMediaEntry): void {
     saved,
     count: saved.size,
     bytes: status.bytes + Math.max(0, entry.size || 0),
-  });
-}
-
-function forgetEntry(assetId: string, size: number): void {
-  const saved = new Set(status.saved);
-  saved.delete(assetId);
-  update({
-    saved,
-    count: saved.size,
-    bytes: Math.max(0, status.bytes - Math.max(0, size || 0)),
   });
 }
 
@@ -270,8 +280,36 @@ function pump(): void {
   }
 }
 
+/**
+ * Delete a Cache Storage entry that was written only partially.
+ *
+ * Internal rollback only: there is no user-facing path that removes a saved
+ * song. The IndexedDB metadata row is written only after a complete cache
+ * write, so it is left untouched; this keeps a copy saved by another tab safe.
+ */
+async function rollbackMediaCopy(assetId: string): Promise<void> {
+  // A complete copy may have been indexed by another tab in the meantime;
+  // never discard a saved song just because this transfer failed.
+  const saved = await readMediaEntry(assetId);
+  if (saved) {
+    adoptEntry(saved);
+    return;
+  }
+
+  try {
+    if (typeof caches !== "undefined") {
+      const cache = await caches.open(MEDIA_CACHE_NAME);
+      await cache.delete(offlineMediaKey(assetId));
+    }
+  } catch {
+    // The entry may never have been written; nothing else to clean up.
+  }
+}
+
 async function transfer(task: SaveTask): Promise<boolean> {
   const { assetId } = task;
+  let cacheAttempted = false;
+
   try {
     const token = await getMediaToken(assetId);
     if (!token?.url) throw new Error(SAVE_FAILED);
@@ -287,6 +325,7 @@ async function transfer(task: SaveTask): Promise<boolean> {
 
     const mime = blob.type || "audio/mpeg";
     const cache = await caches.open(MEDIA_CACHE_NAME);
+    cacheAttempted = true;
     await cache.put(
       offlineMediaKey(assetId),
       new Response(blob, {
@@ -306,18 +345,26 @@ async function transfer(task: SaveTask): Promise<boolean> {
     const stored = await putMediaEntry(entry);
     if (!stored) {
       // Keep the two stores consistent: no metadata means no copy.
-      await cache.delete(offlineMediaKey(assetId));
       throw new Error(STORAGE_UNAVAILABLE);
     }
 
     adoptEntry(entry);
     clearError(assetId);
+    // First successful copy: ask the browser to keep it across eviction.
+    void requestPersistentStorageOnce();
     return true;
   } catch (error) {
+    const quota = isQuotaError(error);
+    if (cacheAttempted || quota) {
+      // A quota failure can leave a partial Cache Storage entry behind.
+      await rollbackMediaCopy(assetId);
+    }
     const message =
-      error instanceof Error && error.message
-        ? error.message
-        : SAVE_FAILED;
+      quota
+        ? QUOTA_EXCEEDED_MESSAGE
+        : error instanceof Error && error.message
+          ? error.message
+          : SAVE_FAILED;
     recordError(assetId, message);
     return false;
   } finally {
@@ -364,31 +411,4 @@ export function saveOfflineMedia(assetId: string): Promise<boolean> {
     () => inFlight.delete(assetId),
   );
   return promise;
-}
-
-/** Remove an asset's local copy. Resolves `false` when nothing was removed. */
-export async function removeOfflineMedia(assetId: string): Promise<boolean> {
-  if (!assetId) return false;
-
-  // Let a transfer already in progress finish first, so it cannot re-add the
-  // cache entry just after the user asked to free the space.
-  const running = inFlight.get(assetId);
-  if (running) await running;
-
-  let removed = false;
-  try {
-    if (typeof caches !== "undefined") {
-      const cache = await caches.open(MEDIA_CACHE_NAME);
-      removed = await cache.delete(offlineMediaKey(assetId));
-    }
-  } catch {
-    removed = false;
-  }
-
-  const entry = await readMediaEntry(assetId);
-  const deleted = await deleteMediaEntry(assetId);
-  if (entry) forgetEntry(assetId, entry.size);
-  else if (status.saved.has(assetId)) forgetEntry(assetId, 0);
-  clearError(assetId);
-  return removed || deleted;
 }

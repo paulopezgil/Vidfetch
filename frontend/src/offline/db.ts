@@ -59,6 +59,15 @@ export const QUEUE_STORE = "queue";
 /** Object store for offline media metadata. */
 export const MEDIA_STORE = "media";
 
+/**
+ * Hard cap on mutations stored while offline.
+ *
+ * The queue is replayed FIFO, so an unbounded queue would delay the newest
+ * edits indefinitely. At the cap the caller must reconnect instead of
+ * silently dropping a change.
+ */
+export const MAX_QUEUED_MUTATIONS = 200;
+
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
 /**
@@ -245,6 +254,10 @@ export function clearCachedResponses(prefixes: string[]): Promise<boolean> {
 export async function enqueue(
   request: NewQueuedRequest,
 ): Promise<QueuedRequest | null> {
+  // Hard cap: callers show their own ApiError before reaching this point, but
+  // the store itself never grows past the limit.
+  if ((await countQueue()) >= MAX_QUEUED_MUTATIONS) return null;
+
   const entry: QueuedRequest = {
     id: createId(),
     path: request.path,

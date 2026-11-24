@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import IconButton from "./IconButton";
 import Icon from "./Icon";
 
@@ -25,8 +25,14 @@ export default function MediaPreviewDialog({
   src,
   onClose,
 }: MediaPreviewDialogProps) {
+  const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +40,8 @@ export default function MediaPreviewDialog({
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        event.preventDefault();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -53,31 +60,35 @@ export default function MediaPreviewDialog({
     }
 
     window.addEventListener("keydown", onKey);
-    dialogRef.current?.focus();
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
     return () => {
       window.removeEventListener("keydown", onKey);
       restoreRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/32 p-4"
+      role="presentation"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
     >
       <div
         ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         tabIndex={-1}
         className="flex w-full max-w-3xl flex-col rounded-xl bg-surface-container-high text-on-surface shadow-elevation-3 focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2 p-4 pb-2 sm:p-6 sm:pb-3">
-          <h2 className="min-w-0 flex-1 text-title-large text-on-surface">
+          <h2
+            id={titleId}
+            className="min-w-0 flex-1 text-title-large text-on-surface"
+          >
             {title}
           </h2>
           <IconButton label="Tanca" onClick={onClose}>

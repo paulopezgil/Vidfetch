@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useLocation } from "react-router-dom";
 import {
   getActivePlaylistTitle,
@@ -7,11 +7,13 @@ import {
 } from "../navigation";
 import { formatBytes } from "../lib";
 import Icon from "./Icon";
+import StorageDialog from "./StorageDialog";
 import { useOfflineMedia } from "../offline/media";
 
 /** Material 3 top app bar. */
 export default function TopAppBar() {
   const { pathname } = useLocation();
+  const [storageOpen, setStorageOpen] = useState(false);
   const playlistTitle = useSyncExternalStore(
     subscribeActivePlaylistTitle,
     getActivePlaylistTitle,
@@ -29,17 +31,25 @@ export default function TopAppBar() {
         {titleForPath(pathname, playlistTitle)}
       </h1>
       {offline.count > 0 ? (
-        <span
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={storageOpen}
+          aria-label={`${offlineLabel}. Obre l’emmagatzematge sense connexió.`}
           title={offlineLabel}
-          aria-label={offlineLabel}
-          className="flex shrink-0 items-center gap-1 rounded-full bg-surface-container-high px-2.5 py-1 text-label-medium text-on-surface-variant"
+          onClick={() => setStorageOpen(true)}
+          className="flex h-10 shrink-0 items-center gap-1 rounded-full bg-surface-container-high px-3 text-label-medium text-on-surface-variant transition-colors hover:bg-surface-container-highest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
-          <Icon name="offline_pin" className="text-[16px]" />
+          <Icon name="storage" className="text-[16px]" />
           <span className="tabular-nums">{offline.count}</span>
           <span aria-hidden="true">·</span>
           <span className="tabular-nums">{formatBytes(offline.bytes)}</span>
-        </span>
+        </button>
       ) : null}
+      <StorageDialog
+        open={storageOpen}
+        onClose={() => setStorageOpen(false)}
+      />
     </header>
   );
 }
