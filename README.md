@@ -3,16 +3,16 @@
 **A self-hosted web app that makes [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
 usable by real people.**
 
-Vidfetch gives you a browser interface for downloading videos and playlists,
-with Google sign-in, administrator approval, a personal library, and a shared
-cache that stops the same file being downloaded twice.
-
-It is built around two deployment modes:
+Vidfetch gives you a browser interface for importing videos and playlists into a
+personal music library: tracks, curated playlists, artists and albums, a
+persistent player, and an offline mode. Media files are cached once on the
+server and shared, so the same video is never downloaded twice.
 
 - **Local:** one `docker compose up` starts the Vite frontend, the FastAPI
-  backend, and a complete local Supabase stack. No cloud account is required.
-- **Production:** the frontend runs on **Vercel**, the backend runs as a
-  container on a **VPS**, and both use **Supabase Cloud**.
+  backend, and a PostgreSQL database. No cloud account is required.
+- **Production:** the frontend is a static build on any static host (Vercel is
+  the reference setup), and the backend runs as a container with its own
+  PostgreSQL database, either bundled in Compose or external.
 
 > ⚠️ **Use it responsibly.** Vidfetch is only a frontend for `yt-dlp`. Download
 > content you are authorized to download, and follow the laws and terms of
@@ -23,10 +23,28 @@ It is built around two deployment modes:
 | Goal | Start here | What you need |
 | --- | --- | --- |
 | Try it locally / develop | [Quick start — local](#quick-start--local) | Docker + Compose only |
-| Run it for real | [Production deployment](#production-deployment) | Supabase Cloud, Vercel, a VPS, Google OAuth |
+| Run it for real | [Production deployment](#production-deployment) | A backend host with Docker, PostgreSQL, and a static frontend host |
 
 Both modes use the same frontend, backend, database schema, migrations, and API.
-Only the packaging and hosting differ.
+Only packaging and hosting differ.
+
+---
+
+## Technologies
+
+| Layer | Technology | Role |
+| --- | --- | --- |
+| **Frontend** | React 18, Vite, TypeScript, React Router | SPA shell, routes, type-safe UI |
+| **UI system** | Tailwind CSS, Material Design 3 roles, Material Symbols | Themeable, accessible components (light/dark/system) |
+| **Offline** | IndexedDB, Cache Storage, service worker | Cached library metadata, queued edits, saved media, offline app shell |
+| **Backend** | FastAPI, Python 3.11, Uvicorn | JSON API, authentication, media streaming |
+| **Database access** | psycopg 3 + `psycopg_pool`, SQL in a service/repository layer | Direct PostgreSQL access with pooled connections |
+| **Authentication** | Argon2id password hashes, opaque bearer sessions stored as SHA-256 hashes | Local email/password login, approval, roles, revocation |
+| **Media engine** | `yt-dlp`, FFmpeg, Node.js runtime | Metadata, downloads, merging, MP3 conversion |
+| **Media delivery** | Shared filesystem cache, short-lived HMAC-signed URLs | Cross-user dedupe without exposing stored files |
+| **Database** | PostgreSQL 16, SQL migrations in `db/` | Application data and durable job queue |
+| **Packaging** | Docker Compose | Local stack and backend-only production stack |
+| **Testing** | pytest, real-PostgreSQL integration tests, Vite build | Backend behavior and frontend type/build checks |
 
 ---
 
@@ -53,17 +71,18 @@ Only the packaging and hosting differ.
 - **Docker** and **Docker Compose** v2+
 - That is it for the default local stack.
 
-You do **not** need a Supabase Cloud project, the Supabase CLI installed on the
-host, Python, Node.js, FFmpeg, or Google OAuth credentials to run the local app.
+Python, Node.js, `yt-dlp`, FFmpeg, and PostgreSQL run inside the containers. You
+do not need a hosted database or an OAuth account.
+
 The local Compose stack provides:
 
 | Service | Purpose | Address |
 | --- | --- | --- |
 | `frontend` | Vite dev server with hot reload | <http://localhost:5173> |
 | `backend` | FastAPI + `yt-dlp` + FFmpeg + worker | <http://localhost:8000> |
-| `supabase` | Official Supabase CLI local stack | API `:54321`, DB `:54322` |
-| `local-bootstrap` | Creates and approves a local admin | one-shot container |
-| Studio | Supabase web UI | <http://localhost:54323> |
+| `db` | PostgreSQL 16 (no host port by default) | Compose network |
+| `migrate` | One-shot migration runner (`db/migrations`) | exits after applying |
+| `bootstrap` | Creates the local approved admin | one-shot container |
 
 ### Start everything
 
@@ -73,52 +92,46 @@ From the repository root:
 docker compose up --build
 ```
 
-The first run builds the images and starts the Supabase stack, so it can take a
-few minutes. On later runs it is much faster.
+The first run builds the backend and frontend images and initializes the
+database. Later runs are faster.
 
-Open **<http://localhost:5173>**.
-
-Sign in with the local development account:
+Open **<http://localhost:5173>** and sign in with the development administrator:
 
 ```text
 email:    admin@local.test
 password: password123
 ```
 
-The local login form is enabled only when `VITE_ENABLE_LOCAL_AUTH=true`, which
-the local Compose file sets. Production builds leave it unset and use Google
-OAuth only.
+Create additional accounts from the login screen; they start unapproved and land
+on `/pending` until an administrator approves them at `/admin`.
 
 ### Local tips
 
-- **Supabase Studio:** <http://localhost:54323>
-- **Local mail catcher:** <http://localhost:54324>
 - **Backend health:** <http://localhost:8000/api/health>
+- **Logs:** `docker compose logs -f backend`
 - **Stop everything:** `docker compose down`
 - **Rebuild after dependency changes:** `docker compose up --build`
-- **Reset the local database:** while the stack is running:
+- **Apply new migrations without recreating containers:**
   ```bash
-  docker compose exec supabase supabase db reset
+  docker compose run --rm migrate
   ```
-  Then restart the local bootstrap if needed:
+- **Reset the database and media cache:** `docker compose down -v` (deletes the
+  PostgreSQL and downloads volumes), then `docker compose up --build`.
+- **Recreate the development admin:**
   ```bash
-  docker compose up local-bootstrap
+  docker compose run --rm bootstrap
   ```
-- If ports `5173`, `8000`, `54321`, `54322`, or `54323` are already in use,
-  stop the competing service first.
 - Docker may require `sudo` on Linux depending on how it is installed.
 
 ### What the local stack is doing
 
-The local `supabase` service runs the official Supabase CLI inside a small
-container. It uses the mounted Docker socket to start the official local
-Supabase containers, and host networking so the CLI’s health checks can reach
-the host-published Postgres and Auth ports. The repository is mounted at the
-same absolute path inside and outside the wrapper so Docker path references stay
-valid.
+`db` stores profiles, sessions, jobs, the media cache registry, tracks, and
+playlists. `migrate` applies the SQL files in `db/migrations` in filename order,
+one transaction per file. `bootstrap` calls the admin CLI to create or update
+`admin@local.test` as an approved administrator. `backend` serves the API and
+runs the download worker; `frontend` is the Vite dev server.
 
-`docker compose down` stops the wrapper, and the wrapper’s signal handler runs
-`supabase stop --no-backup` to clean up the local Supabase containers.
+There is no external authentication provider and no second database stack.
 
 ---
 
@@ -127,128 +140,106 @@ valid.
 Production is decoupled:
 
 ```text
-Vercel frontend  ──HTTPS + JWT──►  VPS backend container  ──►  Supabase Cloud
-      │                                                           │
-      └──────────────── Google OAuth ─────────────────────────────┘
+Browser
+  ├── static frontend (Vercel or any static host)
+  ├── backend container (home server / VPS)  ──►  PostgreSQL
+  └── signed media URLs from the backend origin
 ```
 
-### 1. Supabase Cloud
+The backend owns downloads, media files, authentication, and the database. The
+frontend is a static build and never receives database credentials.
 
-1. Create a project at <https://supabase.com>.
-2. Enable **Authentication → Providers → Google** and add your Google OAuth
-   client ID and secret.
-3. In the Google Cloud OAuth client, authorize:
-   `https://<project-ref>.supabase.co/auth/v1/callback`
-4. In Supabase **Authentication → URL Configuration**, set:
-   - Site URL: `https://your-app.vercel.app`
-   - Redirect URLs: `https://your-app.vercel.app` and
-     `http://localhost:5173`
-5. Apply the migrations. Choose **one** schema per database:
-   - **Default `public`**:
-     ```bash
-     npx supabase login
-     npx supabase link --project-ref <project-ref>
-     npx supabase db push
-     ```
-   - **Dedicated `vidfetch`**: render and apply the migrations instead of using
-     `db push`. Full instructions in
-     [Database schema → dedicated schema](#dedicated-schema-vidfetch).
-6. In **Project Settings → API → Data API**, disable the Data API, keep
-   “Grant API access to new tables automatically” **off**, and keep
-   “Enable RLS on new tables automatically” **on**. Do **not** expose `vidfetch`
-   in the Data API; the backend connects directly to Postgres.
+### 1. Backend host
 
-For a dedicated schema such as `vidfetch`, `DB_SCHEMA=vidfetch` is the only
-backend switch; the schema and tables are created by the rendered migrations.
-See [Database schema](#database-schema).
+Use `docker-compose.backend.yml`, which bundles PostgreSQL 16, a migration
+runner, the API/worker, and an optional first-admin profile.
 
-### 2. Frontend on Vercel
+```bash
+git clone https://github.com/paulopezgil/Vidfetch.git
+cd Vidfetch
+cp .env.example .env
+```
 
-Create a Vercel project with:
+Fill `.env`:
+
+```dotenv
+# PostgreSQL container
+POSTGRES_PASSWORD=replace-with-a-long-random-password
+
+# Backend
+DB_SCHEMA=public
+MEDIA_TOKEN_SECRET=replace-with-a-long-random-secret
+AUTH_SESSION_TTL_SECONDS=2592000
+PUBLIC_API_URL=https://api.example.com
+CORS_ORIGINS=https://app.example.com
+DOWNLOAD_DIR=/app/downloads
+MIN_FREE_DISK_MB=500
+ALLOW_PRIVATE_URLS=false
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+```
+
+Start it:
+
+```bash
+docker compose -f docker-compose.backend.yml up -d --build
+curl -s https://api.example.com/api/health
+```
+
+Put a TLS reverse proxy (Caddy/nginx) in front of port `8000`. `PUBLIC_API_URL`
+must be the public HTTPS backend origin; signed media URLs are built from it.
+`CORS_ORIGINS` must exactly match the frontend origin.
+
+Create the first administrator explicitly — no default account is created:
+
+```bash
+BOOTSTRAP_ADMIN_EMAIL=you@example.com \
+BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' \
+docker compose -f docker-compose.backend.yml --profile bootstrap run --rm bootstrap
+```
+
+The bundled stack runs migrations automatically before the backend. To use an
+**external PostgreSQL** instead, point the backend `DATABASE_URL` at it, apply
+`db/migrations` with `scripts/apply_migrations.py`, and disable/override the
+bundled `db` and `migrate` services.
+
+### 2. Frontend
+
+Build `frontend/` as a static Vite app and host it anywhere. On Vercel:
 
 - **Root Directory:** `frontend`
-- **Framework:** Vite (auto-detected; `frontend/vercel.json` is included)
+- **Framework:** Vite
 - **Build command:** `npm run build`
 - **Output directory:** `dist`
 
-Set these environment variables in Vercel:
+Environment variable:
 
 ```dotenv
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_API_BASE=https://api.example.com/api
 ```
 
-Do **not** set `VITE_ENABLE_LOCAL_AUTH` in production. Do **not** put the
-service-role key or `DATABASE_URL` in Vercel.
+That is the only frontend setting. Never expose database credentials, session
+secrets, or `MEDIA_TOKEN_SECRET`.
 
-### 3. Backend on a VPS
-
-On the VPS, copy the repository and create `.env` from `.env.example`:
-
-```dotenv
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-DATABASE_URL=postgresql://...
-DB_SCHEMA=public
-
-PUBLIC_API_URL=https://api.example.com
-CORS_ORIGINS=https://your-app.vercel.app
-MEDIA_TOKEN_SECRET=<long random secret>
-```
-
-Start the backend image:
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-Put Caddy or nginx in front of port 8000 for HTTPS. The media volume is a named
-Docker volume (`vidfetch_downloads`); back it up if cached media matters.
-
-### 4. First administrator
-
-Sign in once with Google; the account lands on `/pending`. Promote it with the
-same schema the backend uses:
-
-```bash
-DATABASE_URL=... DB_SCHEMA=public \
-  python3 scripts/promote_admin.py --email you@example.com
-
-# dedicated schema
-DATABASE_URL=... DB_SCHEMA=vidfetch \
-  python3 scripts/promote_admin.py --email you@example.com
-```
-
-Or run the equivalent in the Supabase SQL editor:
-
-```sql
-update public.profiles ...
--- or: update vidfetch.profiles ...
-```
-
-Refresh the app and approve other users at `/admin`.
+After deploying, add the final domain and make sure it matches
+`CORS_ORIGINS` on the backend.
 
 ### Production checklist
 
-- [ ] Supabase migrations applied to the hosted project.
-- [ ] `DB_SCHEMA` matches the schema that received the migrations (`public` or `vidfetch`).
-- [ ] Dedicated schema: rendered migrations applied, `vidfetch` not exposed in the Data API.
-- [ ] Google OAuth redirect URLs configured.
-- [ ] Vercel env has the Supabase URL/anon key and the backend API URL.
-- [ ] VPS `.env` has backend secrets and `PUBLIC_API_URL`.
-- [ ] `CORS_ORIGINS` contains the Vercel origin.
-- [ ] TLS is terminated in front of the backend.
-- [ ] The media volume is persistent and backed up.
-- [ ] The first admin is promoted.
+- [ ] Backend `.env` has `POSTGRES_PASSWORD`, `MEDIA_TOKEN_SECRET`,
+      `PUBLIC_API_URL`, `CORS_ORIGINS`, and `DB_SCHEMA`.
+- [ ] TLS terminates in front of the backend.
+- [ ] PostgreSQL and download volumes are persistent and backed up.
+- [ ] Migrations applied (`migrate` service or `scripts/apply_migrations.py`).
+- [ ] First administrator created explicitly.
+- [ ] Vercel has `VITE_API_BASE` only; no secrets.
+- [ ] `/api/health` returns `ok` over HTTPS.
+- [ ] A real video, playlist, and ZIP work from the deployed frontend.
+- [ ] Login, approval, and logout work over HTTPS.
 
 ---
 
 ## The problem Vidfetch solves
-
-`yt-dlp` is an excellent downloader, but it is a command-line tool. That is
-perfect for one person at a terminal and awkward for everyone else.
 
 If you want to share downloading with other people on a server, you quickly need
 things `yt-dlp` does not provide:
@@ -256,68 +247,68 @@ things `yt-dlp` does not provide:
 - a friendly web interface
 - accounts and access control
 - a way to stop the same popular video being downloaded repeatedly
-- a per-user library and download history
+- a personal library with tracks, curated playlists, and offline playback
 - safe in-browser preview and download links
 - a queue that survives restarts and reports progress
 
 Vidfetch wraps `yt-dlp` in a small, opinionated application that provides those
-pieces. It is deliberately self-hosted: you own the server, the storage, the
-Supabase project, and the access list.
-
-### The idea in one sentence
-
-> A private, self-hosted “download corner” where approved users paste a link,
-> pick a format, and get a clean library — while the server downloads each
-> distinct file only once.
+pieces. It is deliberately self-hosted: you own the server, the storage, and the
+accounts.
 
 ---
 
 ## How it works
 
-```mermaid
-flowchart LR
-    U[Browser<br/>React + Vite] -->|Google OAuth| SA[Supabase Auth]
-    U -->|Bearer JWT<br/>JSON API| API[FastAPI backend]
-    API -->|profiles, jobs,<br/>assets, playlists| DB[(Supabase Postgres)]
-    API --> W[Download worker]
-    W --> YT[yt-dlp + FFmpeg]
-    W --> VOL[(Persistent media volume)]
-    U -->|absolute signed URL| API
-    API -->|stream media| VOL
+```text
+Browser (React + Vite)
+  │  HTTPS + opaque bearer token
+  ▼
+FastAPI backend ──► PostgreSQL 16
+  │                   profiles, auth_sessions, download_jobs,
+  │                   media_assets, user_tracks, user_playlists
+  ▼
+DOWNLOAD_DIR volume
+  media files + thumbnails + covers
+  │
+  └── signed media URLs ──► browser player / offline cache
 ```
 
 ### The main pieces
 
-| Layer | Technology | Responsibility |
-| --- | --- | --- |
-| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Material Design 3, `supabase-js` | Login, route guards, dashboard, library, playlists, admin panel |
-| **Backend** | FastAPI, Python, `asyncpg`, Pydantic, PyJWT | JWT verification, approval checks, job API, media streaming, admin API |
-| **Download engine** | `yt-dlp` + FFmpeg | Metadata extraction, downloads, merging, MP3 conversion, subtitles |
-| **Data & auth** | Supabase Auth + Postgres | Google OAuth, profiles, approval, jobs, cache registry, playlists |
-| **Local infrastructure** | Docker Compose + Supabase CLI | Frontend, backend, and a complete local Supabase stack |
-| **Production** | Vercel + VPS container | Static frontend CDN + long-running API/worker |
+| Layer | Responsibility |
+| --- | --- |
+| **Frontend** | Login/register, route guards, Home, Tracks, Playlists, Artists & Albums, Settings, player, admin panel |
+| **Offline layer** | IndexedDB metadata cache, queued mutations, Cache Storage media, service-worker shell |
+| **Backend API** | Session auth, approval/role guards, jobs, tracks, curated playlists, media tokens, admin |
+| **Worker** | Claims durable jobs, runs `yt-dlp`/FFmpeg, updates progress, repairs/fills the shared cache |
+| **Database** | Local users/sessions, per-user jobs/library/playlists, global media registry |
 
-### The download lifecycle
+### Authentication flow
 
-1. A user signs in with Google (or the local development form); Supabase issues
-   a JWT.
-2. Every API request carries that JWT. The backend verifies it and loads the
-   user’s `profiles` row.
-3. If the account is not approved, protected endpoints return `403`.
-4. For a download, the backend resolves the media’s canonical identity and
-   hashes the requested output options.
-5. It atomically checks the shared cache:
-   - **cached and valid** → reuse the file immediately;
-   - **another download in progress** → wait for it;
-   - **missing or failed** → claim it and enqueue one download.
-6. A background worker runs `yt-dlp`/FFmpeg and updates progress in Postgres.
-7. The finished file is stored under the media volume and registered as ready.
-8. The browser receives a short-lived **absolute** signed URL for preview or
-   download.
+1. A visitor registers with email and password, or an administrator creates the
+   account. Passwords are stored as **Argon2id** hashes; new self-service accounts
+   start unapproved.
+2. `POST /api/auth/login` verifies the password and issues a random opaque
+   session token. Only its **SHA-256 hash** is stored in `auth_sessions`, with an
+   expiry and optional user-agent.
+3. The browser keeps the token and sends `Authorization: Bearer <token>` on every
+   JSON API call. `/api/me` and protected endpoints resolve the session in
+   PostgreSQL; approval and role always come from the `profiles` row.
+4. Logout deletes the session. Password changes revoke other sessions; an admin
+   password reset revokes all sessions for that account.
 
-The cache is what makes Vidfetch different from putting a download button on
-top of `yt-dlp`: the second user asking for the same file costs no bandwidth and
-no extra disk.
+### Download lifecycle
+
+1. The Home tab resolves a URL and creates a `download_jobs` row.
+2. The worker claims the job, resolves metadata, and claims a global
+   `media_assets` row keyed by `(canonical_id, options_hash)`. A cache hit
+   completes immediately; a miss downloads once.
+3. Ready jobs create/update the user's `user_tracks` entry. The library, artist,
+   and album views read those per-user rows.
+4. Media is served through short-lived HMAC-signed URLs. The player uses the
+   local copy first when a song is saved for offline use.
+5. Completed audio jobs are copied to the browser's media cache automatically;
+   saved songs are permanent and play without the backend.
 
 ---
 
@@ -325,128 +316,70 @@ no extra disk.
 
 ### Local
 
-The local stack is configured in `docker-compose.yml` and works without a
-`.env` file. It uses fixed, public, disposable local Supabase keys and starts
-`admin@local.test` automatically.
+The local Compose file contains development defaults and a fixed
+`admin@local.test` bootstrap. No `.env` is required.
 
-### Production backend (`.env`)
+### Backend environment
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SUPABASE_URL` | — | Supabase project URL |
-| `SUPABASE_ANON_KEY` | — | Public Supabase key |
-| `SUPABASE_SERVICE_ROLE_KEY` | — | Backend-only Auth admin key |
-| `DATABASE_URL` | — | Supabase Postgres connection string |
+| `DATABASE_URL` | — | PostgreSQL connection string (compose builds it) |
+| `POSTGRES_PASSWORD` | — | Bundled PostgreSQL password (compose) |
 | `DB_SCHEMA` | `public` | Application table schema |
-| `PUBLIC_API_URL` | — | Absolute backend origin for media/ZIP URLs |
-| `CORS_ORIGINS` | — | Comma-separated frontend origins |
+| `AUTH_SESSION_TTL_SECONDS` | `2592000` | Session lifetime (30 days) |
 | `MEDIA_TOKEN_SECRET` | — | HMAC secret for signed media URLs |
 | `MEDIA_TOKEN_TTL_SECONDS` | `900` | Signed URL lifetime |
+| `PUBLIC_API_URL` | — | Absolute backend origin for media URLs |
+| `CORS_ORIGINS` | — | Comma-separated frontend origins |
 | `DOWNLOAD_DIR` | `/app/downloads` | Media storage root |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Global worker concurrency |
-| `MAX_CONCURRENT_JOBS_PER_USER` | `2` | Per-user job concurrency |
+| `MAX_CONCURRENT_JOBS_PER_USER` | `2` | Per-user concurrency |
 | `MAX_PLAYLIST_ITEMS` | `200` | Playlist item cap |
 | `MAX_ASSET_BYTES` | `5368709120` | Per-file size cap |
 | `MIN_FREE_DISK_MB` | `500` | Disk-space safety floor |
 | `JOB_LEASE_SECONDS` | `300` | Worker/asset lease duration |
 | `ALLOW_PRIVATE_URLS` | `false` | Private/loopback URLs (tests only) |
+| `ENVIRONMENT` | `development` | Runtime mode |
+| `LOG_LEVEL` | `INFO` | Log verbosity |
 
-### Production frontend (Vercel)
+### Frontend
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Public anon key |
 | `VITE_API_BASE` | Absolute backend API URL, e.g. `https://api.example.com/api` |
-| `VITE_ENABLE_LOCAL_AUTH` | Leave unset in production |
 
-Never expose `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, or
-`MEDIA_TOKEN_SECRET` to the frontend.
+There are no authentication-provider keys in the frontend.
 
 ### Database schema
 
-The backend reads **`DB_SCHEMA`** (default `public`), validates it, and routes
-every application query to that schema. The schema is **not** created
-automatically by the backend, and the committed migrations target `public`.
-Apply migrations for exactly one schema per database — do not install both.
+The default schema is `public`. A dedicated schema such as `vidfetch` is
+supported; the backend reads `DB_SCHEMA` and every query targets that schema.
 
-| Deployment | Migrations | Backend |
-| --- | --- | --- |
-| Default | `npx supabase db push` | `DB_SCHEMA=public` |
-| Dedicated | render + apply `vidfetch` (below) | `DB_SCHEMA=vidfetch` |
+```bash
+DB_SCHEMA=vidfetch python3 scripts/render_migrations.py \
+  --output /tmp/vidfetch-migrations
 
-#### Dedicated schema (`vidfetch`)
+DATABASE_URL=postgresql://... \
+  python3 scripts/apply_migrations.py \
+  --migrations-dir /tmp/vidfetch-migrations
+```
 
-1. **Do not run `npx supabase db push`.** The committed
-   `supabase/migrations/*.sql` files target `public`; running them installs the
-   app in the wrong schema and attaches the auth trigger there.
-2. **Render the schema-aware migrations** from the repo root:
-   ```bash
-   DB_SCHEMA=vidfetch python3 scripts/render_migrations.py \
-     --output /tmp/vidfetch-migrations
-   ```
-   The first file creates the schema; the rest create the tables, RLS, and the
-   `auth.users` trigger. Confirm the files contain `"vidfetch"`, not
-   `{{schema}}`.
-3. **Apply the rendered files in filename order.** Either:
-   - paste them into the Supabase SQL Editor, or
-   - use a **direct or session-pooler** connection (port `5432`), not the
-     transaction pooler:
-     ```bash
-     DATABASE_URL='postgresql://postgres.<ref>:<password>@db.<ref>.supabase.co:5432/postgres' \
-       python3 scripts/apply_migrations.py \
-       --migrations-dir /tmp/vidfetch-migrations
-     ```
-4. **Set the backend environment**:
-   ```dotenv
-   DB_SCHEMA=vidfetch
-   # the app can keep the transaction pooler on 6543
-   DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
-   ```
-   Restart the backend and check `GET /api/health` reports `"database": true`.
-5. **Verify** in the SQL Editor:
-   ```sql
-   select table_name
-     from information_schema.tables
-    where table_schema = 'vidfetch'
-    order by table_name;
+Then set `DB_SCHEMA=vidfetch` for the backend. The committed
+`db/migrations/*.sql` files target `public`; templates live in `db/templates/`.
+When using the bundled Compose stack, it applies the committed public
+migrations. For a custom schema, mount the rendered directory over
+`/migrations` in an override file or apply them manually before starting the
+backend.
 
-   select tgname
-     from pg_trigger
-    where tgrelid = 'auth.users'::regclass
-      and not tgisinternal;
-   ```
-   Expect the nine app tables and `on_auth_user_created`.
-6. **First admin** uses the same schema:
-   ```sql
-   update vidfetch.profiles
-      set is_approved = true,
-          app_role = 'admin',
-          approved_at = now(),
-          approved_by = id
-    where lower(email) = lower('you@example.com');
-   ```
-
-Notes:
-
-- `DB_SCHEMA` is the only schema switch. If it disagrees with the applied
-  migrations, requests fail with `relation "profiles" does not exist`.
-- Supabase Data API settings concern `public`; keep `vidfetch` unexposed. The
-  backend uses `DATABASE_URL`, not PostgREST.
-- The RLS/auth-trigger pgTAP test (`supabase/tests/`) is **public-only**; it is
-  not a custom-schema test suite.
-- If the project already has the app in `public`, start from a clean database
-  (or reset it) before switching. Running both installs two table sets and the
-  second migration repoints the `auth.users` trigger.
+`scripts/render_migrations.py --check` verifies the committed public output.
 
 ### Persistent data
 
-- Docker volume `vidfetch_downloads` → media, thumbnails, temporary work
-  directories.
-- Supabase Postgres → profiles, approval, jobs, cache registry, playlists.
-- Local Supabase CLI volumes → local database, Auth, Storage, and Studio data.
+- Docker volume `pgdata` → PostgreSQL data.
+- Docker volume `vidfetch_downloads` → media, thumbnails, covers, temporary work.
+- Browser IndexedDB/Cache Storage → optional offline library and saved media.
 
-Removing an item from a library only hides the user’s job. It never deletes a
+Removing an item from a library only hides the user's entry. It never deletes a
 shared media file that another user may still need.
 
 ---
@@ -461,8 +394,8 @@ docker compose up --build
 # backend:  http://localhost:8000
 ```
 
-Vite runs in the container with the source directory bind-mounted, so edits hot
-reload. The backend image does not auto-reload; rebuild it after backend changes:
+Vite runs with the source directory bind-mounted, so frontend edits hot reload.
+The backend image does not auto-reload; rebuild it after backend changes:
 
 ```bash
 docker compose up -d --build backend
@@ -477,6 +410,9 @@ pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
+Set `DATABASE_URL` (and `MEDIA_TOKEN_SECRET`) to a PostgreSQL database with
+`db/migrations` applied.
+
 ### Frontend without Docker
 
 ```bash
@@ -485,14 +421,16 @@ npm install
 npm run dev
 ```
 
-Set `VITE_API_BASE` and `VITE_SUPABASE_URL` in `frontend/.env.local` when
-running outside the local Compose stack.
+Set `VITE_API_BASE` in `frontend/.env.local` when running outside Compose.
 
 ### Tests and checks
 
 ```bash
-# Backend
+# Backend unit tests
 python3 -m pytest backend/tests -q
+
+# Backend with a real migrated PostgreSQL (never the production database)
+TEST_DATABASE_URL=postgresql://... python3 -m pytest backend/tests -q
 
 # Frontend
 cd frontend && npm run build
@@ -501,24 +439,16 @@ cd frontend && npm run build
 ./scripts/check_v2.sh
 ```
 
-Supabase RLS/auth-trigger tests:
-
-```bash
-npx supabase start
-npx supabase db reset
-npx supabase test db
-```
+Integration tests are gated by `TEST_DATABASE_URL`; when it is unset they skip.
 
 ### Docker images
 
 ```bash
 docker build -t vidfetch-backend ./backend
-docker build -t vidfetch-frontend ./frontend   # local Vite image
-docker compose config                           # validate local stack
+docker build -t vidfetch-frontend ./frontend
+docker compose config -q
+docker compose -f docker-compose.backend.yml config -q
 ```
-
-The frontend image is intentionally a development/Vite image. Vercel builds the
-production frontend.
 
 ---
 
@@ -526,57 +456,57 @@ production frontend.
 
 ```text
 backend/
-  Dockerfile             standalone FastAPI + yt-dlp + FFmpeg image
-  requirements.txt       backend runtime dependencies
   app/
-    api/                 HTTP routes (auth, downloads, media, playlists, library, admin)
-    core/                config, async database, JWT security, URL validation
-    models/              Pydantic request/response models
-    services/            yt-dlp, asset cache, jobs, worker, storage, playlists
-  tests/                 test suite
+    api/               auth, jobs, library, media, playlists, tracks, admin
+    cli/               create/update administrator accounts
+    core/              config, psycopg pool, password/session helpers
+    models/            Pydantic schemas
+    services/          query/repository layer and worker
+  tests/
+    v2/                unit/API tests with fakes
+    integration/       gated real-PostgreSQL tests
+  Dockerfile           backend-only image
+  requirements.txt
+
+db/
+  templates/           schema-aware SQL templates ({{schema}})
+  migrations/          rendered public migrations
 
 frontend/
-  Dockerfile             local Vite dev-server image
-  vercel.json            Vercel/Vite + SPA rewrite
+  Dockerfile           local Vite dev-server image
+  vercel.json          Vercel/Vite + SPA rewrite
   src/
-    auth/                Supabase session provider and route guards
-    downloads/           polling provider
-    pages/               Login, Pending, Dashboard, Library, Playlist, Admin
-    lib/                 Supabase client, API client, media-token hook
+    auth/              local session provider and route guards
+    components/        M3 components, player bar, dialogs
+    offline/           IndexedDB, media cache, sync queue
+    pages/             Login, Pending, Home, Tracks, Playlists,
+                       Artists/Albums, Settings, Admin
+    player/            persistent media player and queue
+    theme/             light/dark/system preference
+    lib/               API client, session token storage, helpers
 
-supabase/
-  config.toml            local Supabase CLI configuration
-  templates/             schema-templated migrations
-  migrations/            generated public migrations
-  tests/                 pgTAP RLS/auth-trigger tests
-
-docker/
-  supabase/              CLI wrapper used by local Compose
-  local-bootstrap/       local admin bootstrap
-
-docker-compose.yml       local frontend + backend + Supabase
-docker-compose.prod.yml  VPS backend-only production stack
-scripts/                 migrations, admin promotion, local checks
-docs/                    architecture, setup, implementation status
+docker-compose.yml           local frontend + backend + PostgreSQL
+docker-compose.backend.yml   backend-only production stack (bundled PostgreSQL)
+scripts/                     migrations, admin CLI wrapper, checks
 ```
 
 ---
 
 ## Security notes
 
-- The frontend is not the security boundary. Approval and admin checks run in
-  the backend on every protected request.
-- JWTs are verified with Supabase’s keys (JWKS/HS256); approval and role come
-  from `profiles`, never from user-editable metadata.
-- The service-role key and database credentials stay on the backend.
-- Media URLs are short-lived and signed for one asset and one user.
-- Downloads reject private/loopback URLs by default and apply size, playlist,
-  and disk limits.
-- Database RLS is enabled; direct client access to jobs, assets, and playlists
-  is revoked.
-- Shared media is never deleted by a normal user action; admin deletion and
-  cache eviction own physical files.
-- The local bootstrap admin and fixed local Supabase keys are development-only.
+- Passwords use Argon2id. Raw session tokens exist only in the browser header;
+  the database stores SHA-256 hashes. Expired sessions cannot authenticate.
+- Approval and roles are read from `profiles` on every request, never from
+  client-supplied claims.
+- `DATABASE_URL`, `MEDIA_TOKEN_SECRET`, password hashes, and session tokens must
+  never reach the frontend, logs, or error messages.
+- The backend is the only database client; there is no public database API.
+- Media paths are validated under `DOWNLOAD_DIR`; traversal, absolute paths, and
+  symlink escapes are rejected.
+- Private/loopback download URLs are rejected unless `ALLOW_PRIVATE_URLS=true`
+  (trusted local tests only; never in production).
+- Use HTTPS for the frontend and backend. Signed media URLs are short-lived.
+- Keep the PostgreSQL and downloads volumes backed up.
 
 ---
 
@@ -584,19 +514,18 @@ docs/                    architecture, setup, implementation status
 
 | Symptom | Check |
 | --- | --- |
-| Local stack is slow to start | First run pulls Supabase and app images; wait for the `supabase` health check |
-| `local-bootstrap` exits with an error | `docker compose logs local-bootstrap`; Auth may still be starting |
-| Login form does not appear locally | `VITE_ENABLE_LOCAL_AUTH=true` in the frontend container env |
-| Google login redirects to an error | Supabase Site/Redirect URLs and the Google OAuth redirect URI |
-| Account stuck on `/pending` | `profiles.is_approved`; promote the first admin |
-| `401` on API calls | Supabase URL/keys, JWKS/issuer/audience, server clock |
-| `403 approval_required` | The account is not approved |
-| `403 admin_required` | The account is approved but not an admin |
-| `CORS` errors in production | `CORS_ORIGINS` must equal the Vercel origin |
-| Media URL fails from Vercel | `PUBLIC_API_URL` must be the public HTTPS backend origin |
-| `relation "profiles" does not exist` | Migrations not applied, or `DB_SCHEMA` differs from the migrated schema |
-| Local Supabase containers remain after `down` | The wrapper trap should stop them; if not, run `npx supabase stop --no-backup` |
-| Ports already in use | Stop the old app/Supabase stack before `docker compose up` |
+| Local stack does not start | Docker is running; ports 5173 and 8000 are free |
+| `bootstrap` failed | `docker compose logs bootstrap`; database/migrations may still be starting |
+| Login says invalid credentials | Email/password; the account exists; bootstrap output |
+| `401 invalid_session` | Session expired or revoked; sign in again |
+| `403 approval_required` | An administrator must approve the account at `/admin` |
+| `relation "profiles" does not exist` | `DB_SCHEMA` differs from the schema that received migrations |
+| Database connection refused | `DATABASE_URL`, PostgreSQL health, network/pooler |
+| CORS error | `CORS_ORIGINS` must exactly match the browser origin |
+| Media URL fails | `PUBLIC_API_URL` must be the public HTTPS backend origin |
+| Migration failed | Inspect `docker compose logs migrate`; apply files in filename order |
+| Ports already in use | Stop the old stack before `docker compose up` |
+| Offline data missing | Browser storage/cache may have been cleared or evicted |
 
 ---
 
@@ -604,35 +533,27 @@ docs/                    architecture, setup, implementation status
 
 - The backend is designed for **one instance with a persistent volume**.
   Horizontal scaling would need shared storage and a shared worker deployment.
-- Playlist item retry creates a new video job; there is no dedicated per-item
-  retry endpoint yet.
-- Playlist covers are stored but not yet served by a dedicated streaming
-  endpoint.
-- Playlist ZIP creation temporarily uses disk equal to the archive size; the
-  archive is deleted after streaming.
-- Hosted Supabase and Google OAuth must be configured with real credentials
-  before production use.
-- `apply_migrations.py` reapplies every file on a fresh database; it is not a
-  ledger-based production migration runner.
-- The local Supabase wrapper relies on the Docker socket and host networking;
-  it is intended for Linux/WSL2 development. On Docker Desktop platforms where
-  host networking is restricted, use the Supabase CLI on the host instead.
+- There is no email verification, self-service password reset, or login rate
+  limiting yet. Administrators can reset passwords from the API/CLI.
+- Offline media is stored per browser origin; clearing site data or browser
+  eviction removes it. The UI keeps saved songs permanent, so it does not offer
+  an un-download action.
+- The interface is currently Catalan only; the Settings language control is a
+  placeholder for future locales.
+- Large playlists consume disk until the media cache is managed.
+- `yt-dlp` extractors change over time; keep the backend image updated.
 
 ---
 
 ## Documentation
 
-- [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) — design, data model,
-  security model, and trade-offs
-- [`docs/V2_SETUP.md`](docs/V2_SETUP.md) — detailed Supabase, Google OAuth,
-  local, and Docker setup
-- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — what is
-  implemented and verified
-- [`AGENTS.md`](AGENTS.md) — branch, versioning, and contributor rules
+- [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md) — architecture and data model
+- [`docs/V2_SETUP.md`](docs/V2_SETUP.md) — detailed local and production setup
+- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — status and checks
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes
 
 ---
 
 ## License
 
-Released under the [MIT License](LICENSE). Provided as-is; you are responsible
-for using it lawfully.
+See the repository license file.
