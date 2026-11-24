@@ -272,6 +272,7 @@ def track_row(
     track_id: str | UUID | None = None,
     asset_id: str | UUID | None = None,
     job_id: str | UUID | None = None,
+    status: str = "ready",
     **overrides: Any,
 ) -> dict[str, Any]:
     """A ``TrackOut``-shaped row for tracks service and API tests."""
@@ -290,6 +291,7 @@ def track_row(
         "output_ext": "mp4",
         "format_selector": "best",
         "playlist_id": None,
+        "status": status,
         "downloaded_at": NOW,
         "updated_at": NOW,
     }

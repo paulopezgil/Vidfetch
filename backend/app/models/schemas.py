@@ -220,6 +220,7 @@ class TrackOut(_ORMModel):
     output_ext: str | None = None
     format_selector: str = ""
     playlist_id: UUID | None = None
+    status: JobStatus = "ready"
     downloaded_at: datetime
     updated_at: datetime
 

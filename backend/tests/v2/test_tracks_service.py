@@ -25,6 +25,7 @@ def test_list_tracks_scopes_visibility_and_orders_newest_downloaded_first():
 
     assert page == rows
     assert total == 2
+    assert all(row["status"] == "ready" for row in page)
 
     count_query, count_args = db.calls[0][1], db.calls[0][2]
     assert 'from "public".user_tracks ut' in count_query
@@ -82,6 +83,7 @@ def test_list_tracks_builds_the_contract_columns_with_title_precedence():
     assert "ut.cover_path, a.thumbnail_path" in page_query
     assert "a.duration_seconds, a.file_size_bytes" in page_query
     assert "a.output_ext, j.format_selector, j.playlist_id" in page_query
+    assert "'ready' as status" in page_query
     assert "ut.downloaded_at, ut.updated_at" in page_query
 
 

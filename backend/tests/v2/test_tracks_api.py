@@ -62,6 +62,7 @@ def test_list_tracks_returns_the_callers_visible_tracks(tmp_path):
             "output_ext": "mp3",
             "format_selector": "mp3",
             "playlist_id": None,
+            "status": "ready",
             "downloaded_at": "2026-11-21T12:00:00Z",
             "updated_at": "2026-11-21T12:00:00Z",
         }
