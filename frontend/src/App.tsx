@@ -11,7 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import PendingPage from "./pages/PendingPage";
 import AdminPage from "./pages/AdminPage";
 import Dashboard from "./pages/Dashboard";
-import Library from "./pages/Library";
+import Tracks from "./pages/Tracks";
 import PlaylistDetail from "./pages/PlaylistDetail";
 
 /** Navigation shell shared by every approved application route. */
@@ -47,7 +47,11 @@ export default function App() {
               <Route element={<RequireApproved />}>
                 <Route element={<AppShell />}>
                   <Route path="/" element={<Dashboard />} />
-                  <Route path="/library" element={<Library />} />
+                  <Route path="/tracks" element={<Tracks />} />
+                  <Route
+                    path="/library"
+                    element={<Navigate to="/tracks" replace />}
+                  />
                   <Route
                     path="/library/playlist/:id"
                     element={<PlaylistDetail />}

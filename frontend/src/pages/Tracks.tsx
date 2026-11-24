@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type {
-  DownloadJob,
-  LibraryItem,
-  PlaylistV2,
-} from "../types/v2";
+import type { DownloadJob, PlaylistV2, Track } from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
 import {
   deletePlaylist,
   downloadPlaylistZip,
   getMediaToken,
-  listLibrary,
   listPlaylists,
+  listTracks,
   removeFromLibrary,
   triggerDownload,
   withDownloadFlag,
@@ -75,11 +71,11 @@ interface PreviewState {
   src: string;
 }
 
-function extensionOf(item: LibraryItem): string {
-  return item.output_ext.replace(/^\./, "").toLowerCase();
+function extensionOf(item: Track): string {
+  return (item.output_ext ?? "").replace(/^\./, "").toLowerCase();
 }
 
-function mediaTypeFor(item: LibraryItem): MediaType {
+function mediaTypeFor(item: Track): MediaType {
   const ext = extensionOf(item);
   if (AUDIO_EXTENSIONS.has(ext)) return "audio";
   if (IMAGE_EXTENSIONS.has(ext)) return "image";
@@ -100,10 +96,10 @@ function isRecentJob(job: DownloadJob): boolean {
   return Number.isFinite(time) && Date.now() - time < RECENT_WINDOW_MS;
 }
 
-export default function Library() {
+export default function Tracks() {
   const toast = useToast();
   const { activeJobs, finishedJobs, cancelJob, jobs } = useDownloads();
-  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [items, setItems] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistV2[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -120,19 +116,19 @@ export default function Library() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [libraryPage, playlistPage] = await Promise.all([
-        listLibrary({ limit: PAGE, offset }),
+      const [trackPage, playlistPage] = await Promise.all([
+        listTracks({ limit: PAGE, offset }),
         listPlaylists({ limit: PLAYLIST_LIMIT, offset: 0 }),
       ]);
-      setItems(libraryPage.items);
-      setTotal(libraryPage.total);
+      setItems(trackPage.items);
+      setTotal(trackPage.total);
       setPlaylists(playlistPage.items);
       setError(null);
     } catch (e) {
       setError(
         e instanceof Error
           ? e.message
-          : "No s’ha pogut carregar la biblioteca.",
+          : "No s’han pogut carregar els tracks.",
       );
     } finally {
       setLoading(false);
@@ -143,7 +139,7 @@ export default function Library() {
     void refresh();
   }, [refresh]);
 
-  // Reload the library whenever a download reaches `ready`, so the new asset
+  // Reload the tracks whenever a download reaches `ready`, so the new asset
   // appears without a manual refresh. Keep polling updates from causing a
   // reload on every tick by comparing the set of ready jobs.
   const readySignature = useMemo(
@@ -178,7 +174,7 @@ export default function Library() {
     try {
       if (pendingDelete.kind === "file") {
         await removeFromLibrary(pendingDelete.id);
-        toast("Element tret de la biblioteca", "success");
+        toast("Track amagat", "success");
       } else {
         await deletePlaylist(pendingDelete.id);
         toast("Llista de reproducció eliminada", "success");
@@ -196,7 +192,7 @@ export default function Library() {
   }
 
   const openPreview = useCallback(
-    async (item: LibraryItem) => {
+    async (item: Track) => {
       try {
         const token = await getMediaToken(item.asset_id);
         setPreview({
@@ -283,7 +279,7 @@ export default function Library() {
 
       {loading ? (
         <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-          <Spinner /> S’està carregant la biblioteca…
+          <Spinner /> S’estan carregant els tracks…
         </div>
       ) : (
         <>
@@ -417,7 +413,7 @@ export default function Library() {
             <EmptyState
               icon="folder_open"
               title={
-                tab === "all" ? "La biblioteca és buida" : "Aquí no hi ha res"
+                tab === "all" ? "Encara no hi ha tracks" : "Aquí no hi ha res"
               }
               description={
                 tab === "all"
@@ -459,7 +455,7 @@ export default function Library() {
         open={pendingDelete !== null}
         title={
           pendingDelete?.kind === "file"
-            ? "Voleu treure el fitxer de la biblioteca?"
+            ? "Voleu treure el track?"
             : "Voleu eliminar la llista de reproducció?"
         }
         message={
@@ -469,7 +465,7 @@ export default function Library() {
               <span className="font-medium text-on-surface">
                 {pendingDelete.label}
               </span>{" "}
-              de la vostra biblioteca. El fitxer compartit no s’elimina i la
+              dels vostres tracks. El fitxer compartit no s’elimina i la
               descàrrega es conserva a l’historial.
             </>
           ) : (
@@ -503,7 +499,7 @@ function FileRow({
   onDelete,
   onPreview,
 }: {
-  item: LibraryItem;
+  item: Track;
   onDelete: () => void;
   onPreview: () => void;
 }) {
@@ -515,6 +511,10 @@ function FileRow({
   const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
   const [downloading, setDownloading] = useState(false);
   const ext = extensionOf(item);
+  const credit = [item.artist, item.album]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join(" · ");
 
   async function handleDownload() {
     if (downloading) return;
@@ -547,9 +547,10 @@ function FileRow({
           <StatusChip status={item.status} />
         </div>
         <p className="mt-0.5 text-body-small text-on-surface-variant">
-          {formatBytes(item.file_size_bytes)} ·{" "}
+          {formatBytes(item.file_size_bytes ?? 0)} ·{" "}
           {(ext || "fitxer").toUpperCase()} ·{" "}
-          {formatLabel(item.format_selector)} · {formatDate(item.created_at)}
+          {credit ? `${credit} · ` : ""}
+          {formatLabel(item.format_selector)} · {formatDate(item.downloaded_at)}
         </p>
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
@@ -575,11 +576,7 @@ function FileRow({
             <Icon name="download" className="text-[20px]" />
           )}
         </IconButton>
-        <IconButton
-          variant="danger"
-          label="Treu el fitxer de la biblioteca"
-          onClick={onDelete}
-        >
+        <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
           <Icon name="delete" className="text-[20px]" />
         </IconButton>
       </div>

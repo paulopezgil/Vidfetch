@@ -113,24 +113,31 @@ export type PlaylistItemStatus =
   | "failed"
   | "cancelled";
 
-/** One ready asset in the caller's library (`GET /api/library`). */
-export interface LibraryItem {
-  job_id: string;
+/** One ready track owned by the caller (`GET /api/tracks`). */
+export interface Track {
+  id: string;
   asset_id: string;
+  job_id: string;
+  canonical_id: string;
   title: string;
-  file_size_bytes: number;
-  output_ext: string;
+  artist: string;
+  album: string;
+  cover_path: string | null;
   thumbnail_path: string | null;
-  created_at: string;
-  status: DownloadJobStatus;
+  duration_seconds: number | null;
+  file_size_bytes: number | null;
+  output_ext: string | null;
   format_selector: string;
   /** Set when the asset was produced by a playlist item job. */
-  playlist_id?: string | null;
+  playlist_id: string | null;
+  status: DownloadJobStatus;
+  downloaded_at: string;
+  updated_at: string;
 }
 
-/** Paginated response for `GET /api/library`. */
-export interface LibraryList {
-  items: LibraryItem[];
+/** Paginated response for `GET /api/tracks`. */
+export interface TrackList {
+  items: Track[];
   total: number;
   limit: number;
   offset: number;
