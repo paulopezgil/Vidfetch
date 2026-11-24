@@ -267,6 +267,36 @@ def library_row(
     return row
 
 
+def track_row(
+    *,
+    track_id: str | UUID | None = None,
+    asset_id: str | UUID | None = None,
+    job_id: str | UUID | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A ``TrackOut``-shaped row for tracks service and API tests."""
+    row: dict[str, Any] = {
+        "id": track_id or uuid4(),
+        "asset_id": asset_id or uuid4(),
+        "job_id": job_id or uuid4(),
+        "canonical_id": "youtube:vid1",
+        "title": "Clip",
+        "artist": "",
+        "album": "",
+        "cover_path": None,
+        "thumbnail_path": None,
+        "duration_seconds": 12,
+        "file_size_bytes": 1024,
+        "output_ext": "mp4",
+        "format_selector": "best",
+        "playlist_id": None,
+        "downloaded_at": NOW,
+        "updated_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
 def playlist_row(
     *,
     playlist_id: str | UUID | None = None,

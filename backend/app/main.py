@@ -17,7 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..version import APP_VERSION
 from .api.errors import register_exception_handlers
-from .api.routes import admin, downloads, health, library, media, me, playlists
+from .api.routes import (
+    admin,
+    downloads,
+    health,
+    library,
+    media,
+    me,
+    playlists,
+    tracks,
+)
 from .core.config import Settings
 from .core.db import create_pool
 from .services.storage import Storage
@@ -110,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(library.router)
     app.include_router(media.router)
     app.include_router(playlists.router)
+    app.include_router(tracks.router)
 
     _add_root_json_route(app)
 
