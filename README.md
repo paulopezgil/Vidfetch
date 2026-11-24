@@ -143,17 +143,24 @@ Vercel frontend  ──HTTPS + JWT──►  VPS backend container  ──►  S
    - Site URL: `https://your-app.vercel.app`
    - Redirect URLs: `https://your-app.vercel.app` and
      `http://localhost:5173`
-5. Apply the migrations (default `public` schema):
-   ```bash
-   npx supabase login
-   npx supabase link --project-ref <project-ref>
-   npx supabase db push
-   ```
-   Or run `supabase/migrations/*.sql` in the Supabase SQL editor.
+5. Apply the migrations. Choose **one** schema per database:
+   - **Default `public`**:
+     ```bash
+     npx supabase login
+     npx supabase link --project-ref <project-ref>
+     npx supabase db push
+     ```
+   - **Dedicated `vidfetch`**: render and apply the migrations instead of using
+     `db push`. Full instructions in
+     [Database schema → dedicated schema](#dedicated-schema-vidfetch).
+6. In **Project Settings → API → Data API**, disable the Data API, keep
+   “Grant API access to new tables automatically” **off**, and keep
+   “Enable RLS on new tables automatically” **on**. Do **not** expose `vidfetch`
+   in the Data API; the backend connects directly to Postgres.
 
-For a dedicated schema such as `vidfetch`, render and apply the migrations with
-`DB_SCHEMA=vidfetch`, then set the same `DB_SCHEMA` on the backend. See
-[Database schema](#database-schema).
+For a dedicated schema such as `vidfetch`, `DB_SCHEMA=vidfetch` is the only
+backend switch; the schema and tables are created by the rendered migrations.
+See [Database schema](#database-schema).
 
 ### 2. Frontend on Vercel
 
@@ -202,19 +209,32 @@ Docker volume (`vidfetch_downloads`); back it up if cached media matters.
 
 ### 4. First administrator
 
-Sign in once with Google; the account lands on `/pending`. Promote it:
+Sign in once with Google; the account lands on `/pending`. Promote it with the
+same schema the backend uses:
 
 ```bash
 DATABASE_URL=... DB_SCHEMA=public \
   python3 scripts/promote_admin.py --email you@example.com
+
+# dedicated schema
+DATABASE_URL=... DB_SCHEMA=vidfetch \
+  python3 scripts/promote_admin.py --email you@example.com
 ```
 
-Or run the equivalent `update public.profiles ...` in the Supabase SQL editor.
+Or run the equivalent in the Supabase SQL editor:
+
+```sql
+update public.profiles ...
+-- or: update vidfetch.profiles ...
+```
+
 Refresh the app and approve other users at `/admin`.
 
 ### Production checklist
 
 - [ ] Supabase migrations applied to the hosted project.
+- [ ] `DB_SCHEMA` matches the schema that received the migrations (`public` or `vidfetch`).
+- [ ] Dedicated schema: rendered migrations applied, `vidfetch` not exposed in the Data API.
 - [ ] Google OAuth redirect URLs configured.
 - [ ] Vercel env has the Supabase URL/anon key and the backend API URL.
 - [ ] VPS `.env` has backend secrets and `PUBLIC_API_URL`.
@@ -345,21 +365,79 @@ Never expose `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, or
 
 ### Database schema
 
-The default is `public`, so a fork works without extra steps. A deployment can
-use a dedicated schema, for example `vidfetch`:
+The backend reads **`DB_SCHEMA`** (default `public`), validates it, and routes
+every application query to that schema. The schema is **not** created
+automatically by the backend, and the committed migrations target `public`.
+Apply migrations for exactly one schema per database — do not install both.
 
-```bash
-DB_SCHEMA=vidfetch python scripts/render_migrations.py \
-  --output /tmp/vidfetch-migrations
+| Deployment | Migrations | Backend |
+| --- | --- | --- |
+| Default | `npx supabase db push` | `DB_SCHEMA=public` |
+| Dedicated | render + apply `vidfetch` (below) | `DB_SCHEMA=vidfetch` |
 
-DATABASE_URL=postgresql://... \
-  python scripts/apply_migrations.py \
-  --migrations-dir /tmp/vidfetch-migrations
-```
+#### Dedicated schema (`vidfetch`)
 
-Then set `DB_SCHEMA=vidfetch` on the backend. The migrations are generated from
-`supabase/templates/`; `scripts/render_migrations.py --check` verifies the
-committed `public` migrations are in sync.
+1. **Do not run `npx supabase db push`.** The committed
+   `supabase/migrations/*.sql` files target `public`; running them installs the
+   app in the wrong schema and attaches the auth trigger there.
+2. **Render the schema-aware migrations** from the repo root:
+   ```bash
+   DB_SCHEMA=vidfetch python3 scripts/render_migrations.py \
+     --output /tmp/vidfetch-migrations
+   ```
+   The first file creates the schema; the rest create the tables, RLS, and the
+   `auth.users` trigger. Confirm the files contain `"vidfetch"`, not
+   `{{schema}}`.
+3. **Apply the rendered files in filename order.** Either:
+   - paste them into the Supabase SQL Editor, or
+   - use a **direct or session-pooler** connection (port `5432`), not the
+     transaction pooler:
+     ```bash
+     DATABASE_URL='postgresql://postgres.<ref>:<password>@db.<ref>.supabase.co:5432/postgres' \
+       python3 scripts/apply_migrations.py \
+       --migrations-dir /tmp/vidfetch-migrations
+     ```
+4. **Set the backend environment**:
+   ```dotenv
+   DB_SCHEMA=vidfetch
+   # the app can keep the transaction pooler on 6543
+   DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+   Restart the backend and check `GET /api/health` reports `"database": true`.
+5. **Verify** in the SQL Editor:
+   ```sql
+   select table_name
+     from information_schema.tables
+    where table_schema = 'vidfetch'
+    order by table_name;
+
+   select tgname
+     from pg_trigger
+    where tgrelid = 'auth.users'::regclass
+      and not tgisinternal;
+   ```
+   Expect the nine app tables and `on_auth_user_created`.
+6. **First admin** uses the same schema:
+   ```sql
+   update vidfetch.profiles
+      set is_approved = true,
+          app_role = 'admin',
+          approved_at = now(),
+          approved_by = id
+    where lower(email) = lower('you@example.com');
+   ```
+
+Notes:
+
+- `DB_SCHEMA` is the only schema switch. If it disagrees with the applied
+  migrations, requests fail with `relation "profiles" does not exist`.
+- Supabase Data API settings concern `public`; keep `vidfetch` unexposed. The
+  backend uses `DATABASE_URL`, not PostgREST.
+- The RLS/auth-trigger pgTAP test (`supabase/tests/`) is **public-only**; it is
+  not a custom-schema test suite.
+- If the project already has the app in `public`, start from a clean database
+  (or reset it) before switching. Running both installs two table sets and the
+  second migration repoints the `auth.users` trigger.
 
 ### Persistent data
 
