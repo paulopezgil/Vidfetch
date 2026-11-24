@@ -14,12 +14,16 @@ export interface MenuAction {
   label: string;
   /** Material Symbols ligature, shown before the label. */
   icon?: string;
+  /** Checkmark state for radio-style menus such as sorting. */
+  selected?: boolean;
   onSelect: () => void;
 }
 
 interface MenuProps {
   /** Accessible name of the icon-button trigger. */
   label: string;
+  /** Material Symbols ligature for the trigger; defaults to the overflow icon. */
+  icon?: string;
   actions: MenuAction[];
   disabled?: boolean;
 }
@@ -31,7 +35,12 @@ interface MenuProps {
  * `role="menu"`/`role="menuitem"` with roving focus (arrow keys, Home, End).
  * Escape and outside pointer presses close it and return focus to the trigger.
  */
-export default function Menu({ label, actions, disabled }: MenuProps) {
+export default function Menu({
+  label,
+  icon = "more_vert",
+  actions,
+  disabled,
+}: MenuProps) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -133,7 +142,7 @@ export default function Menu({ label, actions, disabled }: MenuProps) {
         }}
         className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors duration-200 hover:bg-on-surface/8 active:bg-on-surface/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38]"
       >
-        <Icon name="more_vert" className="text-[20px]" />
+        <Icon name={icon} className="text-[20px]" />
       </button>
 
       {open ? (
@@ -153,7 +162,8 @@ export default function Menu({ label, actions, disabled }: MenuProps) {
                 itemRefs.current[index] = element;
               }}
               type="button"
-              role="menuitem"
+              role={action.selected === undefined ? "menuitem" : "menuitemradio"}
+              aria-checked={action.selected}
               tabIndex={-1}
               onClick={() => {
                 close(true);
@@ -165,6 +175,9 @@ export default function Menu({ label, actions, disabled }: MenuProps) {
                 <Icon name={action.icon} className="text-[20px]" />
               ) : null}
               <span className="min-w-0 flex-1 truncate">{action.label}</span>
+              {action.selected ? (
+                <Icon name="check" className="text-[20px] text-primary" />
+              ) : null}
             </button>
           ))}
         </div>

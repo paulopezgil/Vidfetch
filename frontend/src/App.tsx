@@ -27,7 +27,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const PendingPage = lazy(() => import("./pages/PendingPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Tracks = lazy(() => import("./pages/Tracks"));
+const Library = lazy(() => import("./pages/Library"));
 const Playlists = lazy(() => import("./pages/Playlists"));
 const PlaylistDetail = lazy(() => import("./pages/PlaylistDetail"));
 const UserPlaylistDetail = lazy(() => import("./pages/UserPlaylistDetail"));
@@ -110,7 +110,12 @@ export default function App() {
                 <Route element={<RequireApproved />}>
                   <Route element={<AppShell />}>
                     <Route path="/" element={<Dashboard />} />
-                    <Route path="/tracks" element={<Tracks />} />
+                    <Route path="/songs" element={<Library kind="audio" />} />
+                    <Route path="/videos" element={<Library kind="video" />} />
+                    <Route
+                      path="/tracks"
+                      element={<Navigate to="/songs" replace />}
+                    />
                     <Route path="/playlists" element={<Playlists />} />
                     <Route
                       path="/playlists/:id/add"
@@ -125,7 +130,7 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                     <Route
                       path="/library"
-                      element={<Navigate to="/tracks" replace />}
+                      element={<Navigate to="/songs" replace />}
                     />
                     <Route
                       path="/library/playlist/:id"
