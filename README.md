@@ -270,7 +270,7 @@ flowchart LR
 
 | Layer | Technology | Responsibility |
 | --- | --- | --- |
-| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Material Design 3, `supabase-js` | Login, route guards, dashboard, library, history, playlists, admin panel |
+| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Material Design 3, `supabase-js` | Login, route guards, dashboard, library, playlists, admin panel |
 | **Backend** | FastAPI, Python, `asyncpg`, Pydantic, PyJWT | JWT verification, approval checks, job API, media streaming, admin API |
 | **Download engine** | `yt-dlp` + FFmpeg | Metadata extraction, downloads, merging, MP3 conversion, subtitles |
 | **Data & auth** | Supabase Auth + Postgres | Google OAuth, profiles, approval, jobs, cache registry, playlists |
@@ -463,7 +463,7 @@ frontend/
   src/
     auth/                Supabase session provider and route guards
     downloads/           polling provider
-    pages/               Login, Pending, Dashboard, Library, History, Playlist, Admin
+    pages/               Login, Pending, Dashboard, Library, Playlist, Admin
     lib/                 Supabase client, API client, media-token hook
 
 supabase/
