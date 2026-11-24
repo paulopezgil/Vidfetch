@@ -8,7 +8,7 @@ import Icon from "../components/Icon";
 import Spinner from "../components/Spinner";
 
 export default function PendingPage() {
-  const { profile, loading, error, refreshProfile, signOut } = useAuth();
+  const { profile, loading, error, refreshProfile, logout } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
@@ -28,7 +28,7 @@ export default function PendingPage() {
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await signOut();
+      await logout();
     } finally {
       setSigningOut(false);
     }

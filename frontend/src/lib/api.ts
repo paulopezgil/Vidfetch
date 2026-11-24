@@ -3,6 +3,7 @@ import type {
   AdminUserList,
   ApiErrorShape,
   AppRole,
+  AuthSession,
   Profile,
 } from "../types/auth";
 import type {
@@ -23,7 +24,7 @@ import type {
   UserPlaylistInput,
   UserPlaylistList,
 } from "../types/v2";
-import { supabase, supabaseConfigError } from "./supabase";
+import { clearToken, getToken, notifyUnauthorized } from "./session";
 import {
   MAX_QUEUED_MUTATIONS,
   countQueue,
@@ -182,56 +183,34 @@ async function readBody<T>(res: Response): Promise<T> {
 /**
  * Authenticated fetch that returns the raw response.
  *
- * The current Supabase access token is attached automatically. A `401`
- * triggers exactly one session refresh and one retry. Transport failures are
- * wrapped in an `ApiError` with `status: 0` / `code: "network_error"` so
- * callers can tell “offline” apart from a real HTTP error.
+ * The stored opaque session token is attached automatically. A `401` means the
+ * server no longer accepts that token: it is forgotten and the unauthorized
+ * event is emitted so the app can return to the login page. There is no refresh
+ * step — the user signs in again. Transport failures are wrapped in an
+ * `ApiError` with `status: 0` / `code: "network_error"` so callers can tell
+ * “offline” apart from a real HTTP error.
+ *
+ * The body of a rejected response is left untouched so callers can still parse
+ * the server's `error.code`.
  */
 export async function authorizedFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  if (!supabase) {
-    throw new ApiError(
-      supabaseConfigError ?? "Supabase no està configurat.",
-      0,
-      "supabase_not_configured",
-    );
-  }
-
-  const { data: current, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) {
-    // An expired session that cannot be refreshed because the network is down
-    // is a transport failure too, so offline reads/mutations can still queue.
-    const transient =
-      sessionError.name === "AuthRetryableFetchError" ||
-      sessionError.status === 0 ||
-      sessionError.status === 503;
-    if (transient || isOffline()) throw networkError();
-    throw new ApiError(sessionError.message, 0, "session_unavailable");
-  }
+  const token = getToken();
 
   let res: Response;
   try {
-    res = await request(path, init, current.session?.access_token ?? null);
+    res = await request(path, init, token);
   } catch (error) {
     if (isNetworkError(error)) reportNetworkFailure(error.message);
     throw error;
   }
   reportNetworkSuccess();
 
-  if (res.status === 401) {
-    try {
-      const { data: refreshed, error: refreshError } =
-        await supabase.auth.refreshSession();
-      if (!refreshError && refreshed.session) {
-        res = await request(path, init, refreshed.session.access_token);
-        reportNetworkSuccess();
-      }
-    } catch (error) {
-      // Keep the original 401 when the refresh itself cannot reach Supabase.
-      if (isNetworkError(error)) reportNetworkFailure(error.message);
-    }
+  if (res.status === 401 && token) {
+    clearToken();
+    notifyUnauthorized();
   }
 
   return res;
@@ -489,6 +468,81 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 /** `GET /api/me` — current profile, approval flag and app role. */
 export function getMe(): Promise<Profile> {
   return apiFetch<Profile>("/me");
+}
+
+/**
+ * Unauthenticated JSON POST used by the sign-in endpoints.
+ *
+ * They must not go through `authorizedFetch`: a stale token would make a failed
+ * sign-in look like an expired session and fire the unauthorized event.
+ */
+async function authPost<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(buildUrl(path), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    const failure = networkError();
+    reportNetworkFailure(failure.message);
+    throw failure;
+  }
+  reportNetworkSuccess();
+  if (!res.ok) throw await parseError(res);
+  return readBody<T>(res);
+}
+
+/** `POST /api/auth/login` — exchange email/password for a session token. */
+export function login(email: string, password: string): Promise<AuthSession> {
+  return authPost<AuthSession>("/auth/login", { email, password });
+}
+
+/** `POST /api/auth/register` — create an unapproved account and sign in. */
+export function register(email: string, password: string): Promise<AuthSession> {
+  return authPost<AuthSession>("/auth/register", { email, password });
+}
+
+/**
+ * `POST /api/auth/logout` — revoke the current server session.
+ *
+ * Only the current token is revoked; a `401` means it was already gone and is
+ * treated as success. Transport failures are rethrown so the caller can decide
+ * whether the sign-out still proceeds locally.
+ */
+export async function logout(): Promise<void> {
+  const token = getToken();
+  if (!token) return;
+
+  let res: Response;
+  try {
+    res = await request("/auth/logout", { method: "POST" }, token);
+  } catch (error) {
+    if (isNetworkError(error)) reportNetworkFailure(error.message);
+    throw error;
+  }
+  reportNetworkSuccess();
+
+  if (!res.ok && res.status !== 401) throw await parseError(res);
+}
+
+/** `POST /api/auth/password` — change the current account's password. */
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return apiFetch<void>("/auth/password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
 }
 
 export interface AdminUserQuery {
@@ -926,7 +980,7 @@ export function playlistZipUrl(playlistId: string): string {
  *
  * The ZIP endpoint requires a bearer token, so a plain navigation to
  * `playlistZipUrl` would be rejected. Fetching it as a blob lets the normal
- * Supabase auth and 401-refresh flow apply before the browser saves the file.
+ * authenticated fetch flow apply before the browser saves the file.
  */
 export async function downloadPlaylistZip(
   playlistId: string,

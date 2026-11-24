@@ -1,4 +1,5 @@
 import { authorizedFetch, isNetworkError, parseError } from "../lib/api";
+import { getToken } from "../lib/session";
 import {
   clearCachedResponses,
   countQueue,
@@ -43,6 +44,13 @@ async function runFlush(generation: number): Promise<void> {
     return;
   }
 
+  // Signed out: replaying anonymously would be rejected with a 401 and the
+  // entries would be discarded. Keep them for the next sign-in instead.
+  if (!getToken()) {
+    setPending(entries.length);
+    return;
+  }
+
   setSyncing(true);
   setLastError(null);
 
@@ -72,8 +80,17 @@ async function runFlush(generation: number): Promise<void> {
         break;
       }
 
-      // Any HTTP response means the server saw the request. A 4xx is a real
-      // rejection (track deleted, playlist gone…) and must not block the queue.
+      // A rejected session is not a rejection of the mutation itself. Keep the
+      // entry and stop: `authorizedFetch` has already cleared the token, and the
+      // same account must be able to sign back in and replay these edits.
+      if (res.status === 401) {
+        lastError = (await parseError(res)).message;
+        break;
+      }
+
+      // Any other HTTP response means the server saw the request. A 4xx is a
+      // real rejection (track deleted, playlist gone…) and must not block the
+      // queue.
       if (!isCurrent(generation)) return;
       await removeQueue(entry.id);
       if (res.ok) {
