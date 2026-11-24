@@ -11,6 +11,7 @@ import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
 import { usePlayer } from "../player/PlayerProvider";
+import { useMediaToken } from "../lib/useMediaToken";
 
 type GroupTab = "artists" | "albums";
 
@@ -251,6 +252,11 @@ function GroupCard({
 
 function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
+  // Only ask for a token when there is no cover and the asset has a thumbnail.
+  const { token } = useMediaToken(
+    !track.cover_url && track.thumbnail_path ? track.asset_id : null,
+  );
+  const artwork = track.cover_url ?? token?.thumbnail_url ?? null;
   const active = current?.id === track.id;
   const playing = active && isPlaying;
   const credit = [track.artist, track.album]
@@ -266,7 +272,7 @@ function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
       }`}
     >
       <Thumbnail
-        src={null}
+        src={artwork}
         icon="music_note"
         className="h-11 w-11 rounded-md"
       />

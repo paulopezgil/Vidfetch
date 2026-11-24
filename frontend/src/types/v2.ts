@@ -123,6 +123,8 @@ export interface Track {
   artist: string;
   album: string;
   cover_path: string | null;
+  /** Short-lived signed URL for the uploaded cover, when one exists. */
+  cover_url: string | null;
   thumbnail_path: string | null;
   duration_seconds: number | null;
   file_size_bytes: number | null;
@@ -141,6 +143,29 @@ export interface TrackList {
   total: number;
   limit: number;
   offset: number;
+}
+
+/**
+ * Editable track metadata (`PATCH /api/tracks/{track_id}`).
+ *
+ * Every field is the user's override; an empty string clears it so the
+ * original job/asset metadata shows through again.
+ */
+export interface TrackUpdate {
+  custom_title?: string;
+  custom_artist?: string;
+  custom_album?: string;
+}
+
+/** One autocomplete suggestion for an artist or album facet. */
+export interface FacetItem {
+  name: string;
+  track_count: number;
+}
+
+/** Response for `GET /api/tracks/artists` and `GET /api/tracks/albums`. */
+export interface FacetList {
+  items: FacetItem[];
 }
 
 /** A playlist owned by the caller (`GET /api/playlists`). */
