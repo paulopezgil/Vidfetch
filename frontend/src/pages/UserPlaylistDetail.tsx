@@ -19,6 +19,7 @@ import EmptyState from "../components/EmptyState";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
 import Menu from "../components/Menu";
+import OfflineButton from "../components/OfflineButton";
 import PlaylistCollage from "../components/PlaylistCollage";
 import PlaylistDialog from "../components/PlaylistDialog";
 import Spinner from "../components/Spinner";
@@ -26,6 +27,7 @@ import Thumbnail from "../components/Thumbnail";
 import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
 import { usePlayer } from "../player/PlayerProvider";
+import { isAudioAsset } from "../offline/media";
 import { setActivePlaylistTitle } from "../navigation";
 import { QUEUED_MUTATION_MESSAGE } from "../offline/status";
 
@@ -427,6 +429,7 @@ function PlaylistTrackRow({
   );
   const src = track.cover_url ?? token?.thumbnail_url ?? null;
   const credit = trackCredit(track);
+  const song = isAudioAsset(track);
 
   return (
     <li className="flex flex-wrap items-center gap-3 p-3 sm:p-4">
@@ -462,6 +465,9 @@ function PlaylistTrackRow({
         >
           <Icon name="arrow_downward" className="text-[20px]" />
         </IconButton>
+        {song ? (
+          <OfflineButton assetId={track.asset_id} title={track.title} />
+        ) : null}
         <IconButton
           variant={playerActive ? "filled" : "tonal"}
           label={playerPlaying ? "Pausa" : "Reprodueix"}

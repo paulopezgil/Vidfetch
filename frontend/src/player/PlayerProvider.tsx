@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { MediaToken, Track } from "../types/v2";
 import { getMediaToken } from "../lib/api";
+import { getOfflineMediaBlob } from "../offline/media";
 
 export interface PlayerContextValue {
   /** Track loaded in the bar, or `null` when the player is idle. */
@@ -93,6 +94,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const expiresAtRef = useRef(0);
   const loadIdRef = useRef(0);
   const retryRef = useRef(0);
+  /** Object URL of the current local copy, revoked on every source change. */
+  const blobUrlRef = useRef<string | null>(null);
 
   const endedRef = useRef<() => void>(() => {});
   const errorRef = useRef<() => void>(() => {});
@@ -119,6 +122,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIndex(nextIndex);
   }, []);
 
+  /** Revoke the object URL of the previous local copy, if any. */
+  const releaseBlobUrl = useCallback(() => {
+    if (!blobUrlRef.current) return;
+    URL.revokeObjectURL(blobUrlRef.current);
+    blobUrlRef.current = null;
+  }, []);
+
   /** Load a signed source for `track`, optionally resuming mid-track. */
   const loadSource = useCallback(
     async (track: Track, autoplay: boolean, resumeAt = 0) => {
@@ -133,6 +143,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // leave the previous track playing behind a paused bar.
       audio.pause();
       audio.removeAttribute("src");
+      releaseBlobUrl();
       expiresAtRef.current = 0;
 
       currentRef.current = track;
@@ -142,7 +153,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setPosition(startAt);
       setPlaying(false);
 
+      const applyStartOffset = () => {
+        if (startAt <= 0) return;
+        const onMetadata = () => {
+          audio.removeEventListener("loadedmetadata", onMetadata);
+          if (loadId !== loadIdRef.current) return;
+          try {
+            audio.currentTime = startAt;
+          } catch {
+            // Seeking before the media is ready is not fatal.
+          }
+        };
+        audio.addEventListener("loadedmetadata", onMetadata);
+      };
+
       try {
+        // Prefer the local copy: it plays offline and needs no token.
+        const local = await getOfflineMediaBlob(track.asset_id);
+        if (loadId !== loadIdRef.current) return;
+
+        if (local) {
+          const objectUrl = URL.createObjectURL(local);
+          blobUrlRef.current = objectUrl;
+          // A blob URL never expires, so do not refresh it on play.
+          expiresAtRef.current = Number.MAX_SAFE_INTEGER;
+          setArtworkUrl(track.cover_url ?? null);
+          audio.src = objectUrl;
+          audio.load();
+          applyStartOffset();
+          if (autoplay) attemptPlay(audio);
+          return;
+        }
+
         const token = await getMediaToken(track.asset_id);
         if (loadId !== loadIdRef.current) return;
 
@@ -150,30 +192,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setArtworkUrl(token.thumbnail_url ?? null);
         audio.src = token.url;
         audio.load();
-
-        if (startAt > 0) {
-          const onMetadata = () => {
-            audio.removeEventListener("loadedmetadata", onMetadata);
-            if (loadId !== loadIdRef.current) return;
-            try {
-              audio.currentTime = startAt;
-            } catch {
-              // Seeking before the media is ready is not fatal.
-            }
-          };
-          audio.addEventListener("loadedmetadata", onMetadata);
-        }
+        applyStartOffset();
 
         if (autoplay) attemptPlay(audio);
       } catch {
         if (loadId !== loadIdRef.current) return;
         // The signed URL could not be minted. Keep the track in the bar, but
         // paused and silent; nothing is surfaced to the user.
+        releaseBlobUrl();
         expiresAtRef.current = 0;
         setPlaying(false);
       }
     },
-    [setPlaying],
+    [releaseBlobUrl, setPlaying],
   );
 
   const seek = useCallback(
@@ -320,6 +351,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.load();
     }
     loadIdRef.current += 1;
+    releaseBlobUrl();
     currentRef.current = null;
     expiresAtRef.current = 0;
     retryRef.current = 0;
@@ -329,7 +361,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlaying(false);
     setPosition(0);
     setDuration(0);
-  }, [applyQueue, setPlaying]);
+  }, [applyQueue, releaseBlobUrl, setPlaying]);
 
   /** Retry once after a media error, refreshing the signed URL. */
   const handleError = useCallback(() => {
@@ -391,9 +423,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.removeAttribute("src");
       audio.load();
       audioRef.current = null;
+      releaseBlobUrl();
       loadIdRef.current += 1;
     };
-  }, [getAudio, setPlaying]);
+  }, [getAudio, releaseBlobUrl, setPlaying]);
 
   const value = useMemo<PlayerContextValue>(
     () => ({

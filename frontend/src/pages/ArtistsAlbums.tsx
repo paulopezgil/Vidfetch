@@ -7,11 +7,13 @@ import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
+import OfflineButton from "../components/OfflineButton";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
 import { usePlayer } from "../player/PlayerProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { isAudioAsset } from "../offline/media";
 
 type GroupTab = "artists" | "albums";
 
@@ -285,6 +287,9 @@ function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
           {duration ? ` · ${duration}` : ""}
         </p>
       </div>
+      {isAudioAsset(track) ? (
+        <OfflineButton assetId={track.asset_id} title={track.title} />
+      ) : null}
       <IconButton
         variant={playing ? "filled" : "tonal"}
         label={playing ? "Pause" : "Play"}
