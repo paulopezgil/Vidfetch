@@ -23,6 +23,7 @@ import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import Menu from "../components/Menu";
+import AddToPlaylistDialog from "../components/AddToPlaylistDialog";
 import TrackEditDialog from "../components/TrackEditDialog";
 import JobCard from "../components/JobCard";
 import SearchBar from "../components/SearchBar";
@@ -172,6 +173,7 @@ export default function Tracks() {
   } | null>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [editing, setEditing] = useState<Track | null>(null);
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
 
   const searchActive = query.length > 0;
 
@@ -445,6 +447,7 @@ export default function Tracks() {
                     queue={day.items}
                     onPreview={() => void openPreview(item)}
                     onEdit={() => setEditing(item)}
+                    onAddToPlaylist={() => setAddTarget(item)}
                     onDelete={() =>
                       setPendingDelete({
                         kind: "file",
@@ -554,6 +557,12 @@ export default function Tracks() {
         onClose={() => setEditing(null)}
         onSaved={handleTrackSaved}
       />
+
+      <AddToPlaylistDialog
+        open={addTarget !== null}
+        track={addTarget}
+        onClose={() => setAddTarget(null)}
+      />
     </div>
   );
 }
@@ -563,6 +572,7 @@ function FileRow({
   queue,
   onDelete,
   onEdit,
+  onAddToPlaylist,
   onPreview,
 }: {
   item: Track;
@@ -570,6 +580,7 @@ function FileRow({
   queue: Track[];
   onDelete: () => void;
   onEdit: () => void;
+  onAddToPlaylist: () => void;
   onPreview: () => void;
 }) {
   const toast = useToast();
@@ -676,6 +687,12 @@ function FileRow({
           label="Més accions"
           actions={[
             {
+              id: "add-to-playlist",
+              label: "Afegeix a una playlist",
+              icon: "playlist_add",
+              onSelect: onAddToPlaylist,
+            },
+            {
               id: "edit",
               label: "Edita els detalls",
               icon: "edit",
@@ -741,7 +758,7 @@ function PlaylistRow({
       </div>
       <div className="flex w-full items-center gap-1.5 sm:w-auto">
         <Link
-          to={`/playlists/${playlist.id}`}
+          to={`/imported/${playlist.id}`}
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-secondary-container px-4 text-label-large text-on-secondary-container transition-colors hover:bg-secondary-container/90"
         >
           <Icon name="folder_open" className="text-[18px]" /> Mostra

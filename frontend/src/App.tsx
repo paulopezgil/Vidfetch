@@ -23,6 +23,7 @@ import Dashboard from "./pages/Dashboard";
 import Tracks from "./pages/Tracks";
 import Playlists from "./pages/Playlists";
 import PlaylistDetail from "./pages/PlaylistDetail";
+import UserPlaylistDetail from "./pages/UserPlaylistDetail";
 import ArtistsAlbums from "./pages/ArtistsAlbums";
 
 /** Navigation shell shared by every approved application route. */
@@ -50,7 +51,7 @@ function AppShell() {
 /** Preserve old library playlist links after the navigation restructure. */
 function LegacyPlaylistRedirect() {
   const { id = "" } = useParams();
-  return <Navigate to={`/playlists/${encodeURIComponent(id)}`} replace />;
+  return <Navigate to={`/imported/${encodeURIComponent(id)}`} replace />;
 }
 
 export default function App() {
@@ -69,7 +70,11 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/tracks" element={<Tracks />} />
                   <Route path="/playlists" element={<Playlists />} />
-                  <Route path="/playlists/:id" element={<PlaylistDetail />} />
+                  <Route
+                    path="/playlists/:id"
+                    element={<UserPlaylistDetail />}
+                  />
+                  <Route path="/imported/:id" element={<PlaylistDetail />} />
                   <Route path="/artists" element={<ArtistsAlbums />} />
                   <Route
                     path="/library"

@@ -27,9 +27,9 @@ export function destinationsFor(isAdmin: boolean): Destination[] {
 }
 
 /*
- * The top app bar needs the human title of the playlist currently open. The
- * detail page publishes it here after loading, so `titleForPath` stays a pure
- * path function for every other destination.
+ * The top app bar needs the human title of the playlist currently open
+ * (curated or imported). The detail pages publish it here after loading, so
+ * `titleForPath` stays a pure path function for every other destination.
  */
 let activePlaylistTitle: string | null = null;
 const titleListeners = new Set<() => void>();
@@ -61,6 +61,9 @@ export function titleForPath(
   if (pathname === "/playlists") return "Playlists";
   if (pathname.startsWith("/playlists/")) {
     return playlistTitle?.trim() || "Playlist";
+  }
+  if (pathname.startsWith("/imported/")) {
+    return playlistTitle?.trim() || "Imported playlist";
   }
   if (pathname === "/artists") return "Artists & Albums";
   if (pathname.startsWith("/admin")) return "Administració";

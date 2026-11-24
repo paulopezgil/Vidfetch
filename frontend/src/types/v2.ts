@@ -220,6 +220,45 @@ export interface PlaylistList {
 }
 
 /**
+ * A curated playlist owned by the caller (`GET /api/user-playlists`).
+ *
+ * Unlike `PlaylistV2`, which mirrors a downloaded source playlist, a curated
+ * playlist holds an explicit, user-ordered selection of the caller's tracks.
+ */
+export interface UserPlaylist {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  /** Relative cover path, when a custom cover exists. */
+  cover_path: string | null;
+  track_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/user-playlists/{playlist_id}` — playlist plus ordered tracks. */
+export interface UserPlaylistDetail extends UserPlaylist {
+  items: Track[];
+}
+
+/** Paginated response for `GET /api/user-playlists`. */
+export interface UserPlaylistList {
+  items: UserPlaylist[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Request body for creating or renaming a curated playlist. */
+export interface UserPlaylistInput {
+  /** Trimmed name, 1–200 characters. */
+  name: string;
+  /** Optional description, up to 500 characters. */
+  description?: string;
+}
+
+/**
  * Short-lived signed media URL (`POST /api/media/{asset_id}/token`).
  *
  * `url` streams the asset; `thumbnail_url` is `null` when the asset has no
