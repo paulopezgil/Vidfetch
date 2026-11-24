@@ -19,6 +19,7 @@ from ..version import APP_VERSION
 from .api.errors import register_exception_handlers
 from .api.routes import (
     admin,
+    auth,
     downloads,
     health,
     library,
@@ -114,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(me.router)
     app.include_router(admin.router)
     app.include_router(downloads.router)

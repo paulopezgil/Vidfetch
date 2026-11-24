@@ -6,7 +6,9 @@ from backend.version import APP_VERSION
 
 
 def test_health_is_public_and_degraded_without_database(tmp_path):
-    settings = make_settings(tmp_path)
+    settings = make_settings(
+        tmp_path, MEDIA_TOKEN_SECRET="health-media-secret-not-for-production"
+    )
 
     with app_client(settings) as (app, client):
         response = client.get("/api/health")
@@ -22,7 +24,7 @@ def test_health_is_public_and_degraded_without_database(tmp_path):
     assert body["storage"]["free_bytes"] >= 0
     assert set(body["dependencies"]) == {"ffmpeg", "node"}
     # No secrets leak into the public payload.
-    assert "test-jwt-secret" not in response.text
+    assert "health-media-secret-not-for-production" not in response.text
 
 
 def test_health_reports_ok_when_database_is_reachable(tmp_path):

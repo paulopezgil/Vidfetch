@@ -13,6 +13,7 @@ from backend.tests.v2.fakes import (
     auth_headers,
     make_settings,
     make_token,
+    non_session_calls,
     profile_row,
 )
 
@@ -129,7 +130,9 @@ def test_upload_cover_rejects_invalid_base64(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_cover"
-    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert all(
+        " set " not in call[1].lower() for call in non_session_calls(db)
+    )
     assert not (settings.download_dir / "covers").exists()
 
 
@@ -380,7 +383,9 @@ def test_upload_cover_rejects_an_unsupported_content_type(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_request"
-    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert all(
+        " set " not in call[1].lower() for call in non_session_calls(db)
+    )
     assert not (settings.download_dir / "covers").exists()
 
 

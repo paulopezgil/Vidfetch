@@ -15,6 +15,7 @@ from ...models.schemas import (
     AdminAssetOut,
     AdminJobList,
     AdminJobOut,
+    AdminPasswordReset,
     AdminUserList,
     AppRole,
     AssetStatus,
@@ -22,7 +23,7 @@ from ...models.schemas import (
     ProfileOut,
     RoleUpdate,
 )
-from ...services import admin_inventory, profiles
+from ...services import admin_inventory, auth as auth_service, profiles
 from ...services.profiles import ConflictError, MAX_PAGE_SIZE
 from ...services.storage import Storage
 from ..deps import get_db, get_storage, require_admin
@@ -134,6 +135,38 @@ async def set_user_role(
     if row is None:
         raise _not_found()
     return ProfileOut.model_validate(row)
+
+
+@router.post(
+    "/users/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT
+)
+async def reset_user_password(
+    user_id: UUID,
+    payload: AdminPasswordReset,
+    admin: ProfileOut = Depends(require_admin),
+    db: Database | None = Depends(get_db),
+) -> Response:
+    """Set a new password and revoke every session for the account.
+
+    The hash change and the session cleanup commit in one transaction, so an
+    administrator reset can never leave a previously issued token usable.
+    """
+    if db is None:
+        raise _unavailable()
+    try:
+        updated = await auth_service.set_password(
+            db, user_id, payload.password, revoke_sessions=True
+        )
+    except (
+        auth_service.WeakPasswordError,
+        auth_service.InvalidPasswordError,
+    ) as exc:
+        raise ApiError(400, exc.code, exc.message) from exc
+    except DB_ERRORS as exc:
+        raise _unavailable() from exc
+    if not updated:
+        raise _not_found()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _asset_not_found() -> ApiError:

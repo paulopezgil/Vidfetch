@@ -255,7 +255,7 @@ async def create_pool(
     startup only, never at import time.
     """
     if not settings.database_url:
-        raise ConfigError("DATABASE_URL (or SUPABASE_DB_URL) is not configured.")
+        raise ConfigError("DATABASE_URL is not configured.")
 
     # Reject a bad schema before opening a connection. ``Database`` validates
     # again, but doing it here means a misconfigured deployment never touches
