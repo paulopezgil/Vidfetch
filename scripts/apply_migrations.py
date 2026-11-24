@@ -23,7 +23,7 @@ from pathlib import Path
 import asyncpg
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "supabase" / "migrations"
+DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 
 
 async def apply_migrations(database_url: str, migrations_dir: Path) -> int:

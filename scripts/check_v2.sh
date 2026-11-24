@@ -31,7 +31,7 @@ python3 - <<'PY'
 from pathlib import Path
 import pglast
 
-paths = sorted(Path("supabase/migrations").glob("*.sql"))
+paths = sorted(Path("db/migrations").glob("*.sql"))
 if not paths:
     raise SystemExit("No migrations found")
 for path in paths:

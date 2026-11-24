@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the Vidfetch Supabase migration templates for a configured schema.
 
-The templates in ``supabase/templates`` contain a single ``{{schema}}``
+The templates in ``db/templates`` contain a single ``{{schema}}``
 placeholder. Rendering with the default ``public`` schema reproduces the
 committed migrations byte for byte; rendering with e.g. ``vidfetch`` emits the
 same SQL with every application table moved into that schema.
@@ -40,8 +40,8 @@ RESERVED_SCHEMAS = frozenset(
 RESERVED_PREFIXES = ("pg_", "supabase_")
 PLACEHOLDER = "{{schema}}"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_TEMPLATES_DIR = REPO_ROOT / "supabase" / "templates"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "supabase" / "migrations"
+DEFAULT_TEMPLATES_DIR = REPO_ROOT / "db" / "templates"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "db" / "migrations"
 
 
 def validate_schema(raw: str) -> str:
