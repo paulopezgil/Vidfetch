@@ -326,6 +326,31 @@ def playlist_row(
     return row
 
 
+def user_playlist_row(
+    *,
+    playlist_id: str | UUID | None = None,
+    user_id: str | UUID | None = None,
+    name: str = "My playlist",
+    description: str = "",
+    track_count: int = 0,
+    **overrides: Any,
+) -> dict[str, Any]:
+    """A ``UserPlaylistOut``-shaped curated playlist row."""
+    row: dict[str, Any] = {
+        "id": playlist_id or uuid4(),
+        "user_id": user_id or uuid4(),
+        "name": name,
+        "description": description,
+        "cover_path": None,
+        "track_count": track_count,
+        "created_at": NOW,
+        "updated_at": NOW,
+        "deleted_at": None,
+    }
+    row.update(overrides)
+    return row
+
+
 def playlist_item_row(
     *,
     item_id: str | UUID | None = None,

@@ -496,3 +496,40 @@ def test_resolve_cover_path_validates_storage_paths(storage: Storage):
     path.unlink()
     assert run(tracks.resolve_cover_path(db, storage, track_id, owner)) is None
     assert run(tracks.resolve_cover_path(db, storage, track_id, owner)) is None
+
+
+def test_list_tracks_by_ids_preserves_order_and_filters_invisible_rows():
+    owner = uuid4()
+    first, second, third = uuid4(), uuid4(), uuid4()
+    db = FakeDatabase()
+    db.queue_fetch(
+        [
+            track_row(track_id=third),
+            track_row(track_id=first),
+        ]
+    )
+
+    rows = run(
+        tracks.list_tracks_by_ids(
+            db, owner, [first, second, third, first]
+        )
+    )
+
+    assert [row["id"] for row in rows] == [first, third]
+    query, args = db.calls[0][1], db.calls[0][2]
+    assert 'from "public".user_tracks ut' in query
+    assert 'join "public".media_assets a on a.id = ut.asset_id' in query
+    assert "ut.user_id = $1" in query
+    assert "ut.deleted_at is null" in query
+    assert "a.status = 'ready'" in query
+    assert "j.library_hidden = false" in query
+    assert "ut.id = any($2::uuid[])" in query
+    # Duplicate ids are collapsed before the query runs.
+    assert args == (owner, [first, second, third])
+
+
+def test_list_tracks_by_ids_skips_the_query_for_an_empty_list():
+    db = FakeDatabase()
+
+    assert run(tracks.list_tracks_by_ids(db, uuid4(), [])) == []
+    assert db.calls == []
