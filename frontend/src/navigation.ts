@@ -11,6 +11,7 @@ export const destinations: Destination[] = [
   { to: "/tracks", label: "Tracks", icon: "library_music" },
   { to: "/playlists", label: "Playlists", icon: "queue_music" },
   { to: "/artists", label: "Artists & Albums", icon: "person" },
+  { to: "/settings", label: "Configuració", icon: "settings" },
 ];
 
 /** Admin-only destination, appended for accounts with `app_role = 'admin'`. */
@@ -69,6 +70,7 @@ export function titleForPath(
     return playlistTitle?.trim() || "Imported playlist";
   }
   if (pathname === "/artists") return "Artists & Albums";
+  if (pathname === "/settings") return "Configuració";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";
 }

@@ -33,6 +33,7 @@ const PlaylistDetail = lazy(() => import("./pages/PlaylistDetail"));
 const UserPlaylistDetail = lazy(() => import("./pages/UserPlaylistDetail"));
 const PlaylistAddTracks = lazy(() => import("./pages/PlaylistAddTracks"));
 const ArtistsAlbums = lazy(() => import("./pages/ArtistsAlbums"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 /** Shared loading state for every lazily loaded route. */
 function RouteFallback() {
@@ -121,6 +122,7 @@ export default function App() {
                     />
                     <Route path="/imported/:id" element={<PlaylistDetail />} />
                     <Route path="/artists" element={<ArtistsAlbums />} />
+                    <Route path="/settings" element={<Settings />} />
                     <Route
                       path="/library"
                       element={<Navigate to="/tracks" replace />}
