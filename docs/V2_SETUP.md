@@ -1,12 +1,12 @@
-# Vidfetch v2 — Setup and Deployment Guide
+# Vidfetch v2.4 — Setup and Deployment Guide
 
-This guide covers both supported deployment modes:
+This guide covers the two supported deployment modes:
 
 - **Local development:** one `docker compose up` starts the Vite frontend, the
-  FastAPI backend, and a complete local Supabase stack. No cloud account is
-  required.
-- **Production:** the frontend is deployed natively to **Vercel**, the backend
-  runs as a container on a **VPS**, and both use **Supabase Cloud**.
+  FastAPI backend, and a bundled PostgreSQL 16 database.
+- **Production:** the frontend is a static build (Vercel or any static host),
+  the backend runs as a container with its own PostgreSQL database (bundled in
+  Compose or external), and TLS is terminated in front of the API.
 
 The application code, database migrations, and API are the same in both modes.
 
@@ -18,11 +18,9 @@ The application code, database migrations, and API are the same in both modes.
 
 - Docker Engine / Docker Desktop
 - Docker Compose v2+
-- Optional: the Supabase CLI, only if you want to run database commands from the
-  host instead of through the Compose Supabase wrapper
 
-Python, Node.js, `yt-dlp`, and FFmpeg are inside the images. You do **not** need
-a Supabase Cloud project or Google OAuth credentials for local work.
+Python, Node.js, `yt-dlp`, FFmpeg, and PostgreSQL run inside the images. No
+hosted database or OAuth account is required.
 
 ### A2. Start the stack
 
@@ -32,168 +30,170 @@ From the repository root:
 docker compose up --build
 ```
 
-This starts:
-
 | Service | Purpose | Address |
 | --- | --- | --- |
 | `frontend` | Vite dev server, hot reload | <http://localhost:5173> |
 | `backend` | FastAPI + worker + FFmpeg | <http://localhost:8000> |
-| `supabase` | Official Supabase CLI local stack | API `:54321`, DB `:54322` |
-| `local-bootstrap` | Creates/approves the local admin | one-shot |
-| Studio | Supabase web UI | <http://localhost:54323> |
-| Mailpit | Local mail catcher | <http://localhost:54324> |
+| `db` | PostgreSQL 16 (no host port) | Compose network |
+| `migrate` | One-shot migration runner | exits after applying |
+| `bootstrap` | Creates the local approved admin | one-shot |
 
-The first run pulls images and can take several minutes. Later runs are faster.
+The first run builds images and initializes the database. Later runs are faster.
 
-### A3. Local admin account
+### A3. Local administrator
 
-The `local-bootstrap` service creates:
+The `bootstrap` service creates:
 
 ```text
 email:    admin@local.test
 password: password123
 ```
 
-Open <http://localhost:5173> and use the **local development** sign-in form.
-Local email/password auth is enabled only because `docker-compose.yml` sets
-`VITE_ENABLE_LOCAL_AUTH=true`. Production builds do not set this flag.
+Open <http://localhost:5173>, sign in, and approve other accounts at `/admin`.
+New accounts created from the login screen start unapproved.
 
-If the bootstrap service failed, inspect it:
-
-```bash
-docker compose logs local-bootstrap
-docker compose up local-bootstrap
-```
-
-### A4. How the local Supabase service works
-
-`docker/supabase` is a small wrapper around the official Supabase CLI:
-
-- It runs the pinned Supabase CLI and the static Docker CLI.
-- It mounts the host Docker socket, so the CLI can start the official local
-  Supabase containers.
-- It uses host networking so the CLI’s own health checks can reach the
-  host-published Postgres/Auth ports.
-- The repository is mounted at the same absolute path inside and outside the
-  wrapper, so Docker path references remain valid.
-- On `docker compose down`, the wrapper’s signal handler runs
-  `supabase stop --no-backup` to stop the local stack.
-
-Local development is therefore a four-service Compose stack, but only one
-command:
+Recreate the development admin at any time:
 
 ```bash
-docker compose up --build
+docker compose run --rm bootstrap
 ```
 
-### A5. Common local commands
+### A4. Common local commands
 
 ```bash
 # Logs
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f supabase
+docker compose logs -f db
 
 # Rebuild one service
 docker compose up -d --build backend
 docker compose up -d --build frontend
 
-# Stop everything (the Supabase wrapper stops the CLI stack too)
+# Apply migrations without recreating the stack
+docker compose run --rm migrate
+
+# Backend health
+curl -s http://localhost:8000/api/health
+
+# Stop everything (data volumes stay)
 docker compose down
 
-# Reset the local database and reapply migrations
-docker compose exec supabase supabase db reset
-docker compose up local-bootstrap
-
-# Check backend health
-curl -s http://localhost:8000/api/health
+# Full reset: database + media cache (destructive)
+docker compose down -v
+docker compose up --build
 ```
 
-If Supabase containers remain after a forced stop, run:
-
-```bash
-npx supabase stop --no-backup
-```
-
-### A6. Local ports
+### A5. Local ports
 
 | Port | Service |
 | --- | --- |
 | `5173` | Vite frontend |
 | `8000` | FastAPI backend |
-| `54321` | Supabase API / Auth gateway |
-| `54322` | Supabase Postgres |
-| `54323` | Supabase Studio |
-| `54324` | Mailpit |
 
-If a port is already in use, stop the old stack before starting Compose.
+PostgreSQL is internal to the Compose network.
 
-### A7. Local environment overrides
+### A6. Local environment overrides
 
-The local stack uses development defaults from `docker-compose.yml`; no `.env`
-is required. The fixed local Supabase keys are public, disposable values.
-
-For frontend development outside Docker, copy `frontend/.env.example` to
-`frontend/.env.local` and set:
+The local stack has development defaults; no `.env` is required. For frontend
+development outside Compose, create `frontend/.env.local`:
 
 ```dotenv
-VITE_SUPABASE_URL=http://127.0.0.1:54321
-VITE_SUPABASE_ANON_KEY=<local anon key>
 VITE_API_BASE=http://localhost:8000/api
-VITE_ENABLE_LOCAL_AUTH=true
 ```
 
-Never set `VITE_ENABLE_LOCAL_AUTH` in a production build.
+There are no authentication-provider keys. The backend uses the bundled
+PostgreSQL database and the bootstrap admin.
 
 ---
 
 ## Part B — Production
 
-Production uses three independently managed pieces:
+Production is decoupled:
 
 ```text
-Vercel (frontend)  ──►  VPS (backend container)  ──►  Supabase Cloud
+Static frontend (Vercel or any static host)
+        │  HTTPS + opaque bearer token
+        ▼
+Backend container (home server / VPS) ──► PostgreSQL 16
+        │
+        └── signed media URLs
 ```
 
-### B1. Supabase Cloud
+### B1. Backend host
 
-1. Create a project at <https://supabase.com>.
-2. Copy from **Project Settings → API**:
-   - Project URL → `SUPABASE_URL`
-   - `anon` key → `SUPABASE_ANON_KEY`
-   - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (backend only)
-3. Copy the **pooler** connection string from
-   **Project Settings → Database** → `DATABASE_URL`.
-4. Create a Google Cloud OAuth 2.0 client and add the Supabase callback:
-   `https://<project-ref>.supabase.co/auth/v1/callback`
-5. Enable **Authentication → Providers → Google** in Supabase.
-6. Configure **Authentication → URL Configuration**:
-   - Site URL: `https://your-app.vercel.app`
-   - Redirect URLs: `https://your-app.vercel.app` and
-     `http://localhost:5173`
-
-### B2. Apply migrations
-
-Choose **one** schema per database.
-
-**Default `public` schema:**
+Use `docker-compose.backend.yml`. It bundles PostgreSQL, a migration runner, the
+API/worker, and an optional bootstrap profile.
 
 ```bash
-npx supabase login
-npx supabase link --project-ref <project-ref>
-npx supabase db push
+git clone https://github.com/paulopezgil/Vidfetch.git
+cd Vidfetch
+cp .env.example .env
 ```
 
-You can also run the committed SQL files from `supabase/migrations/` in the
-Supabase SQL editor.
+Fill `.env`:
 
-**Dedicated schema (`vidfetch`):** do **not** run `db push` — the committed
-migrations target `public`. Render the templates for `vidfetch` and apply the
-rendered files instead. See [Custom database schema](#custom-database-schema).
-Set `DB_SCHEMA=vidfetch` on the backend.
+```dotenv
+POSTGRES_PASSWORD=replace-with-a-long-random-password
+DB_SCHEMA=public
+AUTH_SESSION_TTL_SECONDS=2592000
+MEDIA_TOKEN_SECRET=replace-with-a-long-random-secret
+PUBLIC_API_URL=https://api.example.com
+CORS_ORIGINS=https://app.example.com
+DOWNLOAD_DIR=/app/downloads
+MIN_FREE_DISK_MB=500
+ALLOW_PRIVATE_URLS=false
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+```
 
-Do not install both schemas in the same database: the auth trigger would be
-repointed and you would have two sets of tables.
+Start it:
+
+```bash
+docker compose -f docker-compose.backend.yml up -d --build
+curl -s https://api.example.com/api/health
+```
+
+Important:
+
+- `PUBLIC_API_URL` is the public **HTTPS** backend origin (no `/api` suffix).
+- `CORS_ORIGINS` must exactly match the frontend origin.
+- The `pgdata` and `vidfetch_downloads` volumes must be persistent and backed up.
+- The backend runs as a single instance with a local media volume.
+- The bundled `migrate` service applies `db/migrations` on every start.
+- For an external PostgreSQL, point the backend at it, apply the migrations with
+  `scripts/apply_migrations.py`, and override/disable the bundled `db` and
+  `migrate` services.
+
+Put a TLS reverse proxy in front of port `8000`:
+
+```caddyfile
+api.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+### B2. First administrator
+
+No default account exists in production. Create one explicitly:
+
+```bash
+BOOTSTRAP_ADMIN_EMAIL=you@example.com \
+BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' \
+docker compose -f docker-compose.backend.yml --profile bootstrap run --rm bootstrap
+```
+
+Or, with an externally reachable database and backend dependencies installed:
+
+```bash
+DATABASE_URL=postgresql://... DB_SCHEMA=public \
+  python3 scripts/create_admin.py --email you@example.com \
+  --password 'choose-a-strong-password' --admin
+```
+
+`create_admin` is idempotent: it creates the account or updates its password,
+approval, and role. `--admin` grants the administrator role; omitting it keeps an
+existing admin role unchanged.
 
 ### B3. Frontend on Vercel
 
@@ -203,162 +203,79 @@ Create a Vercel project:
 - **Framework:** Vite (auto-detected)
 - **Build command:** `npm run build`
 - **Output directory:** `dist`
-- `frontend/vercel.json` supplies the SPA rewrite
+- `frontend/vercel.json` supplies the SPA rewrite.
 
 Environment variables:
 
 ```dotenv
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_API_BASE=https://api.example.com/api
 ```
 
-Do **not** add `VITE_ENABLE_LOCAL_AUTH`, `SUPABASE_SERVICE_ROLE_KEY`, or
-`DATABASE_URL` to Vercel.
+That is the only frontend setting. Never add `DATABASE_URL`,
+`MEDIA_TOKEN_SECRET`, or any backend secret.
 
-### B4. Backend on the VPS
+Add the production domain and make sure it matches `CORS_ORIGINS`.
 
-Copy the repository to the VPS and create `.env` from `.env.example`:
+### B4. Production checklist
 
-```dotenv
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-DATABASE_URL=postgresql://...
-DB_SCHEMA=public
-
-PUBLIC_API_URL=https://api.example.com
-CORS_ORIGINS=https://your-app.vercel.app
-MEDIA_TOKEN_SECRET=<long random secret>
-```
-
-Start the backend-only stack:
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-The backend image is built from `backend/Dockerfile` with the `backend/`
-directory as its build context. It does not contain the frontend.
-
-Put a TLS reverse proxy in front of port 8000. Example Caddyfile:
-
-```caddyfile
-api.example.com {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-Important:
-
-- `PUBLIC_API_URL` must be the public **HTTPS** backend origin. It is used for
-  absolute signed media/thumbnail URLs.
-- `CORS_ORIGINS` must include the exact Vercel origin.
-- The media volume (`vidfetch_downloads`) must be persistent and backed up.
-- The backend runs as a single instance with a local media volume.
-
-### B5. First administrator
-
-Sign in with Google once. The account is created with `is_approved=false` and
-lands on `/pending`. Promote it from the Supabase SQL editor:
-
-```sql
-update public.profiles
-   set is_approved = true,
-       app_role = 'admin',
-       approved_at = now(),
-       approved_by = id
- where lower(email) = lower('you@example.com');
-```
-
-Or use the helper:
-
-```bash
-DATABASE_URL=... DB_SCHEMA=public \
-  python3 scripts/promote_admin.py --email you@example.com
-```
-
-Refresh the app and approve other users at `/admin`.
-
-### B6. Production checklist
-
-- [ ] Supabase project created and Google provider enabled.
-- [ ] Google OAuth callback and Supabase redirect URLs configured.
-- [ ] Migrations applied (`public` or the chosen `DB_SCHEMA`).
-- [ ] Backend `DB_SCHEMA` matches the schema that received the migrations.
-- [ ] Dedicated schema: rendered migrations applied and `vidfetch` not exposed in the Data API.
-- [ ] Vercel root directory is `frontend` and env values are set.
-- [ ] Vercel does **not** contain backend secrets.
-- [ ] VPS `.env` has `PUBLIC_API_URL`, `CORS_ORIGINS`, and backend secrets.
-- [ ] TLS reverse proxy terminates HTTPS in front of the backend.
-- [ ] `vidfetch_downloads` volume is persistent and backed up.
-- [ ] First admin promoted.
+- [ ] Backend `.env` has `POSTGRES_PASSWORD`, `MEDIA_TOKEN_SECRET`,
+      `PUBLIC_API_URL`, `CORS_ORIGINS`, and `DB_SCHEMA`.
+- [ ] TLS terminates in front of the backend.
+- [ ] PostgreSQL and download volumes are persistent and backed up.
+- [ ] Migrations applied (`migrate` service or `scripts/apply_migrations.py`).
+- [ ] First administrator created explicitly.
+- [ ] Vercel root directory is `frontend` and only `VITE_API_BASE` is set.
 - [ ] `/api/health` returns `ok` over HTTPS.
-- [ ] A real video, playlist, and ZIP work from the Vercel origin.
+- [ ] A real video, playlist, and ZIP work from the deployed frontend.
+- [ ] Login, approval, logout, and password change work over HTTPS.
 
 ---
 
 ## Custom database schema
 
-The default schema is `public`, so forks work without extra configuration. A
-deployment can use a dedicated schema such as `vidfetch`; the backend reads the
-validated schema name from **`DB_SCHEMA`** and routes every query there.
+The default schema is `public`. A dedicated schema such as `vidfetch` is
+supported: the backend reads the validated `DB_SCHEMA` variable and every query
+targets that schema.
 
-Pick one schema per database. Do not apply both `public` and `vidfetch` in the
-same project.
-
-### 1. Render the migrations
+### Render and apply
 
 ```bash
 DB_SCHEMA=vidfetch python3 scripts/render_migrations.py \
-  --schema vidfetch \
   --output /tmp/vidfetch-migrations
-```
 
-The first rendered file creates the schema, grants usage, and sets default
-privileges for `service_role`. The rest create the tables, RLS, and the
-`auth.users` trigger. Confirm the files reference `"vidfetch"`.
-
-Do **not** use `npx supabase db push` for a custom schema: the committed
-`supabase/migrations/` files target `public`.
-
-### 2. Apply them
-
-**Supabase SQL Editor (cloud):** paste the rendered files in filename order
-(`00000000000000_schema.sql` first).
-
-**Or from the terminal**, using a direct/session connection on port `5432`
-(not the `6543` transaction pooler):
-
-```bash
-DATABASE_URL='postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres' \
+DATABASE_URL=postgresql://... \
   python3 scripts/apply_migrations.py \
   --migrations-dir /tmp/vidfetch-migrations
 ```
 
-### 3. Point the backend at it
+Then set `DB_SCHEMA=vidfetch` for the backend.
 
-```dotenv
-DB_SCHEMA=vidfetch
-# the running backend can keep the transaction pooler on 6543
-DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+The first rendered file creates the schema and grants; the second creates the
+tables. The committed `db/migrations/*.sql` files target `public`; the templates
+live in `db/templates/`.
+
+### Bundled Compose with a custom schema
+
+The bundled `migrate` service mounts `db/migrations` (public). For a custom
+schema, mount the rendered directory over `/migrations` with an override file
+and set `DB_SCHEMA`, for example:
+
+```yaml
+# docker-compose.vidfetch.yml
+services:
+  migrate:
+    volumes:
+      - /tmp/vidfetch-migrations:/migrations:ro
 ```
 
-Restart the backend. If `DB_SCHEMA` is missing or does not match the applied
-migrations, requests fail with `relation "profiles" does not exist`.
+```bash
+docker compose -f docker-compose.backend.yml \
+  -f docker-compose.vidfetch.yml up -d --build
+```
 
-### 4. Supabase UI settings
+Do not install both `public` and `vidfetch` in the same database.
 
-- Keep the **Data API disabled** and “Grant API access to new tables
-  automatically” **off**.
-- Keep “Enable RLS on new tables automatically” **on**. It mainly protects
-  `public`; the migrations enable RLS explicitly in `vidfetch`.
-- Do **not** add `vidfetch` to the Data API’s exposed schemas. The backend
-  connects directly with `DATABASE_URL`.
-- Auth URL Configuration and the Google provider are unchanged by the schema
-  choice.
-
-### 5. Verify
+### Verify
 
 ```sql
 select table_name
@@ -366,35 +283,14 @@ select table_name
  where table_schema = 'vidfetch'
  order by table_name;
 
-select tgname
-  from pg_trigger
- where tgrelid = 'auth.users'::regclass
-   and not tgisinternal;
+select column_name
+  from information_schema.columns
+ where table_schema = 'vidfetch'
+   and table_name = 'download_jobs'
+ order by column_name;
 ```
 
-Expect the nine application tables and `on_auth_user_created`. Promote the first
-admin in the same schema:
-
-```sql
-update vidfetch.profiles
-   set is_approved = true,
-       app_role = 'admin',
-       approved_at = now(),
-       approved_by = id
- where lower(email) = lower('you@example.com');
-```
-
-Or `DATABASE_URL=... DB_SCHEMA=vidfetch python3 scripts/promote_admin.py
---email you@example.com`.
-
-### Notes
-
-- `scripts/render_migrations.py --check` only verifies the committed `public`
-  output; render custom schemas to a temporary directory.
-- The pgTAP RLS tests in `supabase/tests/` are public-only.
-- If the project already applied the public migrations, reset the database or
-  start a fresh project before switching; otherwise two table sets exist and the
-  auth trigger moves to the second one.
+Create the first admin in the same schema with `DB_SCHEMA=vidfetch`.
 
 ---
 
@@ -404,18 +300,14 @@ Or `DATABASE_URL=... DB_SCHEMA=vidfetch python3 scripts/promote_admin.py
 
 | Variable | Purpose |
 | --- | --- |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Public Supabase key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Backend-only Auth admin key |
-| `SUPABASE_JWKS_URL` | Optional JWT key-set override |
-| `SUPABASE_JWT_ISSUER` | Optional JWT issuer override |
-| `SUPABASE_JWT_AUDIENCE` | Optional JWT audience override |
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `POSTGRES_PASSWORD` | Bundled PostgreSQL password (Compose) |
 | `DB_SCHEMA` | Application schema (`public` by default) |
-| `PUBLIC_API_URL` | Absolute public backend origin |
-| `CORS_ORIGINS` | Comma-separated browser origins |
+| `AUTH_SESSION_TTL_SECONDS` | Opaque session lifetime (default 30 days) |
 | `MEDIA_TOKEN_SECRET` | HMAC secret for signed media URLs |
 | `MEDIA_TOKEN_TTL_SECONDS` | Signed URL lifetime |
+| `PUBLIC_API_URL` | Absolute public backend origin |
+| `CORS_ORIGINS` | Comma-separated browser origins |
 | `DOWNLOAD_DIR` | Media root inside the container |
 | `MAX_CONCURRENT_DOWNLOADS` | Global worker concurrency |
 | `MAX_CONCURRENT_JOBS_PER_USER` | Per-user concurrency |
@@ -424,15 +316,34 @@ Or `DATABASE_URL=... DB_SCHEMA=vidfetch python3 scripts/promote_admin.py
 | `MIN_FREE_DISK_MB` | Disk-space safety floor |
 | `JOB_LEASE_SECONDS` | Worker/asset lease duration |
 | `ALLOW_PRIVATE_URLS` | Private URLs (local tests only) |
+| `ENVIRONMENT` | Runtime mode |
+| `LOG_LEVEL` | Log verbosity |
 
-### Frontend / Vercel
+### Frontend
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Public anon key |
-| `VITE_API_BASE` | Absolute backend API URL |
-| `VITE_ENABLE_LOCAL_AUTH` | Local development only; omit in production |
+| `VITE_API_BASE` | Absolute backend API URL, e.g. `https://api.example.com/api` |
+
+---
+
+## Local verification
+
+```bash
+# Backend unit tests
+python3 -m pytest backend/tests -q
+
+# Backend with a migrated throwaway PostgreSQL
+TEST_DATABASE_URL=postgresql://... python3 -m pytest backend/tests -q
+
+# Frontend
+cd frontend && npm run build
+
+# Backend + frontend + migration render/parse
+./scripts/check_v2.sh
+```
+
+Integration tests are gated by `TEST_DATABASE_URL` and skip when it is absent.
 
 ---
 
@@ -440,15 +351,15 @@ Or `DATABASE_URL=... DB_SCHEMA=vidfetch python3 scripts/promote_admin.py
 
 | Symptom | Check |
 | --- | --- |
-| Local stack does not start | Docker is running; ports 5173/8000/54321/54322/54323 are free |
-| `local-bootstrap` failed | `docker compose logs local-bootstrap`; Auth may still be starting |
-| Local login form is missing | `VITE_ENABLE_LOCAL_AUTH=true` in the frontend container env |
-| `401` after local login | Backend must use the local JWKS URL, not the legacy HS256 secret |
-| `401` in production | Supabase URL/keys, JWKS/issuer/audience, clock skew |
-| `403 approval_required` | `profiles.is_approved` |
-| `403 admin_required` | `profiles.app_role` |
-| CORS error from Vercel | `CORS_ORIGINS` must exactly match the Vercel origin |
-| Media URL fails from Vercel | `PUBLIC_API_URL` must be the public HTTPS backend origin |
-| `relation "profiles" does not exist` | Migrations not applied or `DB_SCHEMA` mismatch |
-| Custom schema fails after switching | Do not mix `public` and `vidfetch`; reset and apply one set |
-| Google redirect error | Google callback and Supabase Site/Redirect URLs |
+| Local stack does not start | Docker running; ports 5173/8000 free |
+| `bootstrap` failed | `docker compose logs bootstrap`; migrations may still be starting |
+| Login invalid | Account exists; password; bootstrap output |
+| `401 invalid_session` | Session expired or revoked; sign in again |
+| `403 approval_required` | Approve the account at `/admin` |
+| `relation "profiles" does not exist` | `DB_SCHEMA` differs from the migrated schema |
+| Database unreachable | `DATABASE_URL`, `db` health, network/firewall |
+| CORS error | `CORS_ORIGINS` must equal the frontend origin |
+| Media URL fails | `PUBLIC_API_URL` must be the public HTTPS backend origin |
+| Migration failure | `docker compose logs migrate`; apply files in filename order |
+| Offline data missing | Browser storage/cache cleared or evicted |
+| Port conflict | Stop the old stack before `docker compose up` |
