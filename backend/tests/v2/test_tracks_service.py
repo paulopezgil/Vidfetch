@@ -39,15 +39,15 @@ def test_list_tracks_scopes_visibility_and_orders_newest_downloaded_first():
     assert "ut.user_id = $1" in count_query
     assert "ut.deleted_at is null" in count_query
     assert "a.status = 'ready'" in count_query
-    assert count_args == (owner,)
+    assert count_args == (owner, "")
 
     page_query, page_args = db.calls[1][1], db.calls[1][2]
     assert "j.library_hidden = false" in page_query
     assert "ut.deleted_at is null" in page_query
     assert "a.status = 'ready'" in page_query
     assert "order by ut.downloaded_at desc, ut.id desc" in page_query
-    assert "limit $2 offset $3" in page_query
-    assert page_args == (owner, 10, 0)
+    assert "limit $3 offset $4" in page_query
+    assert page_args == (owner, "", 10, 0)
 
 
 def test_list_tracks_selects_one_representative_ready_job_per_asset():
@@ -97,8 +97,99 @@ def test_list_tracks_clamps_pagination_args():
 
     assert page == []
     assert total == 0
-    assert db.calls[0][2] == (owner,)
-    assert db.calls[1][2] == (owner, tracks.MAX_PAGE_SIZE, 0)
+    assert db.calls[0][2] == (owner, "")
+    assert db.calls[1][2] == (owner, "", tracks.MAX_PAGE_SIZE, 0)
+
+
+def test_list_tracks_search_matches_the_resolved_title():
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, uuid4(), q="Abbey"))
+
+    page_query = db.calls[1][1]
+    assert (
+        "coalesce(nullif(ut.custom_title, ''), nullif(j.title, ''), "
+        "a.title, '') ilike '%' || $2 || '%'"
+    ) in page_query
+
+
+def test_list_tracks_search_matches_the_artist():
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, uuid4(), q="Abbey"))
+
+    page_query = db.calls[1][1]
+    assert "coalesce(ut.custom_artist, '') ilike '%' || $2 || '%'" in page_query
+
+
+def test_list_tracks_search_matches_the_album():
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, uuid4(), q="Abbey"))
+
+    page_query = db.calls[1][1]
+    assert "coalesce(ut.custom_album, '') ilike '%' || $2 || '%'" in page_query
+
+
+def test_list_tracks_search_clause_is_skipped_for_an_empty_term():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, owner, limit=5, offset=10))
+
+    count_query = db.calls[0][1]
+    # The empty-string guard makes the three ILIKE branches inert.
+    assert "$2 = ''" in count_query
+    assert db.calls[0][2] == (owner, "")
+    assert db.calls[1][2] == (owner, "", 5, 10)
+
+
+def test_list_tracks_trims_the_search_term_argument():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, owner, q="  Abbey Road  "))
+
+    assert db.calls[0][2] == (owner, "Abbey Road")
+    assert db.calls[1][2] == (owner, "Abbey Road", 50, 0)
+
+
+def test_list_tracks_treats_a_whitespace_only_search_as_no_filter():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, owner, q=" \t\n "))
+
+    assert db.calls[0][2] == (owner, "")
+    assert db.calls[1][2] == (owner, "", 50, 0)
+
+
+def test_list_tracks_keeps_page_args_in_order_with_a_search_term():
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 3})
+    db.queue_fetch([track_row()])
+
+    page, total = run(tracks.list_tracks(db, owner, q="jazz", limit=25, offset=50))
+
+    assert total == 3
+    assert len(page) == 1
+    assert db.calls[0][2] == (owner, "jazz")
+    page_query, page_args = db.calls[1][1], db.calls[1][2]
+    assert page_args == (owner, "jazz", 25, 50)
+    assert "limit $3 offset $4" in page_query
 
 
 def test_list_tracks_maps_a_missing_count_row_to_zero():
