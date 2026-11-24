@@ -174,7 +174,9 @@ Vercel (frontend)  ──►  VPS (backend container)  ──►  Supabase Cloud
 
 ### B2. Apply migrations
 
-Default `public` schema:
+Choose **one** schema per database.
+
+**Default `public` schema:**
 
 ```bash
 npx supabase login
@@ -185,9 +187,13 @@ npx supabase db push
 You can also run the committed SQL files from `supabase/migrations/` in the
 Supabase SQL editor.
 
-For a dedicated schema such as `vidfetch`, see
-[Custom database schema](#custom-database-schema). Set the same `DB_SCHEMA` on
-the backend.
+**Dedicated schema (`vidfetch`):** do **not** run `db push` — the committed
+migrations target `public`. Render the templates for `vidfetch` and apply the
+rendered files instead. See [Custom database schema](#custom-database-schema).
+Set `DB_SCHEMA=vidfetch` on the backend.
+
+Do not install both schemas in the same database: the auth trigger would be
+repointed and you would have two sets of tables.
 
 ### B3. Frontend on Vercel
 
@@ -279,6 +285,8 @@ Refresh the app and approve other users at `/admin`.
 - [ ] Supabase project created and Google provider enabled.
 - [ ] Google OAuth callback and Supabase redirect URLs configured.
 - [ ] Migrations applied (`public` or the chosen `DB_SCHEMA`).
+- [ ] Backend `DB_SCHEMA` matches the schema that received the migrations.
+- [ ] Dedicated schema: rendered migrations applied and `vidfetch` not exposed in the Data API.
 - [ ] Vercel root directory is `frontend` and env values are set.
 - [ ] Vercel does **not** contain backend secrets.
 - [ ] VPS `.env` has `PUBLIC_API_URL`, `CORS_ORIGINS`, and backend secrets.
@@ -293,35 +301,100 @@ Refresh the app and approve other users at `/admin`.
 ## Custom database schema
 
 The default schema is `public`, so forks work without extra configuration. A
-deployment can use a dedicated schema such as `vidfetch`.
+deployment can use a dedicated schema such as `vidfetch`; the backend reads the
+validated schema name from **`DB_SCHEMA`** and routes every query there.
 
-Render the schema-aware migrations:
+Pick one schema per database. Do not apply both `public` and `vidfetch` in the
+same project.
+
+### 1. Render the migrations
 
 ```bash
-DB_SCHEMA=vidfetch python scripts/render_migrations.py \
+DB_SCHEMA=vidfetch python3 scripts/render_migrations.py \
+  --schema vidfetch \
   --output /tmp/vidfetch-migrations
 ```
 
-Apply them to a **fresh** database:
+The first rendered file creates the schema, grants usage, and sets default
+privileges for `service_role`. The rest create the tables, RLS, and the
+`auth.users` trigger. Confirm the files reference `"vidfetch"`.
+
+Do **not** use `npx supabase db push` for a custom schema: the committed
+`supabase/migrations/` files target `public`.
+
+### 2. Apply them
+
+**Supabase SQL Editor (cloud):** paste the rendered files in filename order
+(`00000000000000_schema.sql` first).
+
+**Or from the terminal**, using a direct/session connection on port `5432`
+(not the `6543` transaction pooler):
 
 ```bash
-DATABASE_URL=postgresql://... \
-  python scripts/apply_migrations.py \
+DATABASE_URL='postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres' \
+  python3 scripts/apply_migrations.py \
   --migrations-dir /tmp/vidfetch-migrations
 ```
 
-Then set `DB_SCHEMA=vidfetch` on the backend.
+### 3. Point the backend at it
 
-The renderer validates the schema with the same rules as the backend and rejects
-Supabase-managed schemas (`auth`, `storage`, `pg_*`, etc.). The committed
-`supabase/migrations/*.sql` target `public`; the templates live in
-`supabase/templates/`.
-
-Verify:
-
-```bash
-DB_SCHEMA=public python scripts/render_migrations.py --check
+```dotenv
+DB_SCHEMA=vidfetch
+# the running backend can keep the transaction pooler on 6543
+DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
 ```
+
+Restart the backend. If `DB_SCHEMA` is missing or does not match the applied
+migrations, requests fail with `relation "profiles" does not exist`.
+
+### 4. Supabase UI settings
+
+- Keep the **Data API disabled** and “Grant API access to new tables
+  automatically” **off**.
+- Keep “Enable RLS on new tables automatically” **on**. It mainly protects
+  `public`; the migrations enable RLS explicitly in `vidfetch`.
+- Do **not** add `vidfetch` to the Data API’s exposed schemas. The backend
+  connects directly with `DATABASE_URL`.
+- Auth URL Configuration and the Google provider are unchanged by the schema
+  choice.
+
+### 5. Verify
+
+```sql
+select table_name
+  from information_schema.tables
+ where table_schema = 'vidfetch'
+ order by table_name;
+
+select tgname
+  from pg_trigger
+ where tgrelid = 'auth.users'::regclass
+   and not tgisinternal;
+```
+
+Expect the nine application tables and `on_auth_user_created`. Promote the first
+admin in the same schema:
+
+```sql
+update vidfetch.profiles
+   set is_approved = true,
+       app_role = 'admin',
+       approved_at = now(),
+       approved_by = id
+ where lower(email) = lower('you@example.com');
+```
+
+Or `DATABASE_URL=... DB_SCHEMA=vidfetch python3 scripts/promote_admin.py
+--email you@example.com`.
+
+### Notes
+
+- `scripts/render_migrations.py --check` only verifies the committed `public`
+  output; render custom schemas to a temporary directory.
+- The pgTAP RLS tests in `supabase/tests/` are public-only.
+- If the project already applied the public migrations, reset the database or
+  start a fresh project before switching; otherwise two table sets exist and the
+  auth trigger moves to the second one.
 
 ---
 
@@ -377,5 +450,5 @@ DB_SCHEMA=public python scripts/render_migrations.py --check
 | CORS error from Vercel | `CORS_ORIGINS` must exactly match the Vercel origin |
 | Media URL fails from Vercel | `PUBLIC_API_URL` must be the public HTTPS backend origin |
 | `relation "profiles" does not exist` | Migrations not applied or `DB_SCHEMA` mismatch |
-| Local Supabase containers remain | Run `npx supabase stop --no-backup` |
+| Custom schema fails after switching | Do not mix `public` and `vidfetch`; reset and apply one set |
 | Google redirect error | Google callback and Supabase Site/Redirect URLs |
