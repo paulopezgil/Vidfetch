@@ -25,7 +25,7 @@ TRACKS_COLUMNS = (
     "as title, "
     "ut.custom_artist as artist, ut.custom_album as album, "
     "ut.cover_path, a.thumbnail_path, a.duration_seconds, a.file_size_bytes, "
-    "a.output_ext, j.format_selector, j.playlist_id, "
+    "a.output_ext, j.format_selector, j.playlist_id, 'ready' as status, "
     "ut.downloaded_at, ut.updated_at"
 )
 
