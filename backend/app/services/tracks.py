@@ -12,12 +12,94 @@ asset is no longer ready.
 """
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+import asyncio
+import base64
+import binascii
+from pathlib import Path
+from typing import Any, Mapping
+from uuid import UUID, uuid4
 
 from ..core.db import Database
+from .storage import Storage, StorageError
 
 MAX_PAGE_SIZE = 200
+
+TRACK_METADATA_COLUMNS = (
+    "custom_title",
+    "custom_artist",
+    "custom_album",
+)
+
+MAX_FACET_LIMIT = 50
+FACET_COLUMNS = {
+    "artist": "custom_artist",
+    "album": "custom_album",
+}
+
+MAX_COVER_BYTES = 5 * 1024 * 1024
+
+# Extension and magic-byte prefix for each accepted cover type.
+COVER_TYPES: dict[str, tuple[str, tuple[bytes, ...]]] = {
+    "image/jpeg": ("jpg", (b"\xff\xd8\xff",)),
+    "image/png": ("png", (b"\x89PNG\r\n\x1a\n",)),
+}
+COVER_EXTENSIONS = ("jpg", "png", "webp")
+COVER_MEDIA_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+class CoverValidationError(ValueError):
+    """Raised when an uploaded cover image is malformed or unsupported."""
+
+
+def _is_webp(data: bytes) -> bool:
+    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+
+def _magic_matches(content_type: str, data: bytes) -> bool:
+    if content_type == "image/webp":
+        return _is_webp(data)
+    prefixes = COVER_TYPES.get(content_type, ("", ()))[1]
+    return any(data.startswith(prefix) for prefix in prefixes)
+
+
+def decode_cover(content_type: str, data: str) -> tuple[str, bytes]:
+    """Validate a base64 cover upload and return ``(extension, bytes)``.
+
+    The decoded payload must be at most five MiB and its magic bytes must match
+    the declared content type. All errors are :class:`CoverValidationError`
+    with a safe, user-facing message.
+    """
+    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise CoverValidationError("Unsupported cover image type.")
+    if not isinstance(data, str) or not data.strip():
+        raise CoverValidationError("Cover image data is required.")
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise CoverValidationError(
+            "Cover image data must be valid base64."
+        ) from exc
+    if not raw:
+        raise CoverValidationError("Cover image data is empty.")
+    if len(raw) > MAX_COVER_BYTES:
+        raise CoverValidationError(
+            "Cover images must be 5 MiB or smaller."
+        )
+    if not _magic_matches(content_type, raw):
+        raise CoverValidationError(
+            "Cover image data does not match the declared content type."
+        )
+    if content_type == "image/webp":
+        extension = "webp"
+    else:
+        extension = COVER_TYPES[content_type][0]
+    return extension, raw
+
 
 TRACKS_TITLE = (
     "coalesce(nullif(ut.custom_title, ''), nullif(j.title, ''), a.title, '')"
@@ -61,6 +143,24 @@ TRACKS_WHERE = (
     "or coalesce(ut.custom_artist, '') ilike '%' || $2 || '%' "
     "or coalesce(ut.custom_album, '') ilike '%' || $2 || '%')"
 )
+
+TRACKS_WHERE_BY_ID = (
+    "where ut.id = $1 and ut.user_id = $2 and ut.deleted_at is null "
+    "and a.status = 'ready'"
+)
+
+# The same ownership and visibility rules as TRACKS_WHERE, written as an
+# UPDATE guard so a caller can never edit a track that is hidden, deleted, or
+# no longer backed by a ready job/asset.
+def _track_update_visible(schema_sql: str) -> str:
+    return (
+        "where ut.id = $1 and ut.user_id = $2 and ut.deleted_at is null "
+        f"and exists (select 1 from {schema_sql}.media_assets a "
+        "where a.id = ut.asset_id and a.status = 'ready') "
+        f"and exists (select 1 from {schema_sql}.download_jobs j "
+        "where j.user_id = ut.user_id and j.asset_id = ut.asset_id "
+        "and j.status = 'ready' and j.library_hidden = false)"
+    )
 
 
 def _normalize_search(q: str | None) -> str:
@@ -117,3 +217,301 @@ async def list_tracks(
         offset,
     )
     return [dict(row) for row in rows], total
+
+
+async def get_track(
+    db: Database,
+    track_id: str | UUID,
+    user_id: str | UUID,
+) -> dict[str, Any] | None:
+    """Return one visible track owned by ``user_id``, or ``None``."""
+    identifier = _as_uuid(track_id)
+    owner = _as_uuid(user_id)
+    record = await db.fetchrow(
+        f"select {TRACKS_COLUMNS} {_tracks_from(db.schema_sql)} "
+        f"{TRACKS_WHERE_BY_ID}",
+        identifier,
+        owner,
+    )
+    return None if record is None else dict(record)
+
+
+async def update_track(
+    db: Database,
+    track_id: str | UUID,
+    user_id: str | UUID,
+    fields: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Update the caller's own editable track metadata.
+
+    Only the columns named in ``fields`` are written. ``None`` is returned when
+    the track is missing, owned by somebody else, deleted, hidden, or no longer
+    backed by a ready job and asset, which the router maps to a 404.
+    """
+    identifier = _as_uuid(track_id)
+    owner = _as_uuid(user_id)
+
+    assignments = ["updated_at = now()"]
+    args: list[Any] = [identifier, owner]
+    for column in TRACK_METADATA_COLUMNS:
+        if column not in fields:
+            continue
+        value = fields[column]
+        if not isinstance(value, str):
+            raise ValueError(f"{column} must be a string.")
+        args.append(value)
+        assignments.append(f"{column} = ${len(args)}")
+    if len(args) == 2:
+        raise ValueError("At least one metadata field is required.")
+
+    update_sql = (
+        f"update {db.schema_sql}.user_tracks ut "
+        f"set {', '.join(assignments)} "
+        f"{_track_update_visible(db.schema_sql)} "
+        f"returning ut.id"
+    )
+
+    async with db.transaction() as connection:
+        updated = await connection.fetchrow(update_sql, *args)
+        if updated is None:
+            return None
+        record = await connection.fetchrow(
+            f"select {TRACKS_COLUMNS} {_tracks_from(db.schema_sql)} "
+            f"{TRACKS_WHERE_BY_ID}",
+            identifier,
+            owner,
+        )
+    return None if record is None else dict(record)
+
+
+async def list_facets(
+    db: Database,
+    user_id: str | UUID,
+    *,
+    kind: str,
+    q: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Group the caller's non-deleted tracks by artist or album.
+
+    ``kind`` is limited to the whitelisted ``artist``/``album`` columns. Blank
+    values are ignored, ``q`` filters case-insensitively, and the result is
+    ordered by track count (descending) then name. The limit is clamped to
+    1..50.
+    """
+    column = FACET_COLUMNS.get(kind)
+    if column is None:
+        raise ValueError("Unknown facet kind.")
+    owner = _as_uuid(user_id)
+    search = _normalize_search(q)
+    try:
+        page_size = max(1, min(MAX_FACET_LIMIT, int(limit)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit must be an integer.") from exc
+
+    rows = await db.fetch(
+        f"select btrim(ut.{column}) as name, count(*)::int as track_count "
+        f"from {db.schema_sql}.user_tracks ut "
+        f"where ut.user_id = $1 and ut.deleted_at is null "
+        f"and btrim(coalesce(ut.{column}, '')) <> '' "
+        f"and ($2 = '' or btrim(ut.{column}) ilike '%' || $2 || '%') "
+        f"group by btrim(ut.{column}) "
+        f"order by count(*) desc, name asc "
+        f"limit $3",
+        owner,
+        search,
+        page_size,
+    )
+    return [dict(row) for row in rows]
+
+
+# -- cover art --------------------------------------------------------------
+
+
+def cover_relative_path(
+    user_id: str | UUID,
+    track_id: str | UUID,
+    extension: str,
+) -> str:
+    """Return the storage-relative path for a track's cover image."""
+    ext = extension.split(".")[-1].lower()
+    if ext not in COVER_EXTENSIONS:
+        raise ValueError("Unsupported cover extension.")
+    return f"covers/{_as_uuid(user_id)}/{_as_uuid(track_id)}.{ext}"
+
+
+def cover_media_type(relative: str | Path) -> str:
+    """Return the response media type for a stored cover path."""
+    suffix = Path(str(relative)).suffix.lstrip(".").lower()
+    return COVER_MEDIA_TYPES.get(suffix, "application/octet-stream")
+
+
+def _write_cover(storage: Storage, relative: str, payload: bytes) -> Path:
+    destination = storage.validate_relative_path(relative)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(
+        f"{destination.name}.{uuid4().hex}.tmp"
+    )
+    try:
+        temporary.write_bytes(payload)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
+    return destination
+
+
+async def _remove_cover_files(
+    storage: Storage,
+    user_id: UUID,
+    track_id: UUID,
+    *,
+    keep: str | None = None,
+    stale: str | None = None,
+) -> None:
+    """Best-effort removal of a track's stale cover files."""
+    candidates = {
+        cover_relative_path(user_id, track_id, extension)
+        for extension in COVER_EXTENSIONS
+    }
+    if stale:
+        candidates.add(stale)
+    if keep is not None:
+        candidates.discard(keep)
+    for relative in candidates:
+        try:
+            await asyncio.to_thread(storage.delete_asset_file, relative)
+        except (OSError, StorageError):
+            # A stale symlink or directory is refused by Storage; never let
+            # cleanup failure fail an otherwise valid upload/delete.
+            continue
+
+
+async def _select_cover_row(
+    connection: Any,
+    schema_sql: str,
+    track_id: UUID,
+    user_id: UUID,
+) -> Any:
+    return await connection.fetchrow(
+        f"select ut.id, ut.cover_path from {schema_sql}.user_tracks ut "
+        f"where ut.id = $1 and ut.user_id = $2 and ut.deleted_at is null "
+        f"for update",
+        track_id,
+        user_id,
+    )
+
+
+async def set_cover(
+    db: Database,
+    storage: Storage,
+    track_id: str | UUID,
+    user_id: str | UUID,
+    *,
+    content_type: str,
+    data: str,
+) -> str | None:
+    """Validate, store, and record a new cover image for the caller's track.
+
+    Returns the stored relative path, or ``None`` when the track is not found
+    or not owned by ``user_id``. The image is written atomically and any stale
+    cover with another extension is removed.
+    """
+    identifier = _as_uuid(track_id)
+    owner = _as_uuid(user_id)
+    extension, payload = decode_cover(content_type, data)
+    relative = cover_relative_path(owner, identifier, extension)
+
+    async with db.transaction() as connection:
+        row = await _select_cover_row(
+            connection, db.schema_sql, identifier, owner
+        )
+        if row is None:
+            return None
+        await asyncio.to_thread(_write_cover, storage, relative, payload)
+        try:
+            await connection.execute(
+                f"update {db.schema_sql}.user_tracks "
+                f"set cover_path = $3, updated_at = now() "
+                f"where id = $1 and user_id = $2",
+                identifier,
+                owner,
+                relative,
+            )
+        except Exception:
+            try:
+                await asyncio.to_thread(
+                    storage.delete_asset_file, relative
+                )
+            except (OSError, StorageError):
+                pass
+            raise
+        previous = row["cover_path"]
+
+    await _remove_cover_files(
+        storage, owner, identifier, keep=relative, stale=previous
+    )
+    return relative
+
+
+async def delete_cover(
+    db: Database,
+    storage: Storage,
+    track_id: str | UUID,
+    user_id: str | UUID,
+) -> bool:
+    """Clear the caller's track cover and delete the stored file.
+
+    Returns ``False`` when the track is missing or not owned by ``user_id``.
+    """
+    identifier = _as_uuid(track_id)
+    owner = _as_uuid(user_id)
+
+    async with db.transaction() as connection:
+        row = await _select_cover_row(
+            connection, db.schema_sql, identifier, owner
+        )
+        if row is None:
+            return False
+        await connection.execute(
+            f"update {db.schema_sql}.user_tracks "
+            f"set cover_path = null, updated_at = now() "
+            f"where id = $1 and user_id = $2",
+            identifier,
+            owner,
+        )
+        previous = row["cover_path"]
+
+    await _remove_cover_files(
+        storage, owner, identifier, stale=previous
+    )
+    return True
+
+
+async def resolve_cover_path(
+    db: Database,
+    storage: Storage,
+    track_id: str | UUID,
+    user_id: str | UUID,
+) -> Path | None:
+    """Return the on-disk cover for a track, rejecting unsafe paths."""
+    identifier = _as_uuid(track_id)
+    owner = _as_uuid(user_id)
+    record = await db.fetchrow(
+        f"select ut.cover_path from {db.schema_sql}.user_tracks ut "
+        f"where ut.id = $1 and ut.user_id = $2 and ut.deleted_at is null",
+        identifier,
+        owner,
+    )
+    if record is None:
+        return None
+    relative = (record["cover_path"] or "").strip()
+    if not relative:
+        return None
+    try:
+        path = storage.validate_relative_path(relative)
+    except (OSError, StorageError):
+        return None
+    if path.is_symlink() or not path.is_file():
+        return None
+    return path

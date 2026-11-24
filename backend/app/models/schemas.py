@@ -10,7 +10,13 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from ..core.urls import validate_http_url
 
@@ -214,6 +220,7 @@ class TrackOut(_ORMModel):
     artist: str = ""
     album: str = ""
     cover_path: str | None = None
+    cover_url: str | None = None
     thumbnail_path: str | None = None
     duration_seconds: int | None = None
     file_size_bytes: int | None = None
@@ -225,6 +232,38 @@ class TrackOut(_ORMModel):
     updated_at: datetime
 
 
+class TrackUpdate(BaseModel):
+    """Editable per-user track metadata.
+
+    Every field is optional, but an empty body is invalid. Values are trimmed
+    and limited to 200 characters; an empty string deliberately clears a field.
+    """
+
+    custom_title: str | None = None
+    custom_artist: str | None = None
+    custom_album: str | None = None
+
+    @field_validator(
+        "custom_title", "custom_artist", "custom_album", mode="before"
+    )
+    @classmethod
+    def _validate_metadata(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Track metadata values must be strings.")
+        trimmed = value.strip()
+        if len(trimmed) > 200:
+            raise ValueError(
+                "Track metadata values must be at most 200 characters."
+            )
+        return trimmed
+
+    @model_validator(mode="after")
+    def _require_a_field(self) -> "TrackUpdate":
+        if not self.model_fields_set:
+            raise ValueError("At least one track metadata field is required.")
+        return self
+
+
 class TrackList(_ORMModel):
     """One page of the caller's tracks."""
 
@@ -232,6 +271,36 @@ class TrackList(_ORMModel):
     total: int
     limit: int
     offset: int
+
+
+class FacetItem(BaseModel):
+    """A distinct artist or album name and how many tracks use it."""
+
+    name: str
+    track_count: int
+
+
+class FacetList(BaseModel):
+    """Autocomplete choices for a track metadata field."""
+
+    items: list[FacetItem] = Field(default_factory=list)
+
+
+CoverContentType = Literal["image/jpeg", "image/png", "image/webp"]
+
+
+class CoverUpload(BaseModel):
+    """A base64-encoded cover image and its declared media type."""
+
+    content_type: CoverContentType
+    data: str = Field(min_length=1)
+
+
+class CoverOut(_ORMModel):
+    """The stored path and a freshly signed URL for a track cover."""
+
+    cover_path: str
+    cover_url: str
 
 
 class AdminJobOut(DownloadJobOut):
