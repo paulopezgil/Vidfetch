@@ -199,6 +199,40 @@ class LibraryList(_ORMModel):
     offset: int
 
 
+class TrackOut(_ORMModel):
+    """A per-user track over a shared media asset.
+
+    ``title``/``artist``/``album`` are the user-editable track metadata; the
+    remaining fields come from the representative ready job and the asset.
+    """
+
+    id: UUID
+    asset_id: UUID
+    job_id: UUID
+    canonical_id: str = ""
+    title: str = ""
+    artist: str = ""
+    album: str = ""
+    cover_path: str | None = None
+    thumbnail_path: str | None = None
+    duration_seconds: int | None = None
+    file_size_bytes: int | None = None
+    output_ext: str | None = None
+    format_selector: str = ""
+    playlist_id: UUID | None = None
+    downloaded_at: datetime
+    updated_at: datetime
+
+
+class TrackList(_ORMModel):
+    """One page of the caller's tracks."""
+
+    items: list[TrackOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
 class AdminJobOut(DownloadJobOut):
     """An admin-wide job row, including the owner's email address."""
 

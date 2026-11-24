@@ -11,7 +11,7 @@ import asyncio
 from uuid import uuid4
 
 from backend.app.services import admin_inventory, assets, jobs, library, playlists
-from backend.app.services import profiles
+from backend.app.services import profiles, tracks
 from backend.tests.v2.fakes import (
     FakeDatabase,
     asset_row,
@@ -19,6 +19,7 @@ from backend.tests.v2.fakes import (
     library_row,
     playlist_row,
     profile_row,
+    track_row,
 )
 
 
@@ -188,6 +189,26 @@ def test_library_hide_uses_configured_schema():
 
     _assert_qualified(db)
     assert 'update "vidfetch".download_jobs' in db.calls[0][1]
+
+
+def test_tracks_queries_use_configured_schema():
+    owner = uuid4()
+    db = _vidfetch_db()
+    db.queue_fetchrow({"total": 1})
+    db.queue_fetch([track_row()])
+
+    page, total = run(tracks.list_tracks(db, owner))
+
+    assert total == 1
+    assert len(page) == 1
+    _assert_qualified(db)
+    count_query = db.calls[0][1]
+    assert 'from "vidfetch".user_tracks ut' in count_query
+    assert 'join "vidfetch".media_assets a on a.id = ut.asset_id' in count_query
+    assert 'from "vidfetch".download_jobs j' in count_query
+    page_query = db.calls[1][1]
+    assert 'from "vidfetch".user_tracks ut' in page_query
+    assert 'from "vidfetch".download_jobs j' in page_query
 
 
 def test_admin_job_inventory_uses_configured_schema():
