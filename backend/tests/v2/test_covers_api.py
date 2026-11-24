@@ -343,3 +343,223 @@ def test_cover_get_does_not_serve_a_traversal_path(tmp_path):
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "cover_not_found"
+
+
+def test_upload_cover_rejects_blank_data(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/tracks/{track_id}/cover",
+            json={"content_type": "image/png", "data": "   "},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_cover"
+    assert not (settings.download_dir / "covers").exists()
+
+
+def test_upload_cover_rejects_an_unsupported_content_type(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/tracks/{track_id}/cover",
+            json={"content_type": "image/gif", "data": "R0lGODlh"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert all(" set " not in call[1].lower() for call in db.calls)
+    assert not (settings.download_dir / "covers").exists()
+
+
+def test_cover_get_rejects_a_token_for_a_different_track(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    token = _cover_token(settings, uuid4(), profile["id"])
+    db = FakeDatabase()
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(f"/api/covers/{uuid4()}?token={token}")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_token"
+    assert db.calls == []
+
+
+def test_cover_get_rejects_a_token_with_a_non_uuid_subject(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    track_id = uuid4()
+    token = _cover_token(settings, track_id, "not-a-user-id")
+    db = FakeDatabase()
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(f"/api/covers/{track_id}?token={token}")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_token"
+    assert db.calls == []
+
+
+def test_cover_get_does_not_serve_a_symlink_cover(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    storage = Storage(settings.download_dir)
+    storage.ensure_directories()
+    target = storage.root / "assets" / "shared.png"
+    target.write_bytes(PNG_MAGIC + b"shared")
+    relative = tracks.cover_relative_path(profile["id"], track_id, "png")
+    link = storage.root / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    token = _cover_token(settings, track_id, profile["id"])
+    db = FakeDatabase()
+    db.queue_fetchrow({"cover_path": relative})
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(f"/api/covers/{track_id}?token={token}")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "cover_not_found"
+    assert link.is_symlink()
+
+
+def test_delete_cover_clears_the_row_when_the_file_is_missing(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    relative = tracks.cover_relative_path(profile["id"], track_id, "png")
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, {"id": track_id, "cover_path": relative})
+
+    with app_client(settings, db) as (app, client):
+        response = client.delete(
+            f"/api/tracks/{track_id}/cover", headers=_headers(profile)
+        )
+
+    assert response.status_code == 204
+    update_query, update_args = db.calls[2][1], db.calls[2][2]
+    assert "set cover_path = null" in update_query
+    assert update_args == (track_id, profile["id"])
+
+
+def test_upload_cover_db_failure_is_503(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=1)
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/tracks/{uuid4()}/cover",
+            json={
+                "content_type": "image/png",
+                "data": base64.b64encode(PNG_MAGIC).decode("ascii"),
+            },
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+    assert not (settings.download_dir / "covers").exists()
+
+
+def test_delete_cover_db_failure_is_503(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=1)
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.delete(
+            f"/api/tracks/{uuid4()}/cover", headers=_headers(profile)
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+
+
+def test_cover_get_db_failure_is_503(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    track_id = uuid4()
+    token = _cover_token(settings, track_id, profile["id"])
+    db = FakeDatabase(fail_with=OSError("database is down"), fail_after=0)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(f"/api/covers/{track_id}?token={token}")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+
+
+def test_upload_cover_requires_an_approved_user(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = profile_row(is_approved=False)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/tracks/{uuid4()}/cover",
+            json={
+                "content_type": "image/png",
+                "data": base64.b64encode(PNG_MAGIC).decode("ascii"),
+            },
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "approval_required"
+    assert not (settings.download_dir / "covers").exists()
+
+
+def test_delete_cover_requires_an_approved_user(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = profile_row(is_approved=False)
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.delete(
+            f"/api/tracks/{uuid4()}/cover", headers=_headers(profile)
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "approval_required"
+
+
+def test_cover_endpoints_reject_invalid_track_ids(tmp_path):
+    settings = make_settings(tmp_path, MEDIA_TOKEN_SECRET=MEDIA_SECRET)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, profile)
+
+    with app_client(settings, db) as (app, client):
+        upload = client.post(
+            "/api/tracks/not-a-uuid/cover",
+            json={
+                "content_type": "image/png",
+                "data": base64.b64encode(PNG_MAGIC).decode("ascii"),
+            },
+            headers=_headers(profile),
+        )
+        delete = client.delete(
+            "/api/tracks/not-a-uuid/cover", headers=_headers(profile)
+        )
+
+    for response in (upload, delete):
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid_request"

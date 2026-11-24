@@ -95,9 +95,13 @@ def _detail_out(
     playlist: dict,
     items: list[dict],
 ) -> UserPlaylistDetailOut:
+    # Derive the count from the tracks that survived the visibility filter so
+    # a detail response can never advertise more tracks than it contains (the
+    # count and membership are separate queries and may straddle a change).
     return UserPlaylistDetailOut.model_validate(
         {
             **playlist,
+            "track_count": len(items),
             "items": [_track_out(settings, user_id, row) for row in items],
         }
     )
