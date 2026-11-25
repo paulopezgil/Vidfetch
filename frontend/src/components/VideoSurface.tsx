@@ -20,6 +20,12 @@ interface WebkitDocument extends Document {
   webkitExitFullscreen?: () => void;
 }
 
+/** Desktop Safari's legacy element API. */
+interface WebkitElement extends HTMLElement {
+  webkitRequestFullscreen?: () => void;
+  webkitRequestFullScreen?: () => void;
+}
+
 /** iOS Safari only supports fullscreen through the video-specific API. */
 interface WebkitVideoElement extends HTMLVideoElement {
   webkitRequestFullscreen?: () => void;
@@ -39,21 +45,35 @@ function fullscreenElement(): Element | null {
   );
 }
 
-/** Whether the provider's video is the element being shown fullscreen. */
-function isVideoFullscreen(video: HTMLVideoElement | null): boolean {
-  if (!video) return false;
-  const element = video as WebkitVideoElement;
-  return (
-    fullscreenElement() === video ||
-    element.webkitDisplayingFullscreen === true
-  );
+/**
+ * Whether this surface (its stage, or the video on iOS) owns native fullscreen.
+ *
+ * The legacy APIs can return `undefined` without doing anything, so callers
+ * must verify the document state instead of trusting the call.
+ */
+function isStageFullscreen(
+  stage: Element | null,
+  video: HTMLVideoElement | null,
+): boolean {
+  const current = fullscreenElement();
+  if (stage !== null && current === stage) return true;
+  if (video !== null) {
+    const element = video as WebkitVideoElement;
+    return current === video || element.webkitDisplayingFullscreen === true;
+  }
+  return false;
 }
 
 /** Leave native fullscreen through whichever API the browser implements. */
-function leaveNativeFullscreen(video: HTMLVideoElement | null): void {
+function leaveNativeFullscreen(
+  stage: Element | null,
+  video: HTMLVideoElement | null,
+): void {
   const doc = document as WebkitDocument;
+  const element = video as WebkitVideoElement | null;
   try {
-    if (fullscreenElement() !== null) {
+    const current = fullscreenElement();
+    if (current !== null && (current === stage || current === video)) {
       // `exitFullscreen` rejects when the document is not in fullscreen.
       const result =
         typeof doc.exitFullscreen === "function"
@@ -64,7 +84,6 @@ function leaveNativeFullscreen(video: HTMLVideoElement | null): void {
     }
 
     // iOS Safari reports fullscreen on the video itself, not on the document.
-    const element = video as WebkitVideoElement | null;
     if (element?.webkitDisplayingFullscreen) {
       element.webkitExitFullscreen?.();
     }
@@ -74,16 +93,73 @@ function leaveNativeFullscreen(video: HTMLVideoElement | null): void {
 }
 
 /**
+ * Wait until the stage (or the iOS video) really is fullscreen.
+ *
+ * A fulfilled `requestFullscreen()` promise is not enough: legacy prefixed
+ * calls return `undefined` even when the request is ignored, and some browsers
+ * resolve before the top-layer state is observable. Poll briefly and listen to
+ * the fullscreen events; only returning `true` on an observed state keeps the
+ * caller from skipping the CSS fallback.
+ */
+function waitForFullscreenEntry(
+  stage: Element | null,
+  video: HTMLVideoElement | null,
+  timeout = 400,
+): Promise<boolean> {
+  if (isStageFullscreen(stage, video)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const doc = document as WebkitDocument;
+    const webkitVideo = video as WebkitVideoElement | null;
+    const startedAt = Date.now();
+    let settled = false;
+    let timer: number | undefined;
+
+    const cleanup = () => {
+      doc.removeEventListener("fullscreenchange", onChange);
+      doc.removeEventListener("webkitfullscreenchange", onChange);
+      webkitVideo?.removeEventListener("webkitbeginfullscreen", onChange);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    const finish = (entered: boolean) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(entered);
+    };
+    function onChange() {
+      if (isStageFullscreen(stage, video)) finish(true);
+    }
+    function poll() {
+      if (settled) return;
+      if (isStageFullscreen(stage, video)) {
+        finish(true);
+        return;
+      }
+      if (Date.now() - startedAt >= timeout) {
+        finish(false);
+        return;
+      }
+      timer = window.setTimeout(poll, 30);
+    }
+
+    doc.addEventListener("fullscreenchange", onChange);
+    doc.addEventListener("webkitfullscreenchange", onChange);
+    webkitVideo?.addEventListener("webkitbeginfullscreen", onChange);
+    poll();
+  });
+}
+
+/**
  * Dedicated video playback surface.
  *
  * It replaces the docked audio bar whenever a video is current: the provider's
  * single `<video>` element is mounted in a 16:9 stage, with metadata and custom
  * transport controls. The surface opens as a centered overlay and can enter
- * the browser's native fullscreen on the video element, where only the video
+ * the browser's native fullscreen on the stage itself, where only the video
  * (with the browser's own auto-hiding controls) is shown. If the Fullscreen API
- * is unavailable or refuses the request, the previous fixed, viewport-filling
- * CSS layout is used as a fallback. Native fullscreen never re-creates the
- * element, so playback and the current time are preserved.
+ * is unavailable, is silently ignored, or refuses the request, the previous
+ * fixed, viewport-filling CSS layout is used as a fallback. Native fullscreen
+ * never re-creates the element, so playback and the current time are preserved.
  */
 export default function VideoSurface() {
   const {
@@ -105,6 +181,7 @@ export default function VideoSurface() {
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [fallbackMaximized, setFallbackMaximized] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const maximizeRef = useRef<HTMLButtonElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
@@ -129,47 +206,63 @@ export default function VideoSurface() {
   }, []);
 
   const exitNativeFullscreen = useCallback(() => {
-    leaveNativeFullscreen(videoElement);
+    leaveNativeFullscreen(stageRef.current, videoElement);
   }, [videoElement]);
 
   const enterNativeFullscreen = useCallback(async (): Promise<boolean> => {
+    const stage = stageRef.current;
+    if (!stage) return false;
     const video = videoElement as WebkitVideoElement | null;
-    if (!video) return false;
+    const webkitStage = stage as WebkitElement;
 
-    // Try each API in turn: standard, desktop Safari's prefix, then the
-    // iPhone-only video API. A rejection moves on to the next one.
-    const attempts: Array<() => Promise<void> | void> = [];
-    if (typeof video.requestFullscreen === "function") {
+    // Fullscreen the stage, never the raw <video>: the browser then paints
+    // exactly the stage in the top layer, so the element cannot be reparented
+    // or measured against the wrong box. Every legacy call is only an attempt;
+    // `waitForFullscreenEntry` decides whether it actually worked.
+    const attempts: Array<() => Promise<unknown> | void> = [];
+    if (typeof stage.requestFullscreen === "function") {
       attempts.push(() =>
-        video.requestFullscreen({ navigationUI: "hide" }),
+        stage.requestFullscreen({ navigationUI: "hide" }),
       );
     }
-    if (typeof video.webkitRequestFullscreen === "function") {
-      attempts.push(() => video.webkitRequestFullscreen?.());
+    if (typeof webkitStage.webkitRequestFullscreen === "function") {
+      attempts.push(() => webkitStage.webkitRequestFullscreen?.());
     }
-    if (typeof video.webkitEnterFullscreen === "function") {
+    if (typeof webkitStage.webkitRequestFullScreen === "function") {
+      attempts.push(() => webkitStage.webkitRequestFullScreen?.());
+    }
+    // iOS Safari refuses element fullscreen and only supports the video API.
+    if (video && typeof video.webkitEnterFullscreen === "function") {
       attempts.push(() => video.webkitEnterFullscreen?.());
     }
 
     for (const attempt of attempts) {
+      let rejected = false;
       try {
         await Promise.resolve(attempt());
-        return true;
       } catch {
-        // The browser refused this API; the next one may still work.
+        // A rejection means this API definitely refused; a void legacy call
+        // means nothing at all, so both are verified below.
+        rejected = true;
       }
+      if (isStageFullscreen(stage, video)) return true;
+      if (rejected) continue;
+      if (await waitForFullscreenEntry(stage, video)) return true;
     }
     return false;
   }, [videoElement]);
 
   // Native fullscreen state is driven by the browser's own events, so Escape
-  // and the browser UI keep the button and layout in sync.
+  // and the browser UI keep the button and layout in sync. The effect waits
+  // until a video surface exists: at app start the provider has a video element
+  // but the stage is not mounted yet.
   useEffect(() => {
     const video = videoElement as WebkitVideoElement | null;
-    if (!video) return;
+    if (!isVideo || !video) return;
+    const stage = stageRef.current;
     const doc = document as WebkitDocument;
 
-    const sync = () => syncNativeState(isVideoFullscreen(video));
+    const sync = () => syncNativeState(isStageFullscreen(stage, video));
     const onBegin = () => syncNativeState(true);
     const onEnd = () => syncNativeState(false);
 
@@ -185,11 +278,11 @@ export default function VideoSurface() {
       video.removeEventListener("webkitbeginfullscreen", onBegin);
       video.removeEventListener("webkitendfullscreen", onEnd);
       // Never leave the document (or an iOS video) stuck in fullscreen.
-      if (isVideoFullscreen(video)) {
-        leaveNativeFullscreen(video);
+      if (isStageFullscreen(stage, video)) {
+        leaveNativeFullscreen(stage, video);
       }
     };
-  }, [syncNativeState, videoElement]);
+  }, [isVideo, syncNativeState, videoElement]);
 
   // The browser native controls are available only in native fullscreen; they
   // auto-hide and provide pause, seek and an explicit exit.
@@ -210,7 +303,9 @@ export default function VideoSurface() {
   useEffect(() => {
     if (isVideo) return;
     setFallbackMaximized(false);
-    if (isVideoFullscreen(videoElement)) leaveNativeFullscreen(videoElement);
+    if (isStageFullscreen(stageRef.current, videoElement)) {
+      leaveNativeFullscreen(stageRef.current, videoElement);
+    }
     syncNativeState(false);
   }, [isVideo, syncNativeState, videoElement]);
 
@@ -250,10 +345,13 @@ export default function VideoSurface() {
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        if (isVideoFullscreen(videoElement) || nativeRef.current) {
+        if (
+          isStageFullscreen(stageRef.current, videoElement) ||
+          nativeRef.current
+        ) {
           // Let the browser's own Escape handling run, but make sure the
           // document leaves fullscreen instead of closing the surface.
-          leaveNativeFullscreen(videoElement);
+          leaveNativeFullscreen(stageRef.current, videoElement);
           return;
         }
         // Some browsers deliver the Escape that exits fullscreen to the page
@@ -335,7 +433,10 @@ export default function VideoSurface() {
   )}`;
 
   function toggleFullscreen() {
-    if (isVideoFullscreen(videoElement)) {
+    if (
+      nativeRef.current ||
+      isStageFullscreen(stageRef.current, videoElement)
+    ) {
       exitNativeFullscreen();
       return;
     }
@@ -344,9 +445,15 @@ export default function VideoSurface() {
       return;
     }
     void enterNativeFullscreen().then((entered) => {
-      // The Fullscreen API is unavailable or refused the request: keep a
-      // working, viewport-filling CSS layout instead.
-      if (!entered) setFallbackMaximized(true);
+      if (entered) {
+        // The fullscreenchange event normally reports this too; setting it
+        // here keeps the button in sync even if a browser omits the event.
+        syncNativeState(true);
+        return;
+      }
+      // The Fullscreen API is unavailable, ignored, or refused the request:
+      // keep a working, viewport-filling CSS layout instead.
+      setFallbackMaximized(true);
     });
   }
 
@@ -424,15 +531,18 @@ export default function VideoSurface() {
         </header>
 
         <div
+          ref={stageRef}
           className={
-            fallbackMaximized
-              ? "relative min-h-0 flex-1 bg-video-stage"
-              : "relative aspect-video w-full shrink-0 bg-video-stage"
+            nativeFullscreen
+              ? "video-stage fixed inset-0 h-screen w-screen shrink-0 overflow-hidden bg-video-stage"
+              : fallbackMaximized
+                ? "video-stage relative min-h-0 flex-1 overflow-hidden bg-video-stage"
+                : "video-stage relative aspect-video w-full shrink-0 overflow-hidden bg-video-stage"
           }
         >
           <div
             ref={videoHostRef}
-            className="absolute inset-0 [&>video]:h-full [&>video]:w-full [&>video]:object-contain"
+            className="absolute inset-0 [&>video]:absolute [&>video]:inset-0 [&>video]:h-full [&>video]:w-full [&>video]:object-contain"
           />
         </div>
 
