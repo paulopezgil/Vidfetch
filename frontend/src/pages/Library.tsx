@@ -452,24 +452,23 @@ function FileRow({
             className="text-[20px]"
           />
         </IconButton>
-        {mediaType === "audio" ? (
-          // Songs use the offline-state control instead of a one-shot file
-          // download: the second phase of an audio job is automatic.
-          <OfflineButton assetId={item.asset_id} title={item.title} />
-        ) : (
-          <IconButton
-            variant="tonal"
-            label="Descarrega el fitxer"
-            onClick={() => void handleDownload()}
-            disabled={downloading}
-          >
-            {downloading ? (
-              <Spinner className="text-[20px]" />
-            ) : (
-              <Icon name="download" className="text-[20px]" />
-            )}
-          </IconButton>
-        )}
+        <OfflineButton
+          assetId={item.asset_id}
+          title={item.title}
+          kind={mediaType === "audio" ? "audio" : "video"}
+        />
+        <IconButton
+          variant="tonal"
+          label="Descarrega el fitxer"
+          onClick={() => void handleDownload()}
+          disabled={downloading}
+        >
+          {downloading ? (
+            <Spinner className="text-[20px]" />
+          ) : (
+            <Icon name="download" className="text-[20px]" />
+          )}
+        </IconButton>
         <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
           <Icon name="delete" className="text-[20px]" />
         </IconButton>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
 import IconButton from "./IconButton";
 import Thumbnail from "./Thumbnail";
@@ -8,8 +8,8 @@ import { usePlayer } from "../player/PlayerProvider";
 
 /**
  * Persistent playback bar. Docked above the compact navigation bar and inside
- * the content column on wider windows, so it never covers the rail/drawer. The
- * expandable now-playing panel sits directly above the bar.
+ * the content column on wider windows, so it never covers the rail/drawer. Its
+ * expand control opens the full-screen now-playing surface.
  */
 export default function PlayerBar() {
   const {
@@ -31,14 +31,20 @@ export default function PlayerBar() {
   } = usePlayer();
 
   const [expanded, setExpanded] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExpandedRef = useRef(false);
 
   const hasTrack = current !== null;
   const hasNext = hasTrack && index < queue.length - 1;
   const seekable = hasTrack && duration > 0;
   const trackId = current?.id ?? null;
 
+  const toggleExpanded = useCallback(() => {
+    setExpanded((value) => !value);
+  }, []);
+
   // Video needs its real surface visible as soon as it starts. Audio keeps the
-  // panel collapsed unless the listener opens it from the bar.
+  // full-screen player closed unless the listener opens it from the bar.
   useEffect(() => {
     if (!trackId) {
       setExpanded(false);
@@ -46,6 +52,17 @@ export default function PlayerBar() {
     }
     if (mediaKind === "video") setExpanded(true);
   }, [mediaKind, trackId]);
+
+  // Returning from the full-screen surface puts focus back on the bar trigger.
+  useEffect(() => {
+    const wasExpanded = wasExpandedRef.current;
+    wasExpandedRef.current = expanded;
+    if (!wasExpanded || expanded || !hasTrack) return;
+    const frame = window.requestAnimationFrame(() => {
+      expandButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expanded, hasTrack]);
 
   const credit = current
     ? [current.artist, current.album]
@@ -106,8 +123,13 @@ export default function PlayerBar() {
 
   const expandButton = (
     <IconButton
-      label={expanded ? "Amaga el reproductor" : "Mostra el reproductor"}
-      onClick={() => setExpanded((value) => !value)}
+      buttonRef={expandButtonRef}
+      label={
+        expanded
+          ? "Minimitza el reproductor"
+          : "Obre el reproductor a pantalla completa"
+      }
+      onClick={toggleExpanded}
       disabled={!hasTrack}
       ariaExpanded={expanded}
       ariaControls="now-playing-panel"
@@ -124,10 +146,7 @@ export default function PlayerBar() {
       aria-label="Reproductor"
       className="shrink-0 border-t border-outline-variant bg-surface-container-high"
     >
-      <NowPlayingPanel
-        expanded={expanded}
-        onToggle={() => setExpanded((value) => !value)}
-      />
+      <NowPlayingPanel expanded={expanded} onToggle={toggleExpanded} />
 
       <div className="flex items-center gap-3 px-3 py-2 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-56 sm:flex-none lg:w-64">

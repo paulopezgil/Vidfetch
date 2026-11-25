@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import Icon from "./Icon";
 import IconButton from "./IconButton";
 import Thumbnail from "./Thumbnail";
@@ -6,19 +6,23 @@ import PlayerSlider, { formatClock } from "./PlayerSlider";
 import { usePlayer } from "../player/PlayerProvider";
 
 interface NowPlayingPanelProps {
-  /** Whether the panel is visible above the docked player bar. */
+  /** Whether the full-screen player is open. */
   expanded: boolean;
-  /** Collapse the panel; the bar stays docked and usable. */
+  /** Toggle the full-screen player; the docked bar stays usable when closed. */
   onToggle: () => void;
 }
 
+const FOCUSABLE =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 /**
- * Expandable now-playing surface above the persistent player bar.
+ * Full-screen now-playing surface.
  *
  * Audio shows the large artwork and track metadata. Video mounts the provider's
- * single `<video>` element, so the real video is visible while it plays and the
- * same transport controls remain available when the panel is collapsed in the
- * bar below.
+ * single `<video>` element, so the real video fills the screen while playback
+ * state and source management stay in the player provider. The panel remains
+ * mounted while collapsed (hidden), keeping the video element attached so
+ * minimizing never interrupts playback.
  */
 export default function NowPlayingPanel({
   expanded,
@@ -42,7 +46,14 @@ export default function NowPlayingPanel({
     setVolume,
   } = usePlayer();
 
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const minimizeRef = useRef<HTMLButtonElement | null>(null);
   const videoHostRef = useRef<HTMLDivElement | null>(null);
+  const onToggleRef = useRef(onToggle);
+
+  useEffect(() => {
+    onToggleRef.current = onToggle;
+  }, [onToggle]);
 
   useLayoutEffect(() => {
     const host = videoHostRef.current;
@@ -54,6 +65,54 @@ export default function NowPlayingPanel({
       }
     };
   }, [videoElement, mediaKind]);
+
+  // Modal focus management: focus the minimize control on open, close on
+  // Escape, keep Tab inside the full-screen surface, and restore the previous
+  // focus when it closes.
+  useEffect(() => {
+    if (!expanded) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const frame = window.requestAnimationFrame(() => {
+      minimizeRef.current?.focus();
+    });
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onToggleRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [],
+      ).filter((element) => !element.hasAttribute("disabled"));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!panelRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      if (previous?.isConnected) previous.focus?.();
+    };
+  }, [expanded]);
 
   if (!current) return null;
 
@@ -74,7 +133,7 @@ export default function NowPlayingPanel({
         onClick={previous}
         disabled={!current}
       >
-        <Icon name="skip_previous" className="text-[22px]" />
+        <Icon name="skip_previous" className="text-[24px]" />
       </IconButton>
       <IconButton
         variant="filled"
@@ -86,11 +145,11 @@ export default function NowPlayingPanel({
         <Icon
           name={isPlaying ? "pause" : "play_arrow"}
           filled
-          className="text-[24px]"
+          className="text-[26px]"
         />
       </IconButton>
       <IconButton label="Pista següent" onClick={next} disabled={!hasNext}>
-        <Icon name="skip_next" className="text-[22px]" />
+        <Icon name="skip_next" className="text-[24px]" />
       </IconButton>
     </>
   );
@@ -114,8 +173,30 @@ export default function NowPlayingPanel({
     </>
   );
 
+  const volumeRow = (
+    <>
+      <Icon
+        name={volume === 0 ? "volume_off" : "volume_up"}
+        className="text-[20px] text-on-surface-variant"
+      />
+      <div className="min-w-0 flex-1">
+        <PlayerSlider
+          label="Volum"
+          value={volume}
+          max={1}
+          step={0.01}
+          valueText={`${Math.round(volume * 100)}%`}
+          onChange={setVolume}
+        />
+      </div>
+      <span className="w-10 shrink-0 text-right text-label-medium tabular-nums text-on-surface-variant">
+        {Math.round(volume * 100)}%
+      </span>
+    </>
+  );
+
   const metadata = (
-    <div className="min-w-0 text-center sm:text-left">
+    <div className="min-w-0 text-center lg:text-left">
       <p className="truncate text-title-large text-on-surface">
         {current.title}
       </p>
@@ -132,74 +213,74 @@ export default function NowPlayingPanel({
 
   return (
     <div
+      ref={panelRef}
       id="now-playing-panel"
-      className={expanded ? "block" : "hidden"}
+      role={expanded ? "dialog" : undefined}
+      aria-modal={expanded ? true : undefined}
+      aria-label="Ara sonant"
       aria-hidden={!expanded}
+      className={
+        expanded
+          ? "fixed inset-0 z-[80] flex flex-col overflow-hidden bg-surface text-on-surface"
+          : "hidden"
+      }
     >
-      <section
-        aria-label="Ara sonant"
-        className="border-b border-outline-variant bg-surface-container"
-      >
-        <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-label-large text-on-surface-variant">
-              Ara sonant
-            </h2>
-            <IconButton label="Amaga el reproductor" onClick={onToggle}>
-              <Icon name="expand_more" className="text-[22px]" />
-            </IconButton>
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-outline-variant px-4 py-3 sm:px-6">
+        <div className="min-w-0">
+          <p className="text-label-medium text-on-surface-variant">
+            Ara sonant
+          </p>
+          <p className="truncate text-title-medium text-on-surface">
+            {current.title}
+          </p>
+        </div>
+        <IconButton
+          buttonRef={minimizeRef}
+          label="Minimitza el reproductor"
+          title="Minimitza el reproductor"
+          onClick={onToggle}
+        >
+          <Icon name="expand_more" className="text-[24px]" />
+        </IconButton>
+      </header>
+
+      {isVideo ? (
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
+            <div
+              ref={videoHostRef}
+              className="h-full w-full [&>video]:h-full [&>video]:w-full [&>video]:object-contain"
+            />
           </div>
 
-          {isVideo ? (
-            <div className="flex flex-col gap-4 md:flex-row md:items-center">
-              <div className="relative mx-auto w-full max-w-2xl overflow-hidden rounded-lg bg-black md:mx-0 md:flex-1">
-                <div
-                  ref={videoHostRef}
-                  className="aspect-video w-full [&>video]:h-full [&>video]:w-full [&>video]:object-contain"
-                />
-              </div>
-              <div className="w-full min-w-0 space-y-3 md:w-80 lg:w-96">
-                {metadata}
-                <div className="flex items-center justify-center gap-1 md:justify-start">
-                  {transportControls}
-                </div>
-                <div className="flex items-center gap-2">{seekRow}</div>
-                <div className="flex items-center gap-2">
-                  <Icon
-                    name={volume === 0 ? "volume_off" : "volume_up"}
-                    className="text-[20px] text-on-surface-variant"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <PlayerSlider
-                      label="Volum"
-                      value={volume}
-                      max={1}
-                      step={0.01}
-                      valueText={`${Math.round(volume * 100)}%`}
-                      onChange={setVolume}
-                    />
-                  </div>
-                  <span className="w-10 shrink-0 text-right text-label-medium tabular-nums text-on-surface-variant">
-                    {Math.round(volume * 100)}%
-                  </span>
-                </div>
-              </div>
+          <aside className="shrink-0 space-y-4 overflow-y-auto border-t border-outline-variant bg-surface-container p-4 sm:p-5 lg:w-96 lg:border-l lg:border-t-0">
+            {metadata}
+            <div className="flex items-center justify-center gap-1 lg:justify-start">
+              {transportControls}
             </div>
-          ) : (
-            <div className="flex flex-col items-center gap-5 sm:flex-row">
-              <Thumbnail
-                src={cover}
-                icon="music_note"
-                className="h-32 w-32 sm:h-40 sm:w-40"
-              />
-              <div className="min-w-0 flex-1 space-y-3">
-                {metadata}
-                <div className="flex items-center gap-2">{seekRow}</div>
-              </div>
-            </div>
-          )}
+            <div className="flex items-center gap-2">{seekRow}</div>
+            <div className="flex items-center gap-2">{volumeRow}</div>
+          </aside>
         </div>
-      </section>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-4 py-6 sm:px-6">
+          <Thumbnail
+            src={cover}
+            icon="music_note"
+            className="h-56 w-56 sm:h-72 sm:w-72 lg:h-80 lg:w-80"
+          />
+          <div className="w-full max-w-xl space-y-4 text-center">
+            {metadata}
+            <div className="flex items-center gap-2">{seekRow}</div>
+            <div className="flex items-center justify-center gap-1">
+              {transportControls}
+            </div>
+            <div className="mx-auto flex max-w-xs items-center gap-2">
+              {volumeRow}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

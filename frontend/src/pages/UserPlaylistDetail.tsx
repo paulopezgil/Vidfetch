@@ -8,9 +8,12 @@ import type {
 import { formatDuration } from "../lib";
 import {
   deleteUserPlaylist,
+  getMediaToken,
   getUserPlaylist,
   removeUserPlaylistTrack,
   reorderUserPlaylistTracks,
+  triggerDownload,
+  withDownloadFlag,
 } from "../lib/api";
 import Button from "../components/Button";
 import Card from "../components/Card";
@@ -26,39 +29,15 @@ import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
 import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
+import { mediaTypeFor } from "../lib/trackDisplay";
 import { usePlayer } from "../player/PlayerProvider";
-import { isAudioAsset } from "../offline/media";
 import { setActivePlaylistTitle } from "../navigation";
 import { QUEUED_MUTATION_MESSAGE } from "../offline/status";
 
-const AUDIO_EXTENSIONS = new Set([
-  "mp3",
-  "m4a",
-  "aac",
-  "wav",
-  "flac",
-  "ogg",
-  "opus",
-]);
-
-const IMAGE_EXTENSIONS = new Set([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "avif",
-  "bmp",
-]);
-
-function extensionOf(track: Track): string {
-  return (track.output_ext ?? "").replace(/^\./, "").toLowerCase();
-}
-
 function trackIcon(track: Track): string {
-  const ext = extensionOf(track);
-  if (AUDIO_EXTENSIONS.has(ext)) return "music_note";
-  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  const mediaType = mediaTypeFor(track);
+  if (mediaType === "audio") return "music_note";
+  if (mediaType === "image") return "image";
   return "movie";
 }
 
@@ -435,7 +414,32 @@ function PlaylistTrackRow({
   );
   const src = track.cover_url ?? token?.thumbnail_url ?? null;
   const credit = trackCredit(track);
-  const song = isAudioAsset(track);
+  const mediaType = mediaTypeFor(track);
+  const isImage = mediaType === "image";
+  const toast = useToast();
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    if (downloading || !track.asset_id) return;
+    setDownloading(true);
+    try {
+      const fresh = await getMediaToken(track.asset_id);
+      if (!fresh?.url) {
+        toast("No s’ha pogut preparar el fitxer per descarregar.", "error");
+        return;
+      }
+      triggerDownload(withDownloadFlag(fresh.url));
+    } catch (e) {
+      toast(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut preparar el fitxer per descarregar.",
+        "error",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <li className="flex flex-wrap items-center gap-3 p-3 sm:p-4">
@@ -471,8 +475,26 @@ function PlaylistTrackRow({
         >
           <Icon name="arrow_downward" className="text-[20px]" />
         </IconButton>
-        {song ? (
-          <OfflineButton assetId={track.asset_id} title={track.title} />
+        {!isImage ? (
+          <>
+            <OfflineButton
+              assetId={track.asset_id}
+              title={track.title}
+              kind={mediaType === "audio" ? "audio" : "video"}
+            />
+            <IconButton
+              variant="tonal"
+              label="Descarrega el fitxer"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+            >
+              {downloading ? (
+                <Spinner className="text-[20px]" />
+              ) : (
+                <Icon name="download" className="text-[20px]" />
+              )}
+            </IconButton>
+          </>
         ) : null}
         <IconButton
           variant={playerActive ? "filled" : "tonal"}

@@ -556,22 +556,23 @@ function ItemRow({
                 className="text-[20px]"
               />
             </IconButton>
-            {mediaType === "audio" ? (
-              <OfflineButton assetId={item.asset_id} title={item.title} />
-            ) : (
-              <IconButton
-                variant="tonal"
-                label="Descarrega el fitxer"
-                onClick={() => void handleFileDownload()}
-                disabled={downloadingFile}
-              >
-                {downloadingFile ? (
-                  <Spinner className="text-[20px]" />
-                ) : (
-                  <Icon name="download" className="text-[20px]" />
-                )}
-              </IconButton>
-            )}
+            <OfflineButton
+              assetId={item.asset_id}
+              title={item.title}
+              kind={mediaType}
+            />
+            <IconButton
+              variant="tonal"
+              label="Descarrega el fitxer"
+              onClick={() => void handleFileDownload()}
+              disabled={downloadingFile}
+            >
+              {downloadingFile ? (
+                <Spinner className="text-[20px]" />
+              ) : (
+                <Icon name="download" className="text-[20px]" />
+              )}
+            </IconButton>
           </>
         ) : item.status === "downloading" || busy ? (
           <span className="px-2">
