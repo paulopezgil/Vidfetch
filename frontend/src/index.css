@@ -70,6 +70,13 @@
   --md-shadow: 0 0 0;
   --md-scrim: 0 0 0;
 
+  /*
+   * Component token for the video playback stage. Unlike the surface family it
+   * stays deliberately dark in both schemes, so footage is never framed by a
+   * bright container in light mode.
+   */
+  --md-video-stage: 0 0 0;
+
   /* Extended roles (not part of the M3 baseline scheme) for download status. */
   --md-success: 20 108 46;
   --md-on-success: 255 255 255;
@@ -138,6 +145,8 @@
 
   --md-shadow: 0 0 0;
   --md-scrim: 0 0 0;
+
+  --md-video-stage: 0 0 0;
 
   --md-success: 137 213 160;
   --md-on-success: 0 57 25;
