@@ -33,9 +33,9 @@ export interface PlayerContextValue {
   /** Whether the current source is audio or video. */
   mediaKind: MediaKind | null;
   /**
-   * Provider-owned video element. The now-playing surface mounts it while the
-   * current track is a video, so playback survives expanding/collapsing the
-   * panel and never creates a second competing element.
+   * Provider-owned video element. `VideoSurface` mounts it while the current
+   * track is a video, so playback survives maximizing/minimizing the surface
+   * and never creates a second competing element.
    */
   videoElement: HTMLVideoElement | null;
   /**
@@ -89,12 +89,13 @@ function attemptPlay(media: HTMLMediaElement): void {
  * Persistent player shared by every route in the app shell.
  *
  * The provider owns an audio element and a video element, choosing the one that
- * matches the current track. The video element is mounted by the now-playing
- * panel, so a real video surface is shown while the bar stays docked.
+ * matches the current track. Songs use the docked bar and its full-screen view;
+ * videos are mounted by `VideoSurface`, which replaces the bar while a clip is
+ * current.
  *
  * Playback state, the queue with auto-advance, and the short-lived signed URL
  * refresh all live here. Token or network failures never throw into the UI: the
- * bar stays visible and paused.
+ * active surface stays visible and paused.
  */
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<Track | null>(null);

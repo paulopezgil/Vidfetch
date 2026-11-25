@@ -7,9 +7,13 @@ import NowPlayingPanel from "./NowPlayingPanel";
 import { usePlayer } from "../player/PlayerProvider";
 
 /**
- * Persistent playback bar. Docked above the compact navigation bar and inside
- * the content column on wider windows, so it never covers the rail/drawer. Its
- * expand control opens the full-screen now-playing surface.
+ * Persistent playback bar for songs. Docked above the compact navigation bar
+ * and inside the content column on wider windows, so it never covers the
+ * rail/drawer.
+ *
+ * The artwork is the expansion trigger for the full-screen song view. Videos do
+ * not use this surface at all: `VideoSurface` replaces the docked bar while a
+ * video is current, which also keeps clips out of the Spotify-style bar.
  */
 export default function PlayerBar() {
   const {
@@ -31,10 +35,11 @@ export default function PlayerBar() {
   } = usePlayer();
 
   const [expanded, setExpanded] = useState(false);
-  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const artworkButtonRef = useRef<HTMLButtonElement>(null);
   const wasExpandedRef = useRef(false);
 
   const hasTrack = current !== null;
+  const isVideo = mediaKind === "video";
   const hasNext = hasTrack && index < queue.length - 1;
   const seekable = hasTrack && duration > 0;
   const trackId = current?.id ?? null;
@@ -43,23 +48,20 @@ export default function PlayerBar() {
     setExpanded((value) => !value);
   }, []);
 
-  // Video needs its real surface visible as soon as it starts. Audio keeps the
-  // full-screen player closed unless the listener opens it from the bar.
+  // The docked bar only exists for songs. Leaving a video (manually or through
+  // auto-advance) restores the bar minimized, never as a leftover fullscreen
+  // song view from an earlier session.
   useEffect(() => {
-    if (!trackId) {
-      setExpanded(false);
-      return;
-    }
-    if (mediaKind === "video") setExpanded(true);
-  }, [mediaKind, trackId]);
+    if (!trackId || isVideo) setExpanded(false);
+  }, [isVideo, trackId]);
 
-  // Returning from the full-screen surface puts focus back on the bar trigger.
+  // Returning from the full-screen song view puts focus back on its trigger.
   useEffect(() => {
     const wasExpanded = wasExpandedRef.current;
     wasExpandedRef.current = expanded;
     if (!wasExpanded || expanded || !hasTrack) return;
     const frame = window.requestAnimationFrame(() => {
-      expandButtonRef.current?.focus();
+      artworkButtonRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [expanded, hasTrack]);
@@ -121,25 +123,12 @@ export default function PlayerBar() {
     </>
   );
 
-  const expandButton = (
-    <IconButton
-      buttonRef={expandButtonRef}
-      label={
-        expanded
-          ? "Minimitza el reproductor"
-          : "Obre el reproductor a pantalla completa"
-      }
-      onClick={toggleExpanded}
-      disabled={!hasTrack}
-      ariaExpanded={expanded}
-      ariaControls="now-playing-panel"
-    >
-      <Icon
-        name={expanded ? "expand_more" : "expand_less"}
-        className="text-[22px]"
-      />
-    </IconButton>
-  );
+  const artworkLabel = expanded
+    ? "Minimitza el reproductor"
+    : "Obre el reproductor a pantalla completa";
+
+  // Videos own the screen through VideoSurface; the audio bar is fully gone.
+  if (isVideo) return null;
 
   return (
     <section
@@ -150,11 +139,23 @@ export default function PlayerBar() {
 
       <div className="flex items-center gap-3 px-3 py-2 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-56 sm:flex-none lg:w-64">
-          <Thumbnail
-            src={hasTrack ? art : null}
-            icon={mediaKind === "video" ? "movie" : "music_note"}
-            className={`h-12 w-12 ${hasTrack ? "" : "opacity-60"}`}
-          />
+          <button
+            ref={artworkButtonRef}
+            type="button"
+            onClick={toggleExpanded}
+            disabled={!hasTrack}
+            aria-label={artworkLabel}
+            aria-expanded={expanded}
+            aria-controls="now-playing-panel"
+            title={artworkLabel}
+            className="shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-high disabled:cursor-default"
+          >
+            <Thumbnail
+              src={hasTrack ? art : null}
+              icon="music_note"
+              className={`h-12 w-12 ${hasTrack ? "" : "opacity-60"}`}
+            />
+          </button>
           <div className="min-w-0 flex-1">
             <p
               className={`truncate text-title-small ${
@@ -181,7 +182,6 @@ export default function PlayerBar() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          {expandButton}
           <div className="hidden items-center gap-1 md:flex">
             <Icon
               name={volume === 0 ? "volume_off" : "volume_up"}

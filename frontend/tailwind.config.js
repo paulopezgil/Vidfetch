@@ -64,6 +64,9 @@ export default {
         shadow: "rgb(var(--md-shadow) / <alpha-value>)",
         scrim: "rgb(var(--md-scrim) / <alpha-value>)",
 
+        // Component token: the video playback stage stays dark in both schemes.
+        "video-stage": "rgb(var(--md-video-stage) / <alpha-value>)",
+
         // Extended roles (Material Theme Builder custom colors). M3 has no
         // baseline success/warning, but operations need honest status color.
         success: "rgb(var(--md-success) / <alpha-value>)",

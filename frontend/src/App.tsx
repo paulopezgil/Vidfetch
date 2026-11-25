@@ -11,6 +11,7 @@ import { ToastProvider } from "./components/Toast";
 import { DownloadsProvider } from "./downloads/DownloadsProvider";
 import { PlayerProvider } from "./player/PlayerProvider";
 import PlayerBar from "./components/PlayerBar";
+import VideoSurface from "./components/VideoSurface";
 import Spinner from "./components/Spinner";
 import TopAppBar from "./components/TopAppBar";
 import OfflineBanner from "./components/OfflineBanner";
@@ -78,6 +79,7 @@ function AppShell() {
                 </Suspense>
               </main>
               <PlayerBar />
+              <VideoSurface />
               <NavigationBar />
             </div>
           </div>
