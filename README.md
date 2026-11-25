@@ -310,6 +310,19 @@ DOWNLOAD_DIR volume
 5. Completed audio jobs are copied to the browser's media cache automatically;
    saved songs are permanent and play without the backend.
 
+### Player and media actions
+
+- Songs and videos share the persistent bottom player. Maximizing it opens a
+  full-viewport now-playing surface: large cover art for songs, and the real
+  `<video>` for videos. Minimizing returns to the docked bar without stopping
+  playback.
+- Every song and video row has **both** actions: a normal device download and a
+  permanent offline-save control (cloud → check). Images keep their existing
+  preview/download behavior.
+- Completed audio jobs transfer to the device automatically. Videos can be kept
+  offline with the save control. Saved media is permanent; there is no
+  un-download action.
+
 ---
 
 ## Configuration
