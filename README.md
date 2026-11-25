@@ -277,7 +277,7 @@ DOWNLOAD_DIR volume
 
 | Layer | Responsibility |
 | --- | --- |
-| **Frontend** | Login/register, route guards, Home, Tracks, Playlists, Artists & Albums, Settings, player, admin panel |
+| **Frontend** | Login/register, route guards, Home, Songs, Videos, Playlists, Artists & Albums, Settings, player, admin panel |
 | **Offline layer** | IndexedDB metadata cache, queued mutations, Cache Storage media, service-worker shell |
 | **Backend API** | Session auth, approval/role guards, jobs, tracks, curated playlists, media tokens, admin |
 | **Worker** | Claims durable jobs, runs `yt-dlp`/FFmpeg, updates progress, repairs/fills the shared cache |
@@ -479,7 +479,7 @@ frontend/
     auth/              local session provider and route guards
     components/        M3 components, player bar, dialogs
     offline/           IndexedDB, media cache, sync queue
-    pages/             Login, Pending, Home, Tracks, Playlists,
+    pages/             Login, Pending, Home, Songs, Videos, Playlists,
                        Artists/Albums, Settings, Admin
     player/            persistent media player and queue
     theme/             light/dark/system preference
