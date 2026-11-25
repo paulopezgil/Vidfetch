@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 type Variant = "standard" | "filled" | "tonal" | "outlined" | "danger";
 type Size = "sm" | "md";
@@ -22,6 +22,8 @@ interface IconButtonProps {
   ariaExpanded?: boolean;
   /** Id of the panel a disclosure control expands. */
   ariaControls?: string;
+  /** Native button ref, used to restore focus after closing a dialog. */
+  buttonRef?: Ref<HTMLButtonElement>;
   onClick?: () => void;
 }
 
@@ -56,6 +58,7 @@ export default function IconButton({
   ariaPressed,
   ariaExpanded,
   ariaControls,
+  buttonRef,
   onClick,
 }: IconButtonProps) {
   const classes = `inline-flex shrink-0 items-center justify-center rounded-full transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38] ${variants[variant]} ${sizes[size]} ${className}`;
@@ -70,6 +73,7 @@ export default function IconButton({
 
   return (
     <button
+      ref={buttonRef}
       type={type}
       onClick={onClick}
       disabled={disabled}

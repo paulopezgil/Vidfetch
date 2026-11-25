@@ -222,9 +222,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       };
 
       try {
-        // Prefer the local copy: it plays offline and needs no token. Only
-        // audio is ever copied locally, but reading this for every asset keeps
-        // the source logic identical for both media kinds.
+        // Prefer the local copy: it plays offline and needs no token. Songs and
+        // videos both use the same cache; automatic transfers remain audio-only,
+        // while a manually saved video is read here just like a song.
         const local = await getOfflineMediaBlob(track.asset_id);
         if (loadId !== loadIdRef.current) return;
 

@@ -14,6 +14,8 @@ interface OfflineButtonProps {
   assetId: string | null | undefined;
   /** Track title used in failure messages. */
   title?: string;
+  /** Adjusts the action wording; both kinds are cached locally. */
+  kind?: "audio" | "video";
   size?: "sm" | "md";
   className?: string;
 }
@@ -24,11 +26,11 @@ const sizeClasses: Record<"sm" | "md", string> = {
 };
 
 /**
- * One offline-state control per song.
+ * One offline-state control per song or video.
  *
- * - cloud icon: the song lives on the server only; tap to copy it locally.
+ * - cloud icon: the media lives on the server only; tap to copy it locally.
  * - spinner: a copy is being transferred; the control is not interactive.
- * - filled check: the song is available offline. Saved songs are permanent, so
+ * - filled check: the media is available offline. Saved media is permanent, so
  *   this state is a non-interactive status indicator, not a button.
  *
  * The compact indicator uses the same tonal icon-button container as the save
@@ -39,6 +41,7 @@ const sizeClasses: Record<"sm" | "md", string> = {
 export default function OfflineButton({
   assetId,
   title,
+  kind = "audio",
   size = "sm",
   className = "",
 }: OfflineButtonProps) {
@@ -49,6 +52,7 @@ export default function OfflineButton({
 
   const saved = status.saved.has(assetId);
   const saving = status.saving.has(assetId);
+  const action = kind === "video" ? "veure" : "escoltar";
 
   async function handleSave() {
     if (!assetId || saving || saved) return;
@@ -63,8 +67,8 @@ export default function OfflineButton({
     }
     toast(
       title
-        ? `No s’ha pogut desar «${title}» per a escoltar sense connexió.`
-        : "No s’ha pogut desar el track per a escoltar sense connexió.",
+        ? `No s’ha pogut desar «${title}» per a ${action} sense connexió.`
+        : `No s’ha pogut desar el fitxer per a ${action} sense connexió.`,
       "error",
     );
   }
@@ -86,8 +90,8 @@ export default function OfflineButton({
     return (
       <span
         role="img"
-        aria-label="S’està desant per a escoltar sense connexió"
-        title="S’està desant per a escoltar sense connexió"
+        aria-label={`S’està desant per a ${action} sense connexió`}
+        title={`S’està desant per a ${action} sense connexió`}
         className={`inline-flex shrink-0 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container ${sizeClasses[size]} ${className}`}
       >
         <Spinner className="text-[20px]" />
@@ -100,8 +104,8 @@ export default function OfflineButton({
       variant="tonal"
       size={size}
       className={className}
-      label="Desa per a escoltar sense connexió"
-      title="Desa per a escoltar sense connexió"
+      label={`Desa per a ${action} sense connexió`}
+      title={`Desa per a ${action} sense connexió`}
       onClick={() => void handleSave()}
     >
       <Icon name="cloud_download" className="text-[20px]" />
