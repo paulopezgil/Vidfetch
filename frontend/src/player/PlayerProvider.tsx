@@ -48,6 +48,12 @@ export interface PlayerContextValue {
   previous: () => void;
   seek: (seconds: number) => void;
   setVolume: (volume: number) => void;
+  /**
+   * Replace a track's metadata in `current` and every matching queue entry.
+   * Playback, position and the media source stay untouched: the edit only
+   * changes what the surfaces display.
+   */
+  updateTrack: (track: Track) => void;
   /** Stop playback and return the bar to its idle state. */
   close: () => void;
 }
@@ -405,6 +411,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (videoRef.current) videoRef.current.volume = nextVolume;
   }, []);
 
+  /**
+   * Metadata-only update: the current item and any queue copies get the new
+   * title/artist/album/cover, while the element, its source, the position and
+   * the playing state are left exactly as they were.
+   */
+  const updateTrack = useCallback((track: Track) => {
+    const previous = currentRef.current;
+    if (previous?.id === track.id) {
+      currentRef.current = track;
+      setCurrent(track);
+      // `artworkUrl` is the signed thumbnail resolved when the source loaded.
+      // Only touch it when the cover really changed, so an unrelated metadata
+      // edit keeps the current artwork.
+      if (previous.cover_url !== track.cover_url) {
+        setArtworkUrl(track.cover_url ?? null);
+      }
+    }
+
+    if (queueRef.current.some((item) => item.id === track.id)) {
+      const nextQueue = queueRef.current.map((item) =>
+        item.id === track.id ? track : item,
+      );
+      queueRef.current = nextQueue;
+      setQueue(nextQueue);
+    }
+  }, []);
+
   const close = useCallback(() => {
     loadIdRef.current += 1;
     resetMedia();
@@ -532,6 +565,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       previous,
       seek,
       setVolume,
+      updateTrack,
       close,
     }),
     [
@@ -550,6 +584,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       seek,
       setVolume,
       togglePlay,
+      updateTrack,
       videoElement,
       volume,
     ],
