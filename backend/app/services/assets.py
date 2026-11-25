@@ -159,12 +159,19 @@ async def claim_asset(
             options_hash,
         )
         if record is None:
+            # Two jobs can race for the same output. The loser's INSERT blocks
+            # on the winner's not-yet-committed row, so ``on conflict do
+            # nothing`` turns that race into a no-op instead of surfacing a
+            # unique violation to the caller. The loser then locks the row the
+            # winner committed and falls through to the shared claim/wait
+            # logic below.
             inserted = await connection.fetchrow(
                 f"insert into {schema_sql}.media_assets "
                 f"(canonical_id, extractor_key, source_url, title, "
                 f"duration_seconds, options_hash, format_selector, status, "
                 f"attempts, claimed_at, lease_until, last_accessed_at) "
                 f"values ($1, $2, $3, $4, $5, $6, $7, 'processing', 1, $8, $9, $8) "
+                f"on conflict (canonical_id, options_hash) do nothing "
                 f"returning {ASSET_COLUMNS}",
                 canonical_id,
                 (extractor_key or "").strip().lower(),
@@ -176,7 +183,18 @@ async def claim_asset(
                 now,
                 lease_until,
             )
-            return AssetClaim(asset=_row(inserted) or {}, claimed=True)
+            if inserted is not None:
+                return AssetClaim(asset=_row(inserted) or {}, claimed=True)
+
+            record = await connection.fetchrow(
+                f"select {ASSET_COLUMNS} from {schema_sql}.media_assets "
+                f"where canonical_id = $1 and options_hash = $2 "
+                f"for update",
+                canonical_id,
+                options_hash,
+            )
+            if record is None:  # pragma: no cover - the row must have committed
+                raise RuntimeError("Asset claim lost its row.")
 
         asset = dict(record)
         status = asset.get("status")

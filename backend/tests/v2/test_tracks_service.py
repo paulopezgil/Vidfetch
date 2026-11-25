@@ -605,3 +605,41 @@ def test_list_tracks_by_ids_skips_the_query_for_an_empty_list():
 
     assert run(tracks.list_tracks_by_ids(db, uuid4(), [])) == []
     assert db.calls == []
+
+
+def test_list_tracks_sorts_by_resolved_title_case_insensitively():
+    owner = uuid4()
+    row = track_row()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 1})
+    db.queue_fetch([row])
+
+    page, total = run(
+        tracks.list_tracks(db, owner, q="aby", limit=2, offset=3, sort="title")
+    )
+
+    assert total == 1
+    assert page == [row]  # rows echoed unchanged
+    count_query, count_args = db.calls[0][1], db.calls[0][2]
+    # Visibility and the search filter are independent of the sort order.
+    assert "j.library_hidden = false" in count_query
+    assert "ut.deleted_at is null" in count_query
+    assert "a.status = 'ready'" in count_query
+    assert count_args == (owner, "aby")
+
+    page_query, page_args = db.calls[1][1], db.calls[1][2]
+    assert (
+        "order by lower(coalesce(nullif(ut.custom_title, ''), "
+        "nullif(j.title, ''), a.title, '')) asc, ut.id asc"
+    ) in page_query
+    assert "limit $3 offset $4" in page_query
+    assert page_args == (owner, "aby", 2, 3)
+
+
+def test_list_tracks_rejects_an_unknown_sort_before_querying():
+    db = FakeDatabase()
+
+    with pytest.raises(ValueError, match="Invalid track sort"):
+        run(tracks.list_tracks(db, uuid4(), sort="album"))
+
+    assert db.calls == []

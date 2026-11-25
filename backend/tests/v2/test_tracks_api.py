@@ -566,3 +566,57 @@ def test_patch_track_rejects_an_invalid_uuid(tmp_path):
     assert all(
         " set " not in call[1].lower() for call in non_session_calls(db)
     )
+
+
+def test_list_tracks_forwards_the_sort_order_and_search(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, {"total": 1})
+    db.queue_fetch([track_row(title="Abbey Road")])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks",
+            params={"sort": "title", "q": "road", "limit": 2, "offset": 4},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    page_query, page_args = db.calls[2][1], db.calls[2][2]
+    assert (
+        "order by lower(coalesce(nullif(ut.custom_title, ''), "
+        "nullif(j.title, ''), a.title, '')) asc, ut.id asc"
+    ) in page_query
+    assert page_args == (profile["id"], "road", 2, 4)
+
+
+def test_list_tracks_defaults_to_newest_downloaded(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, {"total": 0})
+    db.queue_fetch([])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get("/api/tracks", headers=_headers(profile))
+
+    assert response.status_code == 200
+    assert "order by ut.downloaded_at desc, ut.id desc" in db.calls[2][1]
+
+
+def test_list_tracks_rejects_an_unknown_sort_with_the_validation_envelope(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks", params={"sort": "album"}, headers=_headers(profile)
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    # The invalid value never reaches the tracks query.
+    assert all("user_tracks" not in call[1] for call in db.calls)

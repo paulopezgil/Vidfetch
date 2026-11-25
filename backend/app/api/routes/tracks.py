@@ -7,6 +7,7 @@ cover image.
 """
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -92,16 +93,21 @@ async def list_tracks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200),
+    sort: Literal["downloaded", "title"] = Query(default="downloaded"),
     profile: ProfileOut = Depends(require_approved),
     settings: Settings = Depends(get_settings),
     db: Database | None = Depends(get_db),
 ) -> TrackList:
-    """List the caller's visible tracks, newest downloaded first."""
+    """List the caller's visible tracks.
+
+    ``sort=downloaded`` (default) is newest download first; ``sort=title`` is
+    alphabetical by the resolved title the client displays.
+    """
     if db is None:
         raise _unavailable()
     try:
         rows, total = await tracks.list_tracks(
-            db, profile.id, limit=limit, offset=offset, q=q
+            db, profile.id, limit=limit, offset=offset, q=q, sort=sort
         )
     except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
