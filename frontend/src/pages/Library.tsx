@@ -68,6 +68,7 @@ function initialSort(): SortMode {
 export default function Library({ kind }: { kind: LibraryKind }) {
   const toast = useToast();
   const { jobs } = useDownloads();
+  const { updateTrack } = usePlayer();
   const [items, setItems] = useState<Track[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -188,10 +189,12 @@ export default function Library({ kind }: { kind: LibraryKind }) {
       setItems((prev) =>
         prev.map((item) => (item.id === updated.id ? updated : item)),
       );
+      // Keep the docked/full-screen player in step when this row is playing.
+      updateTrack(updated);
       toast("Track actualitzat", "success");
       void refresh();
     },
-    [refresh, toast],
+    [refresh, toast, updateTrack],
   );
 
   // Items downloaded as part of a playlist are reachable through the playlist
