@@ -5,8 +5,12 @@ import {
   useRef,
   useState,
 } from "react";
+import type { Track } from "../types/v2";
 import Icon from "./Icon";
 import IconButton from "./IconButton";
+import Menu from "./Menu";
+import TrackEditDialog from "./TrackEditDialog";
+import { useToast } from "./Toast";
 import PlayerSlider, { formatClock } from "./PlayerSlider";
 import { usePlayer } from "../player/PlayerProvider";
 
@@ -175,8 +179,12 @@ export default function VideoSurface() {
     next,
     previous,
     seek,
+    updateTrack,
     close,
   } = usePlayer();
+
+  const toast = useToast();
+  const [editing, setEditing] = useState<Track | null>(null);
 
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [fallbackMaximized, setFallbackMaximized] = useState(false);
@@ -185,6 +193,9 @@ export default function VideoSurface() {
   const videoHostRef = useRef<HTMLDivElement | null>(null);
   const maximizeRef = useRef<HTMLButtonElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
+  /** Lets the key handler ignore Esc/Tab while the edit dialog is on top. */
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const wasVideoRef = useRef(false);
   const nativeRef = useRef(false);
@@ -194,6 +205,15 @@ export default function VideoSurface() {
 
   const isVideo = mediaKind === "video" && current !== null;
   const maximized = nativeFullscreen || fallbackMaximized;
+
+  const handleSaved = useCallback(
+    (track: Track) => {
+      // Metadata-only refresh: the video keeps playing from the same source.
+      updateTrack(track);
+      toast("Track actualitzat", "success");
+    },
+    [toast, updateTrack],
+  );
 
   /** Mirror native state in a ref so key handlers never act on stale state. */
   const syncNativeState = useCallback((active: boolean) => {
@@ -344,6 +364,8 @@ export default function VideoSurface() {
     if (!isVideo) return;
 
     function onKeyDown(event: KeyboardEvent) {
+      // The edit dialog owns Escape and Tab while it is open.
+      if (editingRef.current) return;
       if (event.key === "Escape") {
         if (
           isStageFullscreen(stageRef.current, videoElement) ||
@@ -513,6 +535,17 @@ export default function VideoSurface() {
               </p>
             ) : null}
           </div>
+          <Menu
+            label="Més accions"
+            actions={[
+              {
+                id: "edit",
+                label: "Edita els detalls",
+                icon: "edit",
+                onSelect: () => setEditing(current),
+              },
+            ]}
+          />
           <IconButton
             buttonRef={maximizeRef}
             label={maximized ? "Minimitza" : "Maximitza"}
@@ -587,6 +620,13 @@ export default function VideoSurface() {
           </div>
         </div>
       </section>
+
+      <TrackEditDialog
+        open={editing !== null}
+        track={editing}
+        onClose={() => setEditing(null)}
+        onSaved={handleSaved}
+      />
     </div>
   );
 }

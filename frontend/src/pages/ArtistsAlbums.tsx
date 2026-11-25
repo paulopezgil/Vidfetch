@@ -12,10 +12,12 @@ import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
+import Menu from "../components/Menu";
 import OfflineButton from "../components/OfflineButton";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
+import TrackEditDialog from "../components/TrackEditDialog";
 import { useToast } from "../components/Toast";
 import { usePlayer } from "../player/PlayerProvider";
 import { useMediaToken } from "../lib/useMediaToken";
@@ -68,6 +70,8 @@ export default function ArtistsAlbums() {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Track | null>(null);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -106,6 +110,18 @@ export default function ArtistsAlbums() {
     setTab(value === "albums" ? "albums" : "artists");
     setSelected(null);
   }, []);
+
+  const handleSaved = useCallback(
+    (updated: Track) => {
+      // Replacing the track in place regroups the artist/album buckets, and
+      // the selected drill-down reflects the new metadata immediately.
+      setTracks((prev) =>
+        prev.map((track) => (track.id === updated.id ? updated : track)),
+      );
+      toast("Track actualitzat", "success");
+    },
+    [toast],
+  );
 
   if (loading) {
     return (
@@ -173,6 +189,7 @@ export default function ArtistsAlbums() {
                     key={track.id}
                     track={track}
                     queue={selectedGroup.tracks}
+                    onEdit={() => setEditing(track)}
                   />
                 ))}
               </Card>
@@ -205,6 +222,13 @@ export default function ArtistsAlbums() {
           )}
         </>
       ) : null}
+
+      <TrackEditDialog
+        open={editing !== null}
+        track={editing}
+        onClose={() => setEditing(null)}
+        onSaved={handleSaved}
+      />
     </div>
   );
 }
@@ -258,7 +282,15 @@ function GroupCard({
   );
 }
 
-function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
+function TrackRow({
+  track,
+  queue,
+  onEdit,
+}: {
+  track: Track;
+  queue: Track[];
+  onEdit: () => void;
+}) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const toast = useToast();
   // Only ask for a token when there is no cover and the asset has a thumbnail.
@@ -350,6 +382,17 @@ function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
           className="text-[20px]"
         />
       </IconButton>
+      <Menu
+        label="Més accions"
+        actions={[
+          {
+            id: "edit",
+            label: "Edita els detalls",
+            icon: "edit",
+            onSelect: onEdit,
+          },
+        ]}
+      />
     </div>
   );
 }

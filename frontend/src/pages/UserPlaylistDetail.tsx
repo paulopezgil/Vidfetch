@@ -27,6 +27,7 @@ import PlaylistCollage from "../components/PlaylistCollage";
 import PlaylistDialog from "../components/PlaylistDialog";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
+import TrackEditDialog from "../components/TrackEditDialog";
 import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
 import { mediaTypeFor } from "../lib/trackDisplay";
@@ -53,13 +54,14 @@ export default function UserPlaylistDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { playTrack } = usePlayer();
+  const { playTrack, updateTrack } = usePlayer();
 
   const [detail, setDetail] = useState<UserPlaylistDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -107,6 +109,25 @@ export default function UserPlaylistDetail() {
       );
     },
     [toast],
+  );
+
+  const handleTrackSaved = useCallback(
+    (updated: Track) => {
+      // Swap the row in place; ordering and membership stay as they are.
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : prev,
+      );
+      updateTrack(updated);
+      toast("Track actualitzat", "success");
+    },
+    [toast, updateTrack],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -334,6 +355,7 @@ export default function UserPlaylistDetail() {
                 onMoveUp={() => void move(index, -1)}
                 onMoveDown={() => void move(index, 1)}
                 onRemove={() => void removeTrack(track)}
+                onEdit={() => setEditingTrack(track)}
               />
             ))}
           </ul>
@@ -360,6 +382,13 @@ export default function UserPlaylistDetail() {
         playlist={detail}
         onClose={() => setEditOpen(false)}
         onSaved={handleSaved}
+      />
+
+      <TrackEditDialog
+        open={editingTrack !== null}
+        track={editingTrack}
+        onClose={() => setEditingTrack(null)}
+        onSaved={handleTrackSaved}
       />
 
       <ConfirmDialog
@@ -393,6 +422,7 @@ function PlaylistTrackRow({
   onMoveUp,
   onMoveDown,
   onRemove,
+  onEdit,
 }: {
   track: Track;
   index: number;
@@ -404,6 +434,7 @@ function PlaylistTrackRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
+  onEdit: () => void;
 }) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const playerActive = current?.id === track.id;
@@ -520,6 +551,17 @@ function PlaylistTrackRow({
             <Icon name="playlist_remove" className="text-[20px]" />
           )}
         </IconButton>
+        <Menu
+          label="Més accions"
+          actions={[
+            {
+              id: "edit",
+              label: "Edita els detalls",
+              icon: "edit",
+              onSelect: onEdit,
+            },
+          ]}
+        />
       </div>
     </li>
   );
