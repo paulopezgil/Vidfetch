@@ -165,12 +165,14 @@ def test_replace_items_preserves_matched_asset_and_prunes_stale_rows():
                     "canonical_id": "youtube:two",
                     "source_url": "https://example.test/two",
                     "title": "Two moved",
+                    "channel": "Two channel",
                     "duration_seconds": 12,
                 },
                 {
                     "canonical_id": "youtube:three",
                     "source_url": "https://example.test/three",
                     "title": "Three",
+                    "channel": "Three channel",
                     "duration_seconds": 9,
                 },
             ],
@@ -185,8 +187,19 @@ def test_replace_items_preserves_matched_asset_and_prunes_stale_rows():
 
     update_query, update_args = db.calls[2][1], db.calls[2][2]
     assert "asset_id = case when canonical_id = $4 then asset_id" in update_query
+    assert (
+        "channel = case when canonical_id = $4 and channel <> '' "
+        "then channel else $8 end" in update_query
+    )
     assert update_args[0] == kept["id"]
     assert update_args[2] == 1
+    assert update_args[7] == "Two channel"
+
+    insert_query, insert_args = db.calls[3][1], db.calls[3][2]
+    assert "(playlist_id, position, canonical_id, source_url, title, channel" in (
+        insert_query
+    )
+    assert insert_args[5] == "Three channel"
 
     prune_query = db.calls[4][1]
     assert "position < 0" in prune_query
@@ -213,11 +226,13 @@ def test_replace_items_inserts_when_no_rows_exist_and_dedupes_canonical():
                     "canonical_id": "youtube:same",
                     "source_url": "https://example.test/a",
                     "title": "First",
+                    "channel": "A channel",
                 },
                 {
                     "canonical_id": "youtube:same",
                     "source_url": "https://example.test/b",
                     "title": "Duplicate",
+                    "channel": "B channel",
                 },
             ],
         )
@@ -226,6 +241,7 @@ def test_replace_items_inserts_when_no_rows_exist_and_dedupes_canonical():
     assert [row["canonical_id"] for row in rows] == ["youtube:same"]
     assert len([call for call in db.calls if call[0] == "fetchrow"]) == 1
     assert 'insert into "public".playlist_items' in db.calls[1][1]
+    assert db.calls[1][2][5] == "A channel"
 
 
 def test_update_item_only_sets_supplied_link_columns():
@@ -257,6 +273,32 @@ def test_update_item_only_sets_supplied_link_columns():
     assert "asset_id = $5" in query
     assert "job_id = $" not in query
     assert args == (playlist_id, 2, "ready", "", asset_id)
+
+
+def test_update_item_persists_a_resolved_channel():
+    playlist_id = uuid4()
+    updated = playlist_item_row(
+        playlist_id=playlist_id,
+        position=1,
+        channel="Resolved channel",
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(updated)
+
+    result = run(
+        playlists.update_item(
+            db,
+            playlist_id,
+            1,
+            status="downloading",
+            channel="Resolved channel",
+        )
+    )
+
+    assert result["channel"] == "Resolved channel"
+    query, args = db.calls[0][1], db.calls[0][2]
+    assert "channel = $5" in query
+    assert args == (playlist_id, 1, "downloading", "", "Resolved channel")
 
 
 def test_update_item_rejects_invalid_status():

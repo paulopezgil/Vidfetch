@@ -26,7 +26,7 @@ PLAYLIST_COLUMNS = (
 )
 
 PLAYLIST_ITEM_COLUMNS = (
-    "id, playlist_id, position, canonical_id, source_url, title, "
+    "id, playlist_id, position, canonical_id, source_url, title, channel, "
     "duration_seconds, asset_id, job_id, status, error, created_at, updated_at"
 )
 
@@ -238,6 +238,7 @@ def _dedupe_entries(
                     or ""
                 )[:2048],
                 "title": str(entry.get("title") or "")[:500],
+                "channel": str(entry.get("channel") or "")[:500],
                 "duration_seconds": _duration(duration),
             }
         )
@@ -300,7 +301,9 @@ async def replace_items(
                 updated = await connection.fetchrow(
                     f"update {schema_sql}.playlist_items set "
                     f"position = $3, canonical_id = $4, source_url = $5, "
-                    f"title = $6, duration_seconds = $7, "
+                    f"title = $6, channel = case when canonical_id = $4 "
+                    f"and channel <> '' then channel else $8 end, "
+                    f"duration_seconds = $7, "
                     f"asset_id = case when canonical_id = $4 then asset_id "
                     f"else null end, "
                     f"job_id = case when canonical_id = $4 then job_id "
@@ -318,6 +321,7 @@ async def replace_items(
                     entry["source_url"],
                     entry["title"],
                     entry["duration_seconds"],
+                    entry["channel"],
                 )
                 if updated is not None:
                     result.append(dict(updated))
@@ -326,14 +330,15 @@ async def replace_items(
             inserted = await connection.fetchrow(
                 f"insert into {schema_sql}.playlist_items "
                 f"(playlist_id, position, canonical_id, source_url, title, "
-                f"duration_seconds) "
-                f"values ($1, $2, $3, $4, $5, $6) "
+                f"channel, duration_seconds) "
+                f"values ($1, $2, $3, $4, $5, $6, $7) "
                 f"returning {PLAYLIST_ITEM_COLUMNS}",
                 identifier,
                 position,
                 canonical,
                 entry["source_url"],
                 entry["title"],
+                entry["channel"],
                 entry["duration_seconds"],
             )
             if inserted is not None:
@@ -362,6 +367,7 @@ async def update_item(
     canonical_id: str | None = None,
     source_url: str | None = None,
     title: str | None = None,
+    channel: str | None = None,
     duration_seconds: int | None = None,
 ) -> dict[str, Any] | None:
     """Update one item by its source position.
@@ -392,6 +398,8 @@ async def update_item(
         add("source_url", str(source_url)[:2048])
     if title is not None:
         add("title", str(title)[:500])
+    if channel is not None:
+        add("channel", str(channel)[:500])
     if duration_seconds is not None:
         add("duration_seconds", _duration(duration_seconds))
 
