@@ -62,6 +62,16 @@ def test_list_tracks_returns_the_callers_visible_tracks(tmp_path):
     )
     assert claims.asset_id == f"cover:{row['id']}"
     assert claims.user_id == str(profile["id"])
+
+    thumbnail_url = item.pop("thumbnail_url")
+    assert thumbnail_url.startswith(
+        f"/api/thumbnails/{row['asset_id']}?token="
+    )
+    thumbnail_claims = verify_media_token(
+        thumbnail_url.split("token=", 1)[1], MEDIA_SECRET
+    )
+    assert thumbnail_claims.asset_id == str(row["asset_id"])
+    assert thumbnail_claims.user_id == str(profile["id"])
     assert item == {
         "id": str(row["id"]),
         "asset_id": str(row["asset_id"]),
@@ -204,6 +214,7 @@ def test_list_tracks_omits_cover_url_when_no_cover_exists(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["items"][0]["cover_url"] is None
+    assert response.json()["items"][0]["thumbnail_url"] is None
 
 
 def test_patch_track_updates_only_the_provided_fields(tmp_path):

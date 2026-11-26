@@ -22,6 +22,9 @@ from ...models.schemas import (
     UserPlaylistList,
     UserPlaylistOrder,
     UserPlaylistOut,
+    UserPlaylistShareCreate,
+    UserPlaylistShareList,
+    UserPlaylistShareOut,
     UserPlaylistUpdate,
 )
 from ...services import user_playlists
@@ -60,6 +63,18 @@ def _invalid_request() -> ApiError:
     return ApiError(400, "invalid_request", "Invalid playlist metadata.")
 
 
+def _invalid_share_recipient() -> ApiError:
+    return ApiError(
+        400,
+        "invalid_request",
+        "That account cannot be added.",
+    )
+
+
+def _share_not_found() -> ApiError:
+    return ApiError(404, "share_not_found", "Share not found.")
+
+
 def _public_url(settings: Settings, path: str) -> str:
     """Prefix an API path with ``PUBLIC_API_URL`` when one is configured."""
     return f"{settings.public_api_url}{path}" if settings.public_api_url else path
@@ -80,26 +95,64 @@ def _cover_url(settings: Settings, user_id: UUID, track: dict) -> str | None:
     return _public_url(settings, f"/api/covers/{track_id}?token={token}")
 
 
-def _track_out(settings: Settings, user_id: UUID, row: dict) -> TrackOut:
+def _thumbnail_url(settings: Settings, user_id: UUID, track: dict) -> str | None:
+    """Build a signed thumbnail URL bound to the viewer's approved account."""
+    relative = str(track.get("thumbnail_path") or "").strip()
+    asset_id = track.get("asset_id")
+    if not relative or asset_id is None:
+        return None
+    token = sign_media_token(
+        settings.media_token_secret,
+        str(asset_id),
+        str(user_id),
+        settings.media_token_ttl_seconds,
+    )
+    return _public_url(settings, f"/api/thumbnails/{asset_id}?token={token}")
+
+
+def _track_out(
+    settings: Settings,
+    viewer_id: UUID,
+    row: dict,
+    *,
+    cover_user_id: UUID | None = None,
+) -> TrackOut:
     data = dict(row)
-    data["cover_url"] = _cover_url(settings, user_id, data)
+    data["cover_url"] = _cover_url(
+        settings, cover_user_id or viewer_id, data
+    )
+    data["thumbnail_url"] = _thumbnail_url(settings, viewer_id, data)
     return TrackOut.model_validate(data)
 
 
 def _detail_out(
     settings: Settings,
-    user_id: UUID,
+    viewer_id: UUID,
     playlist: dict,
     items: list[dict],
+    *,
+    cover_user_id: UUID | None = None,
 ) -> UserPlaylistDetailOut:
     # Derive the count from the tracks that survived the visibility filter so
     # a detail response can never advertise more tracks than it contains (the
     # count and membership are separate queries and may straddle a change).
+    #
+    # A shared viewer reads the owner's tracks: cover tokens must name the
+    # owner because ``/api/covers/{id}`` resolves the stored cover by the
+    # token's user, while thumbnail tokens can stay bound to the viewer.
     return UserPlaylistDetailOut.model_validate(
         {
             **playlist,
             "track_count": len(items),
-            "items": [_track_out(settings, user_id, row) for row in items],
+            "items": [
+                _track_out(
+                    settings,
+                    viewer_id,
+                    row,
+                    cover_user_id=cover_user_id,
+                )
+                for row in items
+            ],
         }
     )
 
@@ -155,6 +208,34 @@ async def create_user_playlist(
     return UserPlaylistOut.model_validate(row)
 
 
+@router.get("/shared", response_model=UserPlaylistList)
+async def list_shared_user_playlists(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    profile: ProfileOut = Depends(require_approved),
+    db: Database | None = Depends(get_db),
+) -> UserPlaylistList:
+    """List live playlists other accounts shared with the caller (read-only).
+
+    This path is declared before ``/{playlist_id}`` so "shared" is never parsed
+    as a playlist id.
+    """
+    if db is None:
+        raise _unavailable()
+    try:
+        rows, total = await user_playlists.list_shared_with_user(
+            db, profile.id, limit=limit, offset=offset
+        )
+    except DB_UNAVAILABLE as exc:
+        raise _unavailable() from exc
+    return UserPlaylistList(
+        items=[UserPlaylistOut.model_validate(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.get("/{playlist_id}", response_model=UserPlaylistDetailOut)
 async def get_user_playlist(
     playlist_id: UUID,
@@ -162,19 +243,25 @@ async def get_user_playlist(
     settings: Settings = Depends(get_settings),
     db: Database | None = Depends(get_db),
 ) -> UserPlaylistDetailOut:
-    """Return one of the caller's playlists with its visible tracks."""
+    """Return a playlist the caller owns or that was shared with them."""
     if db is None:
         raise _unavailable()
     try:
-        result = await user_playlists.get_playlist_with_tracks(
+        result = await user_playlists.get_accessible_playlist_with_tracks(
             db, playlist_id, profile.id
         )
     except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if result is None:
         raise _playlist_not_found()
-    playlist, items = result
-    return _detail_out(settings, profile.id, playlist, items)
+    playlist, items, _is_owner = result
+    return _detail_out(
+        settings,
+        profile.id,
+        playlist,
+        items,
+        cover_user_id=playlist["user_id"],
+    )
 
 
 @router.patch("/{playlist_id}", response_model=UserPlaylistOut)
@@ -316,4 +403,87 @@ async def remove_playlist_track(
         raise _unavailable() from exc
     if not removed:
         raise _track_not_found()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{playlist_id}/shares", response_model=UserPlaylistShareList
+)
+async def list_playlist_shares(
+    playlist_id: UUID,
+    profile: ProfileOut = Depends(require_approved),
+    db: Database | None = Depends(get_db),
+) -> UserPlaylistShareList:
+    """List the accounts the caller shared this playlist with (owner only)."""
+    if db is None:
+        raise _unavailable()
+    try:
+        rows = await user_playlists.list_playlist_shares(
+            db, playlist_id, profile.id
+        )
+    except user_playlists.UserPlaylistNotFoundError as exc:
+        raise _playlist_not_found() from exc
+    except ValueError as exc:
+        raise _playlist_not_found() from exc
+    except DB_UNAVAILABLE as exc:
+        raise _unavailable() from exc
+    return UserPlaylistShareList(
+        items=[UserPlaylistShareOut.model_validate(row) for row in rows]
+    )
+
+
+@router.post(
+    "/{playlist_id}/shares",
+    response_model=UserPlaylistShareOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def share_playlist(
+    playlist_id: UUID,
+    payload: UserPlaylistShareCreate,
+    profile: ProfileOut = Depends(require_approved),
+    db: Database | None = Depends(get_db),
+) -> UserPlaylistShareOut:
+    """Share the caller's playlist with another approved account."""
+    if db is None:
+        raise _unavailable()
+    try:
+        row = await user_playlists.share_playlist_with_email(
+            db, playlist_id, profile.id, payload.email
+        )
+    except user_playlists.UserPlaylistNotFoundError as exc:
+        raise _playlist_not_found() from exc
+    except user_playlists.ShareRecipientError as exc:
+        raise _invalid_share_recipient() from exc
+    except ValueError as exc:
+        raise _invalid_request() from exc
+    except DB_UNAVAILABLE as exc:
+        raise _unavailable() from exc
+    return UserPlaylistShareOut.model_validate(row)
+
+
+@router.delete(
+    "/{playlist_id}/shares/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def unshare_playlist(
+    playlist_id: UUID,
+    user_id: UUID,
+    profile: ProfileOut = Depends(require_approved),
+    db: Database | None = Depends(get_db),
+) -> Response:
+    """Remove a share from the caller's playlist (owner only)."""
+    if db is None:
+        raise _unavailable()
+    try:
+        removed = await user_playlists.unshare_playlist(
+            db, playlist_id, profile.id, user_id
+        )
+    except user_playlists.UserPlaylistNotFoundError as exc:
+        raise _playlist_not_found() from exc
+    except ValueError as exc:
+        raise _playlist_not_found() from exc
+    except DB_UNAVAILABLE as exc:
+        raise _unavailable() from exc
+    if not removed:
+        raise _share_not_found()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

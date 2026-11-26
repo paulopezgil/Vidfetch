@@ -31,6 +31,11 @@ from backend.app.models.schemas import (
     ProfileOut,
     RoleUpdate,
     StorageHealth,
+    TrackOut,
+    UserPlaylistOut,
+    UserPlaylistShareCreate,
+    UserPlaylistShareList,
+    UserPlaylistShareOut,
 )
 
 NOW = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
@@ -506,3 +511,102 @@ def test_admin_asset_out_adds_usage_counts():
     assert counted.job_count == 3
     assert counted.user_count == 2
     assert listing.disk_free_bytes == 1234
+
+
+def _track_dict(**overrides):
+    row = {
+        "id": uuid4(),
+        "asset_id": uuid4(),
+        "job_id": uuid4(),
+        "canonical_id": "youtube:vid1",
+        "title": "Clip",
+        "artist": "",
+        "album": "",
+        "cover_path": None,
+        "thumbnail_path": None,
+        "duration_seconds": 12,
+        "file_size_bytes": 1024,
+        "output_ext": "mp4",
+        "format_selector": "best",
+        "playlist_id": None,
+        "status": "ready",
+        "downloaded_at": NOW,
+        "updated_at": NOW,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_track_out_defaults_thumbnail_url_to_none():
+    track = TrackOut.model_validate(_track_dict())
+
+    assert track.thumbnail_url is None
+    assert track.thumbnail_path is None
+
+
+def test_track_out_keeps_a_signed_thumbnail_url():
+    track = TrackOut.model_validate(
+        _track_dict(
+            thumbnail_path="thumbnails/abc.jpg",
+            thumbnail_url="/api/thumbnails/abc?token=payload.signature",
+        )
+    )
+
+    assert track.thumbnail_url == "/api/thumbnails/abc?token=payload.signature"
+
+
+def test_playlist_item_out_exposes_the_cached_channel():
+    without_channel = PlaylistItemOut.model_validate(
+        {"position": 1, "title": "One"}
+    )
+    with_channel = PlaylistItemOut.model_validate(
+        {"position": 2, "title": "Two", "channel": "An artist"}
+    )
+
+    assert without_channel.channel == ""
+    assert with_channel.channel == "An artist"
+
+
+def test_user_playlist_out_defaults_to_owner_view():
+    playlist = UserPlaylistOut.model_validate(
+        {
+            "id": uuid4(),
+            "user_id": uuid4(),
+            "name": "Mix",
+            "created_at": NOW,
+            "updated_at": NOW,
+        }
+    )
+
+    assert playlist.owner_email == ""
+    assert playlist.is_owner is True
+
+
+def test_user_playlist_share_create_trims_and_lowercases_the_email():
+    payload = UserPlaylistShareCreate(email="  Friend@Example.Test  ")
+
+    assert payload.email == "friend@example.test"
+
+
+@pytest.mark.parametrize(
+    "email",
+    ["", "   ", "not-an-email", "friend@", "@example.test", "a b@example.test"],
+)
+def test_user_playlist_share_create_rejects_an_invalid_email(email):
+    with pytest.raises(ValidationError):
+        UserPlaylistShareCreate(email=email)
+
+
+def test_user_playlist_share_models_round_trip_rows():
+    user_id = uuid4()
+    share = UserPlaylistShareOut.model_validate(
+        {
+            "user_id": user_id,
+            "email": "friend@example.test",
+            "created_at": NOW,
+        }
+    )
+    listing = UserPlaylistShareList(items=[share])
+
+    assert listing.items[0].user_id == user_id
+    assert listing.items[0].email == "friend@example.test"

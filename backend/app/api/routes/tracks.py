@@ -78,6 +78,25 @@ def _cover_url(
     return _public_url(settings, f"/api/covers/{track_id}?token={token}")
 
 
+def _thumbnail_url(
+    settings: Settings,
+    user_id: UUID,
+    track: dict,
+) -> str | None:
+    """Build a signed thumbnail URL bound to the viewer's account."""
+    relative = str(track.get("thumbnail_path") or "").strip()
+    asset_id = track.get("asset_id")
+    if not relative or asset_id is None:
+        return None
+    token = sign_media_token(
+        settings.media_token_secret,
+        str(asset_id),
+        str(user_id),
+        settings.media_token_ttl_seconds,
+    )
+    return _public_url(settings, f"/api/thumbnails/{asset_id}?token={token}")
+
+
 def _track_out(
     settings: Settings,
     user_id: UUID,
@@ -85,6 +104,7 @@ def _track_out(
 ) -> TrackOut:
     data = dict(row)
     data["cover_url"] = _cover_url(settings, user_id, data)
+    data["thumbnail_url"] = _thumbnail_url(settings, user_id, data)
     return TrackOut.model_validate(data)
 
 
