@@ -34,6 +34,7 @@ class RecordingJobs:
         self.rows = {str(row["id"]): dict(row) for row in (rows or [])}
         self.updates: list[tuple[str, dict]] = []
         self.item_jobs: list[dict] = []
+        self.record_calls: list[dict] = []
 
     async def recover_stale_jobs(self, db, lease_seconds):
         return 0
@@ -51,6 +52,7 @@ class RecordingJobs:
         return self.rows[key]
 
     async def record_playlist_item_job(self, db, **kwargs):
+        self.record_calls.append(dict(kwargs))
         existing = kwargs.get("job_id")
         key = str(existing) if existing is not None else None
         row = self.rows.get(key) if key is not None else None
@@ -501,6 +503,54 @@ def test_playlist_item_jobs_use_each_entry_channel_as_artist(tmp_path):
         "Second artist",
     ]
     assert [job["album"] for job in jobs.item_jobs] == ["List", "List"]
+
+
+def test_playlist_rerun_updates_the_linked_item_job(tmp_path):
+    """A re-run reuses the item job recorded by the previous run.
+
+    ``replace_items`` keeps ``playlist_items.job_id`` pointing at the job that
+    recorded the item last time. The worker must pass that id through, so the
+    existing row is updated instead of a duplicate job being inserted.
+    """
+    entries = _entries(1)
+    job = _playlist_job()
+    previous_item_job = job_row(
+        user_id=USER_ID,
+        kind="playlist_item",
+        playlist_id=PLAYLIST_ID,
+        status="ready",
+        title="Clip 1 (previous run)",
+    )
+    jobs = RecordingJobs([job, previous_item_job])
+    playlists = RecordingPlaylists(entries)
+    # What replace_items returns for an item whose canonical id is unchanged.
+    playlists.items[0]["job_id"] = previous_item_job["id"]
+    assets = PlaylistAssets(ready_canonicals={"youtube:vid1"})
+    ytdlp = _fake_ytdlp(
+        info=lambda url, settings: playlist_info(entries),
+        download=_writing_download(),
+    )
+    worker = _worker(tmp_path, jobs, playlists, assets, ytdlp)
+
+    run(worker.process_job(job))
+
+    # The ready outcome was recorded against the preserved job id.
+    assert [call.get("job_id") for call in jobs.record_calls] == [
+        previous_item_job["id"]
+    ]
+    assert jobs.record_calls[0]["status"] == "ready"
+    assert playlists.items[0]["job_id"] == previous_item_job["id"]
+
+    # No duplicate row was inserted: one playlist_item job exists, and it is
+    # the previous run's row, now finished again with the new asset.
+    item_jobs = [
+        row for row in jobs.rows.values() if row["kind"] == "playlist_item"
+    ]
+    assert [row["id"] for row in item_jobs] == [previous_item_job["id"]]
+    assert item_jobs[0]["status"] == "ready"
+    assert item_jobs[0]["title"] == "Clip 1"
+    assert item_jobs[0]["artist"] == "Channel"
+    assert item_jobs[0]["album"] == "List"
 
 
 def test_playlist_cancellation_keeps_completed_assets_and_stops(tmp_path):
