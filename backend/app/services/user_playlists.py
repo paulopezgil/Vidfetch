@@ -41,6 +41,14 @@ class InvalidTrackOrderError(ValueError):
     """The requested order is not an exact permutation of the membership."""
 
 
+class ShareRecipientError(ValueError):
+    """The email does not resolve to another approved account.
+
+    The message is deliberately generic so the caller cannot use the share
+    endpoint to discover which addresses are registered or pending approval.
+    """
+
+
 def _as_uuid(value: str | UUID) -> UUID:
     if isinstance(value, UUID):
         return value
@@ -271,6 +279,193 @@ async def get_playlist_with_tracks(
     identifiers = await list_track_ids(db, playlist["id"])
     items = await tracks.list_tracks_by_ids(db, user_id, identifiers)
     return playlist, items
+
+
+async def list_shared_with_user(
+    db: Database,
+    user_id: str | UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return one page of live playlists shared with ``user_id``.
+
+    The rows carry the owner's email and ``is_owner=False`` so the caller can
+    render a read-only "shared with me" collection. The track count keeps the
+    same visibility rule and the owner's ``user_tracks`` ownership as the
+    owner-facing list, so a shared playlist advertises exactly what the owner
+    can see.
+    """
+    viewer = _as_uuid(user_id)
+    limit, offset = _clamp(limit, offset)
+    schema_sql = db.schema_sql
+    shared_from = (
+        f"from {schema_sql}.user_playlist_shares s "
+        f"join {schema_sql}.user_playlists p on p.id = s.playlist_id "
+        f"join {schema_sql}.profiles owner on owner.id = p.user_id "
+        f"where s.user_id = $1 and p.user_id <> $1 "
+        f"and p.deleted_at is null"
+    )
+
+    total_row = await db.fetchrow(
+        f"select count(*) as total {shared_from}", viewer
+    )
+    total = int(total_row["total"]) if total_row is not None else 0
+
+    rows = await db.fetch(
+        f"select {_playlist_columns(schema_sql)}, owner.email as owner_email "
+        f"{shared_from} "
+        f"order by p.updated_at desc, p.id desc limit $2 offset $3",
+        viewer,
+        limit,
+        offset,
+    )
+    return [
+        {**dict(row), "is_owner": False} for row in rows
+    ], total
+
+
+async def get_accessible_playlist_with_tracks(
+    db: Database,
+    playlist_id: str | UUID,
+    viewer_id: str | UUID,
+) -> tuple[dict[str, Any], list[dict[str, Any]], bool] | None:
+    """Return a playlist the viewer owns or that was shared with them.
+
+    Shared viewers read the *owner's* visible ``user_tracks``; a playlist that
+    is missing, soft-deleted, or neither owned nor shared returns ``None``. The
+    playlist dict always includes ``owner_email`` and ``is_owner``.
+    """
+    identifier = _as_uuid(playlist_id)
+    viewer = _as_uuid(viewer_id)
+    schema_sql = db.schema_sql
+    record = await db.fetchrow(
+        f"select {_playlist_columns(schema_sql)}, "
+        f"owner.email as owner_email, (p.user_id = $2) as is_owner "
+        f"from {schema_sql}.user_playlists p "
+        f"join {schema_sql}.profiles owner on owner.id = p.user_id "
+        f"where p.id = $1 and p.deleted_at is null "
+        f"and (p.user_id = $2 or exists ("
+        f"select 1 from {schema_sql}.user_playlist_shares s "
+        f"where s.playlist_id = p.id and s.user_id = $2))",
+        identifier,
+        viewer,
+    )
+    if record is None:
+        return None
+
+    playlist = dict(record)
+    playlist["is_owner"] = bool(
+        playlist.get("is_owner", playlist["user_id"] == viewer)
+    )
+    playlist.setdefault("owner_email", "")
+    identifiers = await list_track_ids(db, playlist["id"])
+    items = await tracks.list_tracks_by_ids(
+        db, playlist["user_id"], identifiers
+    )
+    return playlist, items, playlist["is_owner"]
+
+
+async def list_playlist_shares(
+    db: Database,
+    playlist_id: str | UUID,
+    owner_id: str | UUID,
+) -> list[dict[str, Any]]:
+    """Return the accounts a playlist is shared with (owner only).
+
+    Raises :class:`UserPlaylistNotFoundError` when the playlist is missing,
+    soft-deleted, or owned by somebody else, which the router maps to a 404.
+    """
+    playlist = await get_user_playlist(db, playlist_id, owner_id)
+    if playlist is None:
+        raise UserPlaylistNotFoundError("Playlist not found.")
+    rows = await db.fetch(
+        f"select s.user_id, p.email, s.created_at "
+        f"from {db.schema_sql}.user_playlist_shares s "
+        f"join {db.schema_sql}.profiles p on p.id = s.user_id "
+        f"where s.playlist_id = $1 "
+        f"order by s.created_at desc, p.email asc",
+        playlist["id"],
+    )
+    return [dict(row) for row in rows]
+
+
+async def share_playlist_with_email(
+    db: Database,
+    playlist_id: str | UUID,
+    owner_id: str | UUID,
+    email: str,
+) -> dict[str, Any]:
+    """Share an owned playlist with another approved account.
+
+    The owner check happens first so a non-owner always sees the same 404 as a
+    missing playlist. Unknown, unapproved, and self addresses raise
+    :class:`ShareRecipientError` with one generic message; repeating a share is
+    idempotent and returns the existing row.
+    """
+    playlist = await get_user_playlist(db, playlist_id, owner_id)
+    if playlist is None:
+        raise UserPlaylistNotFoundError("Playlist not found.")
+
+    candidate = email.strip() if isinstance(email, str) else ""
+    target = None
+    if candidate:
+        target = await db.fetchrow(
+            f"select id, email, is_approved from {db.schema_sql}.profiles "
+            f"where lower(email) = lower($1)",
+            candidate,
+        )
+    if (
+        target is None
+        or not bool(target["is_approved"])
+        or target["id"] == playlist["user_id"]
+    ):
+        raise ShareRecipientError("That account cannot be added.")
+
+    schema_sql = db.schema_sql
+    record = await db.fetchrow(
+        f"insert into {schema_sql}.user_playlist_shares "
+        f"(playlist_id, user_id) values ($1, $2) "
+        f"on conflict (playlist_id, user_id) do nothing "
+        f"returning user_id, created_at",
+        playlist["id"],
+        target["id"],
+    )
+    if record is None:
+        record = await db.fetchrow(
+            f"select user_id, created_at from "
+            f"{schema_sql}.user_playlist_shares "
+            f"where playlist_id = $1 and user_id = $2",
+            playlist["id"],
+            target["id"],
+        )
+    if record is None:  # pragma: no cover - the row was just inserted
+        raise RuntimeError("Playlist share insert returned no row.")
+    return {
+        "user_id": record["user_id"],
+        "email": target["email"],
+        "created_at": record["created_at"],
+    }
+
+
+async def unshare_playlist(
+    db: Database,
+    playlist_id: str | UUID,
+    owner_id: str | UUID,
+    target_user_id: str | UUID,
+) -> bool:
+    """Remove a share (owner only); ``False`` when it was not shared."""
+    playlist = await get_user_playlist(db, playlist_id, owner_id)
+    if playlist is None:
+        raise UserPlaylistNotFoundError("Playlist not found.")
+    removed = await db.fetchrow(
+        f"delete from {db.schema_sql}.user_playlist_shares "
+        f"where playlist_id = $1 and user_id = $2 "
+        f"returning user_id",
+        playlist["id"],
+        _as_uuid(target_user_id),
+    )
+    return removed is not None
 
 
 async def _lock_playlist(
