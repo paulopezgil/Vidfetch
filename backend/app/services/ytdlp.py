@@ -380,6 +380,9 @@ def _normalise_info(info: dict[str, Any], settings: Settings) -> dict[str, Any]:
                     "id": entry_id or None,
                     "title": entry.get("title") or "",
                     "url": entry.get("url") or entry.get("webpage_url"),
+                    "channel": (
+                        entry.get("uploader") or entry.get("channel") or ""
+                    ),
                     "duration": entry.get("duration"),
                     "thumbnail": _pick_thumbnail(entry),
                     "canonical_id": _canonical(entry_key, entry_id),

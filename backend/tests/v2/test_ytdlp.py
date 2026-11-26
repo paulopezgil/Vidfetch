@@ -206,9 +206,15 @@ def test_get_info_truncates_and_annotates_playlist_entries(tmp_path, monkeypatch
                 "id": "one",
                 "title": "One",
                 "url": "https://example.test/one",
+                "uploader": "First channel",
                 "duration": 10,
             },
-            {"id": "two", "title": "Two", "url": "https://example.test/two"},
+            {
+                "id": "two",
+                "title": "Two",
+                "url": "https://example.test/two",
+                "channel": "Second channel",
+            },
             {"id": "three", "title": "Three", "url": "https://example.test/three"},
         ],
     }
@@ -223,6 +229,8 @@ def test_get_info_truncates_and_annotates_playlist_entries(tmp_path, monkeypatch
     assert [entry["id"] for entry in result["entries"]] == ["one", "two"]
     assert result["entries"][0]["canonical_id"] == "youtube:one"
     assert result["entries"][1]["url"] == "https://example.test/two"
+    assert result["entries"][0]["channel"] == "First channel"
+    assert result["entries"][1]["channel"] == "Second channel"
     assert FakeYDL.instances[0]["playlistend"] == 2
 
 

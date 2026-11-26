@@ -23,6 +23,7 @@ INFO = {
     "canonical_id": "youtube:vid1",
     "extractor_key": "youtube",
     "duration": 12,
+    "channel": "Clip channel",
     "thumbnail": None,
 }
 
@@ -181,6 +182,8 @@ def test_cache_hit_marks_job_ready_without_downloading(tmp_path):
     assert jobs.rows[str(job["id"])]["status"] == "ready"
     assert jobs.rows[str(job["id"])]["asset_id"] == asset["id"]
     assert jobs.rows[str(job["id"])]["title"] == "Clip"
+    assert jobs.rows[str(job["id"])]["artist"] == "Clip channel"
+    assert jobs.rows[str(job["id"])]["album"] == ""
     assert download_calls == []
     assert assets.claim_kwargs["canonical_id"] == "youtube:vid1"
     assert assets.claim_kwargs["options_hash"] == job["options_hash"]
@@ -224,6 +227,8 @@ def test_claimed_download_finalizes_file_asset_and_job(tmp_path):
     run(worker.process_job(job))
 
     assert jobs.rows[str(job["id"])]["status"] == "ready"
+    assert jobs.rows[str(job["id"])]["artist"] == "Clip channel"
+    assert jobs.rows[str(job["id"])]["album"] == ""
     assert len(assets.ready) == 1
     asset_id, fields = assets.ready[0]
     assert asset_id == str(asset["id"])
