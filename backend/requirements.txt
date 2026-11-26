@@ -3,7 +3,7 @@ fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 yt-dlp>=2024.8.6
 
-# v2: Supabase Postgres, JWT verification, and HTTP clients
-asyncpg>=0.29,<1
-PyJWT[crypto]>=2.8,<3
-httpx>=0.27,<1
+# v2: PostgreSQL driver and local password authentication
+psycopg[binary]>=3.2,<4
+psycopg-pool>=3.2,<4
+argon2-cffi>=23,<26

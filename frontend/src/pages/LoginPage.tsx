@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { isLocalAuthEnabled } from "../lib/env";
-import { supabaseConfigError } from "../lib/supabase";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import ErrorBanner from "../components/ErrorBanner";
@@ -15,27 +13,16 @@ import TextField from "../components/TextField";
 type Mode = "signin" | "signup";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 6;
+const MIN_PASSWORD_LENGTH = 8;
 
 export default function LoginPage() {
-  const {
-    session,
-    profile,
-    loading,
-    error,
-    signInWithGoogle,
-    signInWithPassword,
-    signUpWithPassword,
-  } = useAuth();
+  const { token, profile, loading, error, login, register } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [submitting, setSubmitting] = useState<"google" | "password" | null>(
-    null,
-  );
+  const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     email?: string;
     password?: string;
@@ -54,35 +41,21 @@ export default function LoginPage() {
     );
   }
 
-  if (session) {
-    return <Navigate to={profile?.is_approved ? "/" : "/pending"} replace />;
+  if (token) {
+    // A pending account still has a session; `RequireApproved` holds it on
+    // `/pending` until an administrator approves it.
+    return <Navigate to={profile && !profile.is_approved ? "/pending" : "/"} replace />;
   }
-
-  const message = supabaseConfigError ?? error;
-  const busy = submitting !== null;
 
   function switchMode(next: Mode) {
     setMode(next);
     setFormError(null);
-    setNotice(null);
     setFieldErrors({});
   }
 
-  async function handleSignInWithGoogle() {
-    setFormError(null);
-    setNotice(null);
-    setSubmitting("google");
-    try {
-      await signInWithGoogle();
-    } finally {
-      setSubmitting(null);
-    }
-  }
-
-  async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
-    setNotice(null);
 
     const trimmedEmail = email.trim();
     const nextFieldErrors: { email?: string; password?: string } = {};
@@ -91,26 +64,21 @@ export default function LoginPage() {
     } else if (!EMAIL_PATTERN.test(trimmedEmail)) {
       nextFieldErrors.email = "El format del correu electrònic no és vàlid.";
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    if (!password) {
+      nextFieldErrors.password = "Introdueix la teva contrasenya.";
+    } else if (mode === "signup" && password.length < MIN_PASSWORD_LENGTH) {
       nextFieldErrors.password =
         `La contrasenya ha de tenir com a mínim ${MIN_PASSWORD_LENGTH} caràcters.`;
     }
     setFieldErrors(nextFieldErrors);
     if (Object.keys(nextFieldErrors).length > 0) return;
 
-    setSubmitting("password");
+    setSubmitting(true);
     try {
       if (mode === "signin") {
-        await signInWithPassword(trimmedEmail, password);
+        await login(trimmedEmail, password);
       } else {
-        const result = await signUpWithPassword(trimmedEmail, password);
-        if (result.needsEmailConfirmation) {
-          setNotice(
-            "Compte creat. Revisa el correu per confirmar-lo; després un administrador l’haurà d’aprovar.",
-          );
-          setPassword("");
-          setMode("signin");
-        }
+        await register(trimmedEmail, password);
       }
     } catch (e) {
       setFormError(
@@ -119,7 +87,7 @@ export default function LoginPage() {
           : "No s’ha pogut completar l’accés. Torna-ho a provar.",
       );
     } finally {
-      setSubmitting(null);
+      setSubmitting(false);
     }
   }
 
@@ -135,184 +103,122 @@ export default function LoginPage() {
         </div>
 
         <Card variant="elevated" className="space-y-5 p-6 sm:p-8">
-          {isLocalAuthEnabled ? (
-            <div className="flex items-start gap-2 rounded-sm bg-secondary-container px-3 py-2 text-on-secondary-container">
-              <Icon name="developer_mode" className="shrink-0 text-[18px]" />
-              <p className="text-body-small">
-                Entorn local: l’accés amb correu i contrasenya està activat
-                mitjançant{" "}
-                <code className="font-mono text-label-medium">
-                  VITE_ENABLE_LOCAL_AUTH
-                </code>
-                . No s’habilita en producció.
-              </p>
-            </div>
-          ) : null}
-
           <div className="space-y-1 text-center">
             <h2 className="text-title-large text-on-surface">
-              {isLocalAuthEnabled && mode === "signup"
-                ? "Crea un compte"
-                : "Inicia sessió"}
+              {mode === "signup" ? "Crea un compte" : "Inicia sessió"}
             </h2>
             <p className="text-body-medium text-on-surface-variant">
-              {isLocalAuthEnabled
-                ? "Fes servir el teu correu o el teu compte de Google per continuar."
-                : "Fes servir el teu compte de Google per continuar."}
+              Fes servir el teu correu electrònic i la teva contrasenya per
+              continuar.
             </p>
           </div>
 
-          {message ? <ErrorBanner message={message} /> : null}
+          {error ? <ErrorBanner message={error} /> : null}
           {formError ? <ErrorBanner message={formError} /> : null}
-          {notice ? (
-            <div
-              role="status"
-              className="flex items-start gap-3 rounded-sm bg-success-container px-4 py-3 text-on-success-container"
-            >
-              <Icon name="mark_email_read" className="shrink-0 text-[20px]" />
-              <p className="text-body-medium">{notice}</p>
-            </div>
-          ) : null}
 
-          {isLocalAuthEnabled ? (
-            <>
-              <SegmentedButton
-                label="Tipus d’accés"
-                value={mode}
-                onChange={(value) =>
-                  switchMode(value === "signup" ? "signup" : "signin")
-                }
-                options={[
-                  { value: "signin", label: "Inicia sessió", icon: "login" },
-                  {
-                    value: "signup",
-                    label: "Crea un compte",
-                    icon: "person_add",
-                  },
-                ]}
-              />
+          <SegmentedButton
+            label="Tipus d’accés"
+            value={mode}
+            onChange={(value) =>
+              switchMode(value === "signup" ? "signup" : "signin")
+            }
+            options={[
+              { value: "signin", label: "Inicia sessió", icon: "login" },
+              { value: "signup", label: "Crea un compte", icon: "person_add" },
+            ]}
+          />
 
-              <form
-                className="space-y-4"
-                onSubmit={(event) => void handlePasswordSubmit(event)}
-                noValidate
-              >
-                <TextField
-                  id="login-email"
-                  label="Correu electrònic"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  required
-                  value={email}
-                  disabled={busy}
-                  error={Boolean(fieldErrors.email)}
-                  helperText={fieldErrors.email}
-                  onChange={(event) => {
-                    setEmail(event.target.value);
-                    setFieldErrors((previous) => ({
-                      ...previous,
-                      email: undefined,
-                    }));
-                  }}
-                />
-                <TextField
-                  id="login-password"
-                  label="Contrasenya"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete={
-                    mode === "signin" ? "current-password" : "new-password"
-                  }
-                  required
-                  value={password}
-                  disabled={busy}
-                  error={Boolean(fieldErrors.password)}
-                  helperText={
-                    fieldErrors.password ??
-                    (mode === "signup"
-                      ? `Mínim ${MIN_PASSWORD_LENGTH} caràcters.`
-                      : undefined)
-                  }
-                  onChange={(event) => {
-                    setPassword(event.target.value);
-                    setFieldErrors((previous) => ({
-                      ...previous,
-                      password: undefined,
-                    }));
-                  }}
-                  endAdornment={
-                    <IconButton
-                      label={
-                        showPassword
-                          ? "Amaga la contrasenya"
-                          : "Mostra la contrasenya"
-                      }
-                      onClick={() => setShowPassword((visible) => !visible)}
-                      disabled={busy}
-                    >
-                      <Icon
-                        name={showPassword ? "visibility_off" : "visibility"}
-                        className="text-[20px]"
-                      />
-                    </IconButton>
-                  }
-                />
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={busy || Boolean(supabaseConfigError)}
-                >
-                  {submitting === "password" ? (
-                    <Spinner />
-                  ) : (
-                    <Icon
-                      name={mode === "signin" ? "login" : "person_add"}
-                      className="text-[20px]"
-                    />
-                  )}
-                  {mode === "signin" ? "Inicia sessió" : "Crea el compte"}
-                </Button>
-              </form>
-
-              <div className="flex items-center gap-3" aria-hidden="true">
-                <span className="h-px flex-1 bg-outline-variant" />
-                <span className="text-label-medium text-on-surface-variant">
-                  o
-                </span>
-                <span className="h-px flex-1 bg-outline-variant" />
-              </div>
-            </>
-          ) : null}
-
-          <Button
-            variant="outlined"
-            className="w-full"
-            onClick={() => void handleSignInWithGoogle()}
-            disabled={busy || Boolean(supabaseConfigError)}
+          <form
+            className="space-y-4"
+            onSubmit={(event) => void handleSubmit(event)}
+            noValidate
           >
-            {submitting === "google" ? (
-              <Spinner />
-            ) : (
-              <img src="/google-g.svg" alt="" className="h-5 w-5" />
-            )}
-            Continua amb Google
-          </Button>
+            <TextField
+              id="login-email"
+              label="Correu electrònic"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              value={email}
+              disabled={submitting}
+              error={Boolean(fieldErrors.email)}
+              helperText={fieldErrors.email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldErrors((previous) => ({
+                  ...previous,
+                  email: undefined,
+                }));
+              }}
+            />
+            <TextField
+              id="login-password"
+              label="Contrasenya"
+              type={showPassword ? "text" : "password"}
+              autoComplete={
+                mode === "signin" ? "current-password" : "new-password"
+              }
+              required
+              value={password}
+              disabled={submitting}
+              error={Boolean(fieldErrors.password)}
+              helperText={
+                fieldErrors.password ??
+                (mode === "signup"
+                  ? `Mínim ${MIN_PASSWORD_LENGTH} caràcters.`
+                  : undefined)
+              }
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setFieldErrors((previous) => ({
+                  ...previous,
+                  password: undefined,
+                }));
+              }}
+              endAdornment={
+                <IconButton
+                  label={
+                    showPassword
+                      ? "Amaga la contrasenya"
+                      : "Mostra la contrasenya"
+                  }
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  disabled={submitting}
+                >
+                  <Icon
+                    name={showPassword ? "visibility_off" : "visibility"}
+                    className="text-[20px]"
+                  />
+                </IconButton>
+              }
+            />
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? (
+                <Spinner />
+              ) : (
+                <Icon
+                  name={mode === "signin" ? "login" : "person_add"}
+                  className="text-[20px]"
+                />
+              )}
+              {mode === "signin" ? "Inicia sessió" : "Crea el compte"}
+            </Button>
+          </form>
 
           <div className="flex items-start gap-3 rounded-md bg-surface-container-high p-3 text-on-surface-variant">
             <Icon name="info" className="shrink-0 text-[20px]" />
             <p className="text-body-small">
-              {isLocalAuthEnabled
-                ? "Els comptes de Google i els comptes locals queden pendents fins que un administrador els aprova. Un cop aprovat, podràs descarregar contingut."
-                : "Els comptes nous queden pendents fins que un administrador els aprova. Un cop aprovat, podràs descarregar contingut."}
+              Els comptes nous queden pendents fins que un administrador els
+              aprova. Un cop aprovat, podràs descarregar contingut.
             </p>
           </div>
 
           <p className="text-center text-body-small text-on-surface-variant">
             En continuar, acceptes les condicions d’ús i la política de
-            privadesa. Només fem servir el teu compte per identificar-te; no
-            publiquem res en nom teu.
+            privadesa. Només fem servir el teu compte per identificar-te.
           </p>
         </Card>
 

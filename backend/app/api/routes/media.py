@@ -12,12 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-import asyncpg
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
 from ...core.config import Settings
-from ...core.db import Database
+from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import MediaTokenOut, ProfileOut
 from ...services import assets, profiles
 from ...services.signing import MediaTokenError, sign_media_token, verify_media_token
@@ -26,8 +25,6 @@ from ..deps import get_db, get_settings, get_storage, require_approved
 from ..errors import ApiError
 
 router = APIRouter(tags=["media"])
-
-_DB_UNAVAILABLE = (asyncpg.PostgresError, OSError, ConnectionError)
 _MEDIA_CACHE_HEADERS = {"Cache-Control": "private, no-store"}
 
 
@@ -106,7 +103,7 @@ async def _approved_token_user(
         row = await profiles.get_profile(db, claims.user_id)
     except ValueError as exc:
         raise MediaTokenError("invalid_token", "Invalid media token.") from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if row is None or not bool(row.get("is_approved")):
         raise ApiError(
@@ -147,7 +144,7 @@ async def issue_media_token(
         asset = await assets.get_asset(db, asset_id)
     except ValueError as exc:
         raise _asset_not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if asset is None:
         raise _asset_not_found()
@@ -206,7 +203,7 @@ async def stream_media(
         asset = await assets.get_asset(db, asset_id)  # type: ignore[arg-type]
     except ValueError as exc:
         raise _asset_not_found() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if asset is None:
         raise _asset_not_found()
@@ -237,7 +234,7 @@ async def stream_thumbnail(
         asset = await assets.get_asset(db, asset_id)  # type: ignore[arg-type]
     except ValueError as exc:
         raise _thumbnail_missing() from exc
-    except _DB_UNAVAILABLE as exc:
+    except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     if asset is None:
         raise _thumbnail_missing()

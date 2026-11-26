@@ -5,12 +5,12 @@ import type {
   DownloadFormat,
   PlaylistDetailV2,
   PlaylistItemV2,
+  Track,
 } from "../types/v2";
 import { formatDuration } from "../lib";
 import {
   deletePlaylist,
   downloadPlaylistZip,
-  getMediaToken,
   getPlaylist,
   triggerDownload,
   withDownloadFlag,
@@ -26,12 +26,12 @@ import SegmentedButton from "../components/SegmentedButton";
 import Switch from "../components/Switch";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
-import MediaPreviewDialog from "../components/MediaPreviewDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import OfflineButton from "../components/OfflineButton";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { usePlayer } from "../player/PlayerProvider";
 import { setActivePlaylistTitle } from "../navigation";
 
 const formatOptions = [
@@ -58,10 +58,40 @@ function mediaTypeForSelector(
   return "video";
 }
 
-interface PreviewState {
-  title: string;
-  mediaType: "video" | "audio";
-  src: string;
+/**
+ * Adapt a ready playlist item to the shared player's track shape.
+ *
+ * Imported playlist items carry the playlist's format instead of a track's
+ * output extension, so the extension is derived from the selector to tell the
+ * player whether it needs its audio or video element.
+ */
+function playlistItemToTrack(
+  item: PlaylistItemV2,
+  formatSelector: string,
+  channel: string,
+  playlistTitle: string,
+): Track {
+  const mediaType = mediaTypeForSelector(formatSelector);
+  return {
+    id: item.id,
+    asset_id: item.asset_id ?? "",
+    job_id: item.job_id ?? item.id,
+    canonical_id: item.canonical_id,
+    title: item.title,
+    artist: channel,
+    album: playlistTitle,
+    cover_path: null,
+    cover_url: item.thumbnail_url ?? null,
+    thumbnail_path: null,
+    duration_seconds: item.duration_seconds,
+    file_size_bytes: null,
+    output_ext: mediaType === "audio" ? "mp3" : "mp4",
+    format_selector: formatSelector,
+    playlist_id: item.playlist_id,
+    status: "ready",
+    downloaded_at: item.updated_at,
+    updated_at: item.updated_at,
+  };
 }
 
 export default function PlaylistDetail() {
@@ -76,7 +106,6 @@ export default function PlaylistDetail() {
   const [embedSubs, setEmbedSubs] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [zipBusy, setZipBusy] = useState(false);
-  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Polling refreshes the whole detail view. Guard the stored-format sync so
@@ -132,6 +161,21 @@ export default function PlaylistDetail() {
     [activeJobs],
   );
 
+  // Every ready item is playable through the shared player, in playlist order.
+  const playableQueue = useMemo(() => {
+    if (!detail) return [];
+    return detail.items
+      .filter((item) => item.status === "ready" && item.asset_id)
+      .map((item) =>
+        playlistItemToTrack(
+          item,
+          detail.format_selector,
+          detail.channel,
+          detail.title,
+        ),
+      );
+  }, [detail]);
+
   const playlistJobActive = detail
     ? activeJobs.some(
         (job) =>
@@ -175,28 +219,6 @@ export default function PlaylistDetail() {
       }
     },
     [createJob, toast],
-  );
-
-  const openPreview = useCallback(
-    async (item: PlaylistItemV2) => {
-      if (!item.asset_id) return;
-      try {
-        const token = await getMediaToken(item.asset_id);
-        setPreview({
-          title: item.title,
-          mediaType: mediaTypeForSelector(detail?.format_selector ?? ""),
-          src: token.url,
-        });
-      } catch (e) {
-        toast(
-          e instanceof Error
-            ? e.message
-            : "No s’ha pogut obrir el fitxer multimèdia.",
-          "error",
-        );
-      }
-    },
-    [detail?.format_selector, toast],
   );
 
   const confirmDeletePlaylist = useCallback(async () => {
@@ -404,6 +426,9 @@ export default function PlaylistDetail() {
             <ItemRow
               key={item.id}
               item={item}
+              queue={playableQueue}
+              channel={detail.channel}
+              playlistTitle={detail.title}
               formatSelector={detail.format_selector}
               busy={busy === item.id || activeSourceUrls.has(item.source_url)}
               onDownload={() =>
@@ -417,7 +442,6 @@ export default function PlaylistDetail() {
                   item.id,
                 )
               }
-              onPreview={() => void openPreview(item)}
             />
           ))}
         </Card>
@@ -428,14 +452,6 @@ export default function PlaylistDetail() {
           description="Aquesta llista de reproducció encara no té cap element per descarregar."
         />
       )}
-
-      <MediaPreviewDialog
-        open={preview !== null}
-        title={preview?.title ?? ""}
-        mediaType={preview?.mediaType ?? "video"}
-        src={preview?.src ?? ""}
-        onClose={() => setPreview(null)}
-      />
 
       <ConfirmDialog
         open={deleteOpen}
@@ -457,23 +473,35 @@ export default function PlaylistDetail() {
 
 function ItemRow({
   item,
+  queue,
+  channel,
+  playlistTitle,
   formatSelector,
   busy,
   onDownload,
-  onPreview,
 }: {
   item: PlaylistItemV2;
+  /** Ready items in playlist order, used as the player queue. */
+  queue: Track[];
+  channel: string;
+  playlistTitle: string;
   formatSelector: string;
   busy: boolean;
   onDownload: () => void;
-  onPreview: () => void;
 }) {
   const toast = useToast();
+  const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const { token, refresh: refreshToken } = useMediaToken(item.asset_id);
   const [downloadingFile, setDownloadingFile] = useState(false);
   const ready = item.status === "ready" && Boolean(item.asset_id);
   const mediaType = mediaTypeForSelector(formatSelector);
   const thumbSrc = token?.thumbnail_url ?? item.thumbnail_url ?? null;
+  const track = useMemo(
+    () => playlistItemToTrack(item, formatSelector, channel, playlistTitle),
+    [item, formatSelector, channel, playlistTitle],
+  );
+  const playerActive = current?.id === track.id;
+  const playerPlaying = playerActive && isPlaying;
 
   async function handleFileDownload() {
     if (downloadingFile) return;
@@ -517,28 +545,34 @@ function ItemRow({
         {ready ? (
           <>
             <IconButton
-              variant="tonal"
-              label="Reprodueix"
-              onClick={onPreview}
+              variant={playerActive ? "filled" : "tonal"}
+              label={playerPlaying ? "Pausa" : "Reprodueix"}
+              onClick={() =>
+                playerActive ? togglePlay() : playTrack(track, queue)
+              }
             >
-              <Icon name="play_arrow" className="text-[20px]" />
+              <Icon
+                name={playerPlaying ? "pause" : "play_arrow"}
+                className="text-[20px]"
+              />
             </IconButton>
-            {mediaType === "audio" ? (
-              <OfflineButton assetId={item.asset_id} title={item.title} />
-            ) : (
-              <IconButton
-                variant="tonal"
-                label="Descarrega el fitxer"
-                onClick={() => void handleFileDownload()}
-                disabled={downloadingFile}
-              >
-                {downloadingFile ? (
-                  <Spinner className="text-[20px]" />
-                ) : (
-                  <Icon name="download" className="text-[20px]" />
-                )}
-              </IconButton>
-            )}
+            <OfflineButton
+              assetId={item.asset_id}
+              title={item.title}
+              kind={mediaType}
+            />
+            <IconButton
+              variant="tonal"
+              label="Descarrega el fitxer"
+              onClick={() => void handleFileDownload()}
+              disabled={downloadingFile}
+            >
+              {downloadingFile ? (
+                <Spinner className="text-[20px]" />
+              ) : (
+                <Icon name="download" className="text-[20px]" />
+              )}
+            </IconButton>
           </>
         ) : item.status === "downloading" || busy ? (
           <span className="px-2">

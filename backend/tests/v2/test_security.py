@@ -1,155 +1,26 @@
-"""Tests for bearer extraction and Supabase JWT verification (HS256 path).
+"""Tests for bearer extraction, opaque session tokens, and password hashing.
 
-JWKS fetching is deliberately not exercised: these tests verify the local
-cryptographic path with a real PyJWT signature, no network.
+No network and no database: these are the local cryptographic primitives that
+``services.auth`` builds on.
 """
 from __future__ import annotations
 
-import time
+import hashlib
+import re
 
-import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt.exceptions import PyJWKClientError
 
-import backend.app.core.security as security_module
-from backend.app.core.config import Settings
 from backend.app.core.security import (
     AuthError,
-    decode_supabase_token,
+    dummy_verify_password,
     extract_bearer_token,
+    generate_session_token,
+    hash_password,
+    hash_session_token,
+    verify_password,
 )
 
-ISSUER = "https://proj.supabase.co/auth/v1"
-AUDIENCE = "authenticated"
-SECRET = "test-shared-secret-0123456789"
-SUBJECT = "11111111-1111-1111-1111-111111111111"
-
-
-def _settings(**overrides: str) -> Settings:
-    env = {
-        "SUPABASE_URL": "https://proj.supabase.co",
-        "SUPABASE_JWT_SECRET": SECRET,
-        "DATABASE_URL": "postgresql://user:pass@pooler/db",
-        "MEDIA_TOKEN_SECRET": "media-secret",
-    }
-    env.update(overrides)
-    return Settings.from_env(env)
-
-
-def _token(
-    *,
-    secret: str = SECRET,
-    subject: str | None = SUBJECT,
-    audience: str = AUDIENCE,
-    issuer: str = ISSUER,
-    expires_in: int = 300,
-    extra: dict | None = None,
-) -> str:
-    now = int(time.time())
-    payload: dict = {
-        "aud": audience,
-        "iss": issuer,
-        "iat": now,
-        "exp": now + expires_in,
-        "role": "authenticated",
-        "email": "user@example.test",
-    }
-    if subject is not None:
-        payload["sub"] = subject
-    if extra:
-        payload.update(extra)
-    return jwt.encode(payload, secret, algorithm="HS256")
-
-
-def test_decode_valid_hs256_token():
-    claims = decode_supabase_token(_token(), _settings())
-
-    assert claims["sub"] == SUBJECT
-    assert claims["aud"] == AUDIENCE
-    assert claims["iss"] == ISSUER
-
-
-def test_decode_rejects_expired_token():
-    token = _token(expires_in=-10)
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings())
-
-    assert excinfo.value.code == "token_expired"
-    assert "expired" in excinfo.value.message.lower()
-
-
-def test_decode_rejects_wrong_audience():
-    token = _token(audience="some-other-app")
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings())
-
-    assert excinfo.value.code == "invalid_audience"
-
-
-def test_decode_rejects_wrong_issuer():
-    token = _token(issuer="https://evil.example.test/auth/v1")
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings())
-
-    assert excinfo.value.code == "invalid_issuer"
-
-
-def test_decode_rejects_bad_signature():
-    token = _token(secret="a-different-secret")
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings())
-
-    assert excinfo.value.code == "invalid_token"
-
-
-def test_decode_rejects_missing_subject():
-    token = _token(subject=None)
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings())
-
-    assert excinfo.value.code == "missing_subject"
-
-
-def test_decode_rejects_malformed_token():
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token("not-a-jwt", _settings())
-
-    assert excinfo.value.code == "invalid_token"
-
-
-def test_decode_requires_configured_auth():
-    settings = Settings.from_env({"SUPABASE_URL": "", "SUPABASE_JWT_SECRET": ""})
-
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(_token(), settings)
-
-    assert excinfo.value.code == "auth_not_configured"
-
-
-def test_decode_does_not_trust_user_metadata_for_authorization():
-    token = _token(
-        extra={
-            "user_metadata": {"is_approved": True, "app_role": "admin"},
-            "app_metadata": {"app_role": "admin"},
-        }
-    )
-
-    claims = decode_supabase_token(token, _settings())
-
-    # The verifier returns verified claims only; it must not synthesize
-    # approval or application roles from metadata. Those come from profiles.
-    assert "is_approved" not in claims
-    assert "app_role" not in claims
-    assert claims["user_metadata"] == {
-        "is_approved": True,
-        "app_role": "admin",
-    }
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @pytest.mark.parametrize(
@@ -179,71 +50,64 @@ def test_extract_bearer_token_distinguishes_missing_from_malformed():
     assert malformed.value.code == "invalid_authorization_header"
 
 
-def test_jwks_path_verifies_rs256_and_caches_client(monkeypatch):
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_key = private_key.public_key()
-    created: list = []
+def test_generate_session_token_is_random_urlsafe_and_long_enough():
+    first = generate_session_token()
+    second = generate_session_token()
 
-    class FakeSigningKey:
-        def __init__(self, key) -> None:
-            self.key = key
-
-    class FakeJWKClient:
-        def __init__(self, url: str, cache_keys: bool = True) -> None:
-            self.url = url
-            self.cache_keys = cache_keys
-            self.calls = 0
-            created.append(self)
-
-        def get_signing_key_from_jwt(self, token: str) -> FakeSigningKey:
-            self.calls += 1
-            return FakeSigningKey(public_key)
-
-    monkeypatch.setattr(security_module, "PyJWKClient", FakeJWKClient)
-    monkeypatch.setattr(security_module, "_JWKS_CLIENTS", {})
-
-    now = int(time.time())
-    token = jwt.encode(
-        {
-            "sub": SUBJECT,
-            "aud": AUDIENCE,
-            "iss": ISSUER,
-            "exp": now + 300,
-        },
-        private_key,
-        algorithm="RS256",
-    )
-    settings = _settings(SUPABASE_JWT_SECRET="")
-
-    first = decode_supabase_token(token, settings)
-    second = decode_supabase_token(token, settings)
-
-    assert first["sub"] == second["sub"] == SUBJECT
-    assert len(created) == 1
-    assert created[0].url == settings.supabase_jwks_url
-    assert created[0].calls == 2
+    assert first != second
+    assert len(first) >= 32
+    assert _TOKEN_RE.match(first)
 
 
-def test_jwks_fetch_failure_maps_to_safe_error(monkeypatch):
-    class FailingJWKClient:
-        def __init__(self, url: str, cache_keys: bool = True) -> None:
-            self.url = url
+def test_hash_session_token_is_a_stable_sha256_hex_digest():
+    token = "opaque-session-token"
+    digest = hash_session_token(token)
 
-        def get_signing_key_from_jwt(self, token: str):
-            raise PyJWKClientError("network down")
+    assert digest == hashlib.sha256(token.encode("utf-8")).hexdigest()
+    assert digest == hash_session_token(token)
+    assert re.fullmatch(r"[0-9a-f]{64}", digest)
+    assert hash_session_token(token + "x") != digest
 
-    monkeypatch.setattr(security_module, "PyJWKClient", FailingJWKClient)
-    monkeypatch.setattr(security_module, "_JWKS_CLIENTS", {})
 
-    token = jwt.encode(
-        {"sub": SUBJECT, "aud": AUDIENCE, "iss": ISSUER,
-         "exp": int(time.time()) + 300},
-        "irrelevant",
-        algorithm="HS256",
-    )
+def test_hash_password_produces_salted_argon2id_hashes():
+    password = "correct horse battery staple"
+    first = hash_password(password)
+    second = hash_password(password)
 
-    with pytest.raises(AuthError) as excinfo:
-        decode_supabase_token(token, _settings(SUPABASE_JWT_SECRET=""))
+    assert first.startswith("$argon2id$")
+    assert second.startswith("$argon2id$")
+    # A per-hash salt means the same password never produces the same hash.
+    assert first != second
 
-    assert excinfo.value.code == "jwks_unavailable"
-    assert "network down" not in excinfo.value.message
+
+def test_verify_password_accepts_only_the_matching_password():
+    stored = hash_password("s3cret-password")
+
+    assert verify_password(stored, "s3cret-password") is True
+    assert verify_password(stored, "s3cret-passworD") is False
+    assert verify_password(stored, "") is False
+
+
+def test_verify_password_treats_a_corrupt_hash_as_a_mismatch():
+    assert verify_password("not-an-argon2-hash", "anything") is False
+
+
+def test_dummy_verification_always_fails():
+    assert dummy_verify_password("whatever") is False
+
+
+def test_dummy_hash_is_a_real_argon2id_hash():
+    """The timing-equalizing hash must parse, not fail fast as invalid.
+
+    A corrupt constant would still make ``verify_password`` return False, but
+    without doing any hashing work, silently reintroducing the timing leak it
+    exists to prevent.
+    """
+    import backend.app.core.security as security_module
+    from argon2 import PasswordHasher
+    from argon2.exceptions import VerifyMismatchError
+
+    dummy = security_module._DUMMY_PASSWORD_HASH
+    assert dummy.startswith("$argon2id$")
+    with pytest.raises(VerifyMismatchError):
+        PasswordHasher().verify(dummy, "not-the-calibration-password")

@@ -70,6 +70,13 @@
   --md-shadow: 0 0 0;
   --md-scrim: 0 0 0;
 
+  /*
+   * Component token for the video playback stage. Unlike the surface family it
+   * stays deliberately dark in both schemes, so footage is never framed by a
+   * bright container in light mode.
+   */
+  --md-video-stage: 0 0 0;
+
   /* Extended roles (not part of the M3 baseline scheme) for download status. */
   --md-success: 20 108 46;
   --md-on-success: 255 255 255;
@@ -82,69 +89,74 @@
   --md-on-warning-container: 61 46 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
+/*
+ * Dark scheme, selected by `data-theme="dark"` on <html> so the appearance
+ * setting can force it. `prefers-color-scheme` only supplies the value for
+ * the `system` mode; it is resolved in `theme/ThemeProvider.tsx`.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-    /* Intentionally NOT the generated Vibrant tone-80 (#FFB4A8, salmon):
-       darkened to a proper red so brand fills (logo, search submit, filled
-       buttons, selected chips) read as red rather than pink in dark mode. */
-    --md-primary: 220 54 46;
-    --md-on-primary: 255 255 255;
-    --md-primary-container: 147 1 0;
-    --md-on-primary-container: 255 218 212;
+  /* Intentionally NOT the generated Vibrant tone-80 (#FFB4A8, salmon):
+     darkened to a proper red so brand fills (logo, search submit, filled
+     buttons, selected chips) read as red rather than pink in dark mode. */
+  --md-primary: 220 54 46;
+  --md-on-primary: 255 255 255;
+  --md-primary-container: 147 1 0;
+  --md-on-primary-container: 255 218 212;
 
-    --md-secondary: 198 198 198;
-    --md-on-secondary: 48 48 48;
-    --md-secondary-container: 71 71 71;
-    --md-on-secondary-container: 226 226 226;
+  --md-secondary: 198 198 198;
+  --md-on-secondary: 48 48 48;
+  --md-secondary-container: 71 71 71;
+  --md-on-secondary-container: 226 226 226;
 
-    --md-tertiary: 198 198 198;
-    --md-on-tertiary: 48 48 48;
-    --md-tertiary-container: 71 71 71;
-    --md-on-tertiary-container: 226 226 226;
+  --md-tertiary: 198 198 198;
+  --md-on-tertiary: 48 48 48;
+  --md-tertiary-container: 71 71 71;
+  --md-on-tertiary-container: 226 226 226;
 
-    --md-error: 255 180 171;
-    --md-on-error: 105 0 5;
-    --md-error-container: 147 0 10;
-    --md-on-error-container: 255 218 214;
+  --md-error: 255 180 171;
+  --md-on-error: 105 0 5;
+  --md-error-container: 147 0 10;
+  --md-on-error-container: 255 218 214;
 
-    /* YouTube dark neutrals: clean greys, no red/warm tint. */
-    --md-background: 15 15 15;
-    --md-on-background: 255 255 255;
+  /* YouTube dark neutrals: clean greys, no red/warm tint. */
+  --md-background: 15 15 15;
+  --md-on-background: 255 255 255;
 
-    --md-surface: 15 15 15;
-    --md-on-surface: 255 255 255;
-    --md-surface-variant: 48 48 48;
-    --md-on-surface-variant: 170 170 170;
-    --md-surface-dim: 15 15 15;
-    --md-surface-bright: 61 61 61;
-    --md-surface-container-lowest: 10 10 10;
-    --md-surface-container-low: 26 26 26;
-    --md-surface-container: 33 33 33;
-    --md-surface-container-high: 39 39 39;
-    --md-surface-container-highest: 48 48 48;
+  --md-surface: 15 15 15;
+  --md-on-surface: 255 255 255;
+  --md-surface-variant: 48 48 48;
+  --md-on-surface-variant: 170 170 170;
+  --md-surface-dim: 15 15 15;
+  --md-surface-bright: 61 61 61;
+  --md-surface-container-lowest: 10 10 10;
+  --md-surface-container-low: 26 26 26;
+  --md-surface-container: 33 33 33;
+  --md-surface-container-high: 39 39 39;
+  --md-surface-container-highest: 48 48 48;
 
-    --md-outline: 142 142 142;
-    --md-outline-variant: 61 61 61;
+  --md-outline: 142 142 142;
+  --md-outline-variant: 61 61 61;
 
-    --md-inverse-surface: 226 226 226;
-    --md-inverse-on-surface: 48 48 48;
-    --md-inverse-primary: 192 1 0;
+  --md-inverse-surface: 226 226 226;
+  --md-inverse-on-surface: 48 48 48;
+  --md-inverse-primary: 192 1 0;
 
-    --md-shadow: 0 0 0;
-    --md-scrim: 0 0 0;
+  --md-shadow: 0 0 0;
+  --md-scrim: 0 0 0;
 
-    --md-success: 137 213 160;
-    --md-on-success: 0 57 25;
-    --md-success-container: 0 82 42;
-    --md-on-success-container: 163 246 179;
+  --md-video-stage: 0 0 0;
 
-    --md-warning: 253 214 99;
-    --md-on-warning: 61 46 0;
-    --md-warning-container: 90 67 0;
-    --md-on-warning-container: 255 224 138;
-  }
+  --md-success: 137 213 160;
+  --md-on-success: 0 57 25;
+  --md-success-container: 0 82 42;
+  --md-on-success-container: 163 246 179;
+
+  --md-warning: 253 214 99;
+  --md-on-warning: 61 46 0;
+  --md-warning-container: 90 67 0;
+  --md-on-warning-container: 255 224 138;
 }
 
 @layer base {
@@ -213,6 +225,48 @@
   }
   *::-webkit-scrollbar-track {
     background: transparent;
+  }
+}
+
+/*
+ * The video stage is the fullscreen element. Pin it to the viewport and remove
+ * every framing style an ancestor could have left behind, so the video always
+ * sits inside a 100vw × 100vh black surface rather than a shifted top-layer
+ * copy of the panel.
+ */
+@layer components {
+  .video-stage:fullscreen {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: rgb(var(--md-video-stage));
+  }
+
+  .video-stage:-webkit-full-screen {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: rgb(var(--md-video-stage));
+  }
+
+  .video-stage::backdrop {
+    background-color: rgb(var(--md-video-stage));
   }
 }
 

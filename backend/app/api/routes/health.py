@@ -10,12 +10,10 @@ import os
 import shutil
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 
-from ...core.config import Settings
 from ...models.schemas import HealthOut, StorageHealth
 from ....version import APP_VERSION
-from ..deps import get_settings
 
 router = APIRouter(tags=["health"])
 
@@ -50,15 +48,12 @@ def _storage_health(storage: Any) -> StorageHealth:
 
 
 @router.get("/api/health", response_model=HealthOut)
-async def health(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-) -> HealthOut:
+async def health(request: Request) -> HealthOut:
     database = await _database_reachable(getattr(request.app.state, "db", None))
     storage = _storage_health(request.app.state.storage)
-    auth_configured = bool(
-        settings.supabase_jwt_secret or settings.supabase_jwks_url
-    )
+    # Authentication is built in (local passwords + database sessions); there
+    # is no external identity provider left to configure.
+    auth_configured = True
 
     if not storage.writable:
         status = "unavailable"

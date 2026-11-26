@@ -11,7 +11,7 @@ export default function NavigationRail() {
   return (
     <nav
       aria-label="Navegació principal"
-      className="hidden w-20 shrink-0 flex-col items-center gap-1 border-r border-outline-variant bg-surface py-4 md:flex lg:hidden"
+      className="hidden w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-outline-variant bg-surface py-4 md:flex lg:hidden"
     >
       <img src="/favicon.svg" alt="" className="mb-1 h-10 w-10" />
 

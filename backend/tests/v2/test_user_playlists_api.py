@@ -12,6 +12,7 @@ from backend.tests.v2.fakes import (
     auth_headers,
     make_settings,
     make_token,
+    non_session_calls,
     profile_row,
     track_row,
     user_playlist_row,
@@ -254,7 +255,7 @@ def test_patch_user_playlist_rejects_an_empty_body(tmp_path, payload):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_request"
-    assert all("update " not in call[1] for call in db.calls)
+    assert all("update " not in call[1] for call in non_session_calls(db))
 
 
 def test_patch_user_playlist_reports_404_when_not_owned(tmp_path):

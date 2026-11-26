@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Track } from "../types/v2";
 import { formatDuration } from "../lib";
-import { listTracks } from "../lib/api";
+import {
+  getMediaToken,
+  listTracks,
+  triggerDownload,
+  withDownloadFlag,
+} from "../lib/api";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
+import Menu from "../components/Menu";
 import OfflineButton from "../components/OfflineButton";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
+import TrackEditDialog from "../components/TrackEditDialog";
+import { useToast } from "../components/Toast";
 import { usePlayer } from "../player/PlayerProvider";
 import { useMediaToken } from "../lib/useMediaToken";
-import { isAudioAsset } from "../offline/media";
+import { mediaTypeFor } from "../lib/trackDisplay";
 
 type GroupTab = "artists" | "albums";
 
@@ -62,6 +70,8 @@ export default function ArtistsAlbums() {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Track | null>(null);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -100,6 +110,18 @@ export default function ArtistsAlbums() {
     setTab(value === "albums" ? "albums" : "artists");
     setSelected(null);
   }, []);
+
+  const handleSaved = useCallback(
+    (updated: Track) => {
+      // Replacing the track in place regroups the artist/album buckets, and
+      // the selected drill-down reflects the new metadata immediately.
+      setTracks((prev) =>
+        prev.map((track) => (track.id === updated.id ? updated : track)),
+      );
+      toast("Track actualitzat", "success");
+    },
+    [toast],
+  );
 
   if (loading) {
     return (
@@ -167,6 +189,7 @@ export default function ArtistsAlbums() {
                     key={track.id}
                     track={track}
                     queue={selectedGroup.tracks}
+                    onEdit={() => setEditing(track)}
                   />
                 ))}
               </Card>
@@ -199,6 +222,13 @@ export default function ArtistsAlbums() {
           )}
         </>
       ) : null}
+
+      <TrackEditDialog
+        open={editing !== null}
+        track={editing}
+        onClose={() => setEditing(null)}
+        onSaved={handleSaved}
+      />
     </div>
   );
 }
@@ -252,20 +282,54 @@ function GroupCard({
   );
 }
 
-function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
+function TrackRow({
+  track,
+  queue,
+  onEdit,
+}: {
+  track: Track;
+  queue: Track[];
+  onEdit: () => void;
+}) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
+  const toast = useToast();
   // Only ask for a token when there is no cover and the asset has a thumbnail.
   const { token } = useMediaToken(
     !track.cover_url && track.thumbnail_path ? track.asset_id : null,
   );
+  const [downloading, setDownloading] = useState(false);
   const artwork = track.cover_url ?? token?.thumbnail_url ?? null;
   const active = current?.id === track.id;
   const playing = active && isPlaying;
+  const mediaType = mediaTypeFor(track);
+  const isImage = mediaType === "image";
   const credit = [track.artist, track.album]
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
     .join(" · ");
   const duration = formatDuration(track.duration_seconds);
+
+  async function handleDownload() {
+    if (downloading || !track.asset_id) return;
+    setDownloading(true);
+    try {
+      const fresh = await getMediaToken(track.asset_id);
+      if (!fresh?.url) {
+        toast("No s’ha pogut preparar el fitxer per descarregar.", "error");
+        return;
+      }
+      triggerDownload(withDownloadFlag(fresh.url));
+    } catch (e) {
+      toast(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut preparar el fitxer per descarregar.",
+        "error",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div
@@ -287,8 +351,26 @@ function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
           {duration ? ` · ${duration}` : ""}
         </p>
       </div>
-      {isAudioAsset(track) ? (
-        <OfflineButton assetId={track.asset_id} title={track.title} />
+      {!isImage ? (
+        <>
+          <OfflineButton
+            assetId={track.asset_id}
+            title={track.title}
+            kind={mediaType === "audio" ? "audio" : "video"}
+          />
+          <IconButton
+            variant="tonal"
+            label="Descarrega el fitxer"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <Spinner className="text-[20px]" />
+            ) : (
+              <Icon name="download" className="text-[20px]" />
+            )}
+          </IconButton>
+        </>
       ) : null}
       <IconButton
         variant={playing ? "filled" : "tonal"}
@@ -300,6 +382,17 @@ function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
           className="text-[20px]"
         />
       </IconButton>
+      <Menu
+        label="Més accions"
+        actions={[
+          {
+            id: "edit",
+            label: "Edita els detalls",
+            icon: "edit",
+            onSelect: onEdit,
+          },
+        ]}
+      />
     </div>
   );
 }

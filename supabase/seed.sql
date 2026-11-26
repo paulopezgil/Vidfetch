@@ -1,6 +1,0 @@
--- Vidfetch v2 seed data.
---
--- Intentionally empty. The first administrator is promoted after their first
--- Google sign-in with the documented CLI/SQL bootstrap (see
--- docs/ARCHITECTURE_V2.md, section 6.5). Never commit a real admin UUID, email,
--- password, or service-role key here.

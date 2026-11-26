@@ -8,9 +8,11 @@ export interface Destination {
 /** Top-level destinations. Order is stable across every navigation form. */
 export const destinations: Destination[] = [
   { to: "/", label: "Home", icon: "home", end: true },
-  { to: "/tracks", label: "Tracks", icon: "library_music" },
+  { to: "/songs", label: "Cançons", icon: "music_note" },
+  { to: "/videos", label: "Vídeos", icon: "movie" },
   { to: "/playlists", label: "Playlists", icon: "queue_music" },
   { to: "/artists", label: "Artists & Albums", icon: "person" },
+  { to: "/settings", label: "Configuració", icon: "settings" },
 ];
 
 /** Admin-only destination, appended for accounts with `app_role = 'admin'`. */
@@ -57,7 +59,10 @@ export function titleForPath(
   playlistTitle: string | null = activePlaylistTitle,
 ): string {
   if (pathname === "/") return "Home";
-  if (pathname === "/tracks") return "Tracks";
+  if (pathname === "/songs") return "Cançons";
+  if (pathname === "/videos") return "Vídeos";
+  // Compatibility for bookmarks and redirects that still use the old path.
+  if (pathname === "/tracks" || pathname === "/library") return "Cançons";
   if (pathname === "/playlists") return "Playlists";
   if (pathname.startsWith("/playlists/") && /\/add\/?$/.test(pathname)) {
     return "Afegeix tracks";
@@ -69,6 +74,7 @@ export function titleForPath(
     return playlistTitle?.trim() || "Imported playlist";
   }
   if (pathname === "/artists") return "Artists & Albums";
+  if (pathname === "/settings") return "Configuració";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";
 }

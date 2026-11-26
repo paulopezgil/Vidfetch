@@ -29,7 +29,7 @@ function LoadingScreen({ label = "Carregant el teu compte…" }: { label?: strin
 }
 
 function AuthErrorScreen() {
-  const { error, refreshProfile, signOut } = useAuth();
+  const { error, refreshProfile, logout } = useAuth();
   const [retrying, setRetrying] = useState(false);
 
   async function retry() {
@@ -60,7 +60,7 @@ function AuthErrorScreen() {
           la sessió i torna a entrar.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="text" onClick={() => void signOut()}>
+          <Button variant="text" onClick={() => void logout()}>
             Tanca la sessió
           </Button>
           <Button onClick={() => void retry()} disabled={retrying}>
@@ -75,11 +75,11 @@ function AuthErrorScreen() {
 
 /** UX guard: anonymous visitors are sent to the login page. */
 export function RequireAuth() {
-  const { session, profile, loading, error } = useAuth();
+  const { token, profile, loading, error } = useAuth();
   const location = useLocation();
 
   if (loading) return <LoadingScreen />;
-  if (!session) {
+  if (!token) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
   if (!profile && error) return <AuthErrorScreen />;
@@ -89,10 +89,10 @@ export function RequireAuth() {
 
 /** UX guard: authenticated but unapproved accounts go to `/pending`. */
 export function RequireApproved() {
-  const { session, profile, loading, error } = useAuth();
+  const { token, profile, loading, error } = useAuth();
 
   if (loading) return <LoadingScreen />;
-  if (!session) return <Navigate to="/login" replace />;
+  if (!token) return <Navigate to="/login" replace />;
   if (!profile && error) return <AuthErrorScreen />;
   if (!profile) return <LoadingScreen label="Carregant el perfil…" />;
   if (!profile.is_approved) return <Navigate to="/pending" replace />;
@@ -128,10 +128,10 @@ function NotAuthorized() {
 
 /** UX guard: renders a not-authorized state for non-admin users. */
 export function RequireAdmin() {
-  const { session, profile, loading, error } = useAuth();
+  const { token, profile, loading, error } = useAuth();
 
   if (loading) return <LoadingScreen />;
-  if (!session) return <Navigate to="/login" replace />;
+  if (!token) return <Navigate to="/login" replace />;
   if (!profile && error) return <AuthErrorScreen />;
   if (!profile) return <LoadingScreen label="Carregant el perfil…" />;
   if (profile.app_role !== "admin") return <NotAuthorized />;

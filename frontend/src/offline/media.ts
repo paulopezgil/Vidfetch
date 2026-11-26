@@ -68,7 +68,7 @@ export function isAudioSelector(selector: string | null | undefined): boolean {
   return value.includes("mp3") || value.includes("bestaudio");
 }
 
-/** True when a track/asset is an audio song; videos and images stay cloud-only. */
+/** True when a track/asset is an audio song. */
 export function isAudioAsset(input: {
   output_ext?: string | null;
   format_selector?: string | null;

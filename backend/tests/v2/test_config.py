@@ -20,12 +20,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_from_env_defaults_are_import_safe():
     settings = Settings.from_env({})
 
-    assert settings.supabase_url == ""
-    assert settings.supabase_jwks_url == ""
-    assert settings.supabase_jwt_issuer == ""
-    assert settings.supabase_jwt_audience == "authenticated"
     assert settings.database_url == ""
     assert settings.db_schema == "public"
+    assert settings.auth_session_ttl_seconds == 2_592_000
     assert settings.media_token_secret == ""
     assert settings.media_token_ttl_seconds == 900
     assert settings.max_concurrent_downloads == 2
@@ -42,49 +39,45 @@ def test_from_env_defaults_are_import_safe():
     assert settings.public_api_url == ""
 
 
-def test_supabase_url_derives_jwks_and_issuer():
-    settings = Settings.from_env({"SUPABASE_URL": "https://proj.supabase.co/"})
-
-    assert settings.supabase_url == "https://proj.supabase.co"
-    assert (
-        settings.supabase_jwks_url
-        == "https://proj.supabase.co/auth/v1/.well-known/jwks.json"
-    )
-    assert settings.supabase_jwt_issuer == "https://proj.supabase.co/auth/v1"
-
-
-def test_explicit_supabase_values_override_derived_defaults():
+def test_supabase_settings_are_gone_and_ignored():
     settings = Settings.from_env(
         {
             "SUPABASE_URL": "https://proj.supabase.co",
             "SUPABASE_JWKS_URL": "https://keys.example.test/jwks.json",
-            "SUPABASE_JWT_ISSUER": "https://issuer.example.test",
-            "SUPABASE_JWT_AUDIENCE": "custom-aud",
             "SUPABASE_JWT_SECRET": "legacy-secret",
             "SUPABASE_ANON_KEY": "anon",
             "SUPABASE_SERVICE_ROLE_KEY": "service",
-        }
-    )
-
-    assert settings.supabase_jwks_url == "https://keys.example.test/jwks.json"
-    assert settings.supabase_jwt_issuer == "https://issuer.example.test"
-    assert settings.supabase_jwt_audience == "custom-aud"
-    assert settings.supabase_jwt_secret == "legacy-secret"
-    assert settings.supabase_anon_key == "anon"
-    assert settings.supabase_service_role_key == "service"
-
-
-def test_database_url_prefers_database_url_then_supabase_db_url():
-    preferred = Settings.from_env(
-        {
-            "DATABASE_URL": "postgresql://primary/db",
             "SUPABASE_DB_URL": "postgresql://fallback/db",
         }
     )
-    fallback = Settings.from_env({"SUPABASE_DB_URL": "postgresql://fallback/db"})
 
-    assert preferred.database_url == "postgresql://primary/db"
-    assert fallback.database_url == "postgresql://fallback/db"
+    # Local auth has no Supabase settings left to read, including the old
+    # database-URL fallback.
+    for name in (
+        "supabase_url",
+        "supabase_jwks_url",
+        "supabase_jwt_issuer",
+        "supabase_jwt_audience",
+        "supabase_jwt_secret",
+        "supabase_anon_key",
+        "supabase_service_role_key",
+    ):
+        assert not hasattr(settings, name)
+    assert settings.database_url == ""
+
+
+def test_auth_session_ttl_is_configurable_with_a_minimum():
+    default = Settings.from_env({})
+    custom = Settings.from_env({"AUTH_SESSION_TTL_SECONDS": "3600"})
+    minimum = Settings.from_env({"AUTH_SESSION_TTL_SECONDS": "60"})
+
+    assert default.auth_session_ttl_seconds == 2_592_000
+    assert custom.auth_session_ttl_seconds == 3600
+    assert minimum.auth_session_ttl_seconds == 60
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"AUTH_SESSION_TTL_SECONDS": "59"})
+    assert "AUTH_SESSION_TTL_SECONDS" in str(excinfo.value)
 
 
 def test_db_schema_defaults_to_public_and_reads_env():
@@ -160,7 +153,6 @@ def test_from_env_rejects_invalid_db_schema():
 def test_validate_runtime_rejects_invalid_db_schema():
     settings = Settings.from_env(
         {
-            "SUPABASE_URL": "https://proj.supabase.co",
             "DATABASE_URL": "postgresql://user:pass@pooler/db",
             "MEDIA_TOKEN_SECRET": "media-secret",
         }
@@ -176,7 +168,6 @@ def test_validate_runtime_rejects_invalid_db_schema():
 def test_validate_runtime_rejects_invalid_public_api_url():
     settings = Settings.from_env(
         {
-            "SUPABASE_URL": "https://proj.supabase.co",
             "DATABASE_URL": "postgresql://user:pass@pooler/db",
             "MEDIA_TOKEN_SECRET": "media-secret",
         }
@@ -196,6 +187,7 @@ def test_numeric_and_list_settings_parse():
             "DOWNLOAD_DIR": "/var/lib/vidfetch/media",
             "PUBLIC_API_URL": "https://api.vidfetch.example/",
             "MEDIA_TOKEN_TTL_SECONDS": "120",
+            "AUTH_SESSION_TTL_SECONDS": "1200",
             "MAX_CONCURRENT_DOWNLOADS": "4",
             "MAX_CONCURRENT_JOBS_PER_USER": "3",
             "MAX_PLAYLIST_ITEMS": "50",
@@ -212,6 +204,7 @@ def test_numeric_and_list_settings_parse():
     assert settings.download_dir == Path("/var/lib/vidfetch/media").resolve()
     assert settings.public_api_url == "https://api.vidfetch.example"
     assert settings.media_token_ttl_seconds == 120
+    assert settings.auth_session_ttl_seconds == 1200
     assert settings.max_concurrent_downloads == 4
     assert settings.max_concurrent_jobs_per_user == 3
     assert settings.max_playlist_items == 50
@@ -269,6 +262,7 @@ def test_invalid_public_api_url_is_rejected_without_echoing_credentials(value):
     "name,value",
     [
         ("MEDIA_TOKEN_TTL_SECONDS", "soon"),
+        ("AUTH_SESSION_TTL_SECONDS", "soon"),
         ("MAX_CONCURRENT_DOWNLOADS", "0"),
         ("MAX_CONCURRENT_JOBS_PER_USER", "-1"),
         ("MAX_PLAYLIST_ITEMS", "zero"),
@@ -289,32 +283,15 @@ def test_validate_runtime_lists_every_missing_requirement():
         settings.validate_runtime()
 
     message = str(excinfo.value)
-    for expected in (
-        "SUPABASE_URL",
-        "DATABASE_URL",
-        "MEDIA_TOKEN_SECRET",
-        "SUPABASE_JWKS_URL",
-    ):
+    for expected in ("DATABASE_URL", "MEDIA_TOKEN_SECRET"):
         assert expected in message
+    # Local auth needs no identity-provider configuration.
+    assert "SUPABASE" not in message
 
 
-def test_validate_runtime_accepts_jwks_configuration():
+def test_validate_runtime_accepts_database_and_media_secret():
     settings = Settings.from_env(
         {
-            "SUPABASE_URL": "https://proj.supabase.co",
-            "DATABASE_URL": "postgresql://user:pass@pooler/db",
-            "MEDIA_TOKEN_SECRET": "media-secret",
-        }
-    )
-
-    settings.validate_runtime()
-
-
-def test_validate_runtime_accepts_legacy_shared_secret():
-    settings = Settings.from_env(
-        {
-            "SUPABASE_URL": "https://proj.supabase.co",
-            "SUPABASE_JWT_SECRET": "shared-secret",
             "DATABASE_URL": "postgresql://user:pass@pooler/db",
             "MEDIA_TOKEN_SECRET": "media-secret",
         }

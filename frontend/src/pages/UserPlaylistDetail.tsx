@@ -8,9 +8,12 @@ import type {
 import { formatDuration } from "../lib";
 import {
   deleteUserPlaylist,
+  getMediaToken,
   getUserPlaylist,
   removeUserPlaylistTrack,
   reorderUserPlaylistTracks,
+  triggerDownload,
+  withDownloadFlag,
 } from "../lib/api";
 import Button from "../components/Button";
 import Card from "../components/Card";
@@ -24,41 +27,18 @@ import PlaylistCollage from "../components/PlaylistCollage";
 import PlaylistDialog from "../components/PlaylistDialog";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
+import TrackEditDialog from "../components/TrackEditDialog";
 import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
+import { mediaTypeFor } from "../lib/trackDisplay";
 import { usePlayer } from "../player/PlayerProvider";
-import { isAudioAsset } from "../offline/media";
 import { setActivePlaylistTitle } from "../navigation";
 import { QUEUED_MUTATION_MESSAGE } from "../offline/status";
 
-const AUDIO_EXTENSIONS = new Set([
-  "mp3",
-  "m4a",
-  "aac",
-  "wav",
-  "flac",
-  "ogg",
-  "opus",
-]);
-
-const IMAGE_EXTENSIONS = new Set([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "avif",
-  "bmp",
-]);
-
-function extensionOf(track: Track): string {
-  return (track.output_ext ?? "").replace(/^\./, "").toLowerCase();
-}
-
 function trackIcon(track: Track): string {
-  const ext = extensionOf(track);
-  if (AUDIO_EXTENSIONS.has(ext)) return "music_note";
-  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  const mediaType = mediaTypeFor(track);
+  if (mediaType === "audio") return "music_note";
+  if (mediaType === "image") return "image";
   return "movie";
 }
 
@@ -74,13 +54,14 @@ export default function UserPlaylistDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { playTrack } = usePlayer();
+  const { playTrack, updateTrack } = usePlayer();
 
   const [detail, setDetail] = useState<UserPlaylistDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -128,6 +109,25 @@ export default function UserPlaylistDetail() {
       );
     },
     [toast],
+  );
+
+  const handleTrackSaved = useCallback(
+    (updated: Track) => {
+      // Swap the row in place; ordering and membership stay as they are.
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : prev,
+      );
+      updateTrack(updated);
+      toast("Track actualitzat", "success");
+    },
+    [toast, updateTrack],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -355,6 +355,7 @@ export default function UserPlaylistDetail() {
                 onMoveUp={() => void move(index, -1)}
                 onMoveDown={() => void move(index, 1)}
                 onRemove={() => void removeTrack(track)}
+                onEdit={() => setEditingTrack(track)}
               />
             ))}
           </ul>
@@ -381,6 +382,13 @@ export default function UserPlaylistDetail() {
         playlist={detail}
         onClose={() => setEditOpen(false)}
         onSaved={handleSaved}
+      />
+
+      <TrackEditDialog
+        open={editingTrack !== null}
+        track={editingTrack}
+        onClose={() => setEditingTrack(null)}
+        onSaved={handleTrackSaved}
       />
 
       <ConfirmDialog
@@ -414,6 +422,7 @@ function PlaylistTrackRow({
   onMoveUp,
   onMoveDown,
   onRemove,
+  onEdit,
 }: {
   track: Track;
   index: number;
@@ -425,6 +434,7 @@ function PlaylistTrackRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
+  onEdit: () => void;
 }) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const playerActive = current?.id === track.id;
@@ -435,7 +445,32 @@ function PlaylistTrackRow({
   );
   const src = track.cover_url ?? token?.thumbnail_url ?? null;
   const credit = trackCredit(track);
-  const song = isAudioAsset(track);
+  const mediaType = mediaTypeFor(track);
+  const isImage = mediaType === "image";
+  const toast = useToast();
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    if (downloading || !track.asset_id) return;
+    setDownloading(true);
+    try {
+      const fresh = await getMediaToken(track.asset_id);
+      if (!fresh?.url) {
+        toast("No s’ha pogut preparar el fitxer per descarregar.", "error");
+        return;
+      }
+      triggerDownload(withDownloadFlag(fresh.url));
+    } catch (e) {
+      toast(
+        e instanceof Error
+          ? e.message
+          : "No s’ha pogut preparar el fitxer per descarregar.",
+        "error",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <li className="flex flex-wrap items-center gap-3 p-3 sm:p-4">
@@ -471,8 +506,26 @@ function PlaylistTrackRow({
         >
           <Icon name="arrow_downward" className="text-[20px]" />
         </IconButton>
-        {song ? (
-          <OfflineButton assetId={track.asset_id} title={track.title} />
+        {!isImage ? (
+          <>
+            <OfflineButton
+              assetId={track.asset_id}
+              title={track.title}
+              kind={mediaType === "audio" ? "audio" : "video"}
+            />
+            <IconButton
+              variant="tonal"
+              label="Descarrega el fitxer"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+            >
+              {downloading ? (
+                <Spinner className="text-[20px]" />
+              ) : (
+                <Icon name="download" className="text-[20px]" />
+              )}
+            </IconButton>
+          </>
         ) : null}
         <IconButton
           variant={playerActive ? "filled" : "tonal"}
@@ -498,6 +551,17 @@ function PlaylistTrackRow({
             <Icon name="playlist_remove" className="text-[20px]" />
           )}
         </IconButton>
+        <Menu
+          label="Més accions"
+          actions={[
+            {
+              id: "edit",
+              label: "Edita els detalls",
+              icon: "edit",
+              onSelect: onEdit,
+            },
+          ]}
+        />
       </div>
     </li>
   );
