@@ -4,6 +4,24 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.4.0`.
+
+### Changed
+
+- **Information and settings live in the profile menu.** The `Informació`
+  installation guide and `Configuració` moved out of the bottom/rail/drawer
+  navigation, leaving only the five listening destinations. The install page is
+  now presented as **Informació** with the installation guide inside it.
+
+### Fixed
+
+- **iOS bottom navigation clipping.** The compact navigation height now includes
+  `env(safe-area-inset-bottom)` and the tab links no longer hide overflow, so
+  icons and labels fit inside the iPhone home-indicator area instead of being
+  cut in half.
+
 ## [v2.4.0] — 2026-11-26
 
 Release focused on playlist correctness, incremental library delivery,

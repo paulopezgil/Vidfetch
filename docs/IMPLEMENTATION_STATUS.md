@@ -6,7 +6,7 @@
 | Baseline | `v1.9.0` |
 | Current released version | `v2.4.0` |
 | Branch | `main` |
-| Last updated | 2026-11-26 |
+| Last updated | 2026-11-27 |
 
 This is the implementation checklist for the current development cycle. The root
 `README.md` documents the shipped application; `docs/V2_SETUP.md` has the
