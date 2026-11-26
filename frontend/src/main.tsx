@@ -2,15 +2,20 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ThemeProvider } from "./theme/ThemeProvider";
+import { prefetchOfflineFonts } from "./offline/fonts";
 import "./index.css";
 
 // The offline app shell is production-only: a service worker in dev would
-// cache the HMR graph and serve stale modules.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// cache the HMR graph and serve stale modules. Font warming runs after load so
+// it never delays the first paint.
+if (import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Progressive enhancement: a failed registration keeps the app online.
-    });
+    void prefetchOfflineFonts();
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Progressive enhancement: a failed registration keeps the app online.
+      });
+    }
   });
 }
 

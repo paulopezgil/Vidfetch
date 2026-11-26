@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useImageCache } from "../offline/images";
 import Icon from "./Icon";
 
 interface ThumbnailProps {
@@ -14,6 +15,7 @@ export default function Thumbnail({
   icon = "movie",
 }: ThumbnailProps) {
   const [failed, setFailed] = useState(false);
+  useImageCache(src);
 
   if (!src || failed) {
     return (
