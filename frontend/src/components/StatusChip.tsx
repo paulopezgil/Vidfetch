@@ -29,7 +29,7 @@ const icons: Record<string, string> = {
   queued: "schedule",
   resolving: "sync",
   "fetching information": "sync",
-  downloading: "download",
+  downloading: "hourglass_top",
   processing: "sync",
   ready: "check_circle",
   partial: "warning",

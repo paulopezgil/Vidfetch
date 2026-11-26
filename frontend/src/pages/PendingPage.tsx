@@ -5,6 +5,7 @@ import Button from "../components/Button";
 import Card from "../components/Card";
 import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
+import Logo from "../components/Logo";
 import Spinner from "../components/Spinner";
 
 export default function PendingPage() {
@@ -38,7 +39,7 @@ export default function PendingPage() {
     <div className="flex min-h-full items-center justify-center bg-surface px-4 py-10 text-on-surface">
       <div className="w-full max-w-lg">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src="/favicon.svg" alt="" className="h-14 w-14" />
+          <Logo className="h-14 w-14" />
           <h1 className="mt-3 text-title-large text-on-surface">Vidfetch</h1>
         </div>
 

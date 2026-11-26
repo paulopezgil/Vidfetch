@@ -210,7 +210,7 @@ export default function VideoSurface() {
     (track: Track) => {
       // Metadata-only refresh: the video keeps playing from the same source.
       updateTrack(track);
-      toast("Track actualitzat", "success");
+      toast("Detalls actualitzats", "success");
     },
     [toast, updateTrack],
   );
@@ -592,7 +592,7 @@ export default function VideoSurface() {
               {queue.length > 0 ? `${index + 1} / ${queue.length}` : ""}
             </p>
             <div className="flex items-center justify-center gap-1">
-              <IconButton label="Pista anterior" onClick={previous}>
+              <IconButton label="Vídeo anterior" onClick={previous}>
                 <Icon name="skip_previous" className="text-[24px]" />
               </IconButton>
               <IconButton
@@ -609,7 +609,7 @@ export default function VideoSurface() {
                 />
               </IconButton>
               <IconButton
-                label="Pista següent"
+                label="Vídeo següent"
                 onClick={next}
                 disabled={!hasNext}
               >

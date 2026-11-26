@@ -33,6 +33,8 @@ class RecordingJobs:
     def __init__(self, rows=None):
         self.rows = {str(row["id"]): dict(row) for row in (rows or [])}
         self.updates: list[tuple[str, dict]] = []
+        self.item_jobs: list[dict] = []
+        self.record_calls: list[dict] = []
 
     async def recover_stale_jobs(self, db, lease_seconds):
         return 0
@@ -48,6 +50,40 @@ class RecordingJobs:
         self.updates.append((key, dict(fields)))
         self.rows.setdefault(key, job_row(job_id=key)).update(fields)
         return self.rows[key]
+
+    async def record_playlist_item_job(self, db, **kwargs):
+        self.record_calls.append(dict(kwargs))
+        existing = kwargs.get("job_id")
+        key = str(existing) if existing is not None else None
+        row = self.rows.get(key) if key is not None else None
+        if row is None or row.get("kind") != "playlist_item":
+            row = job_row(
+                user_id=kwargs["user_id"],
+                kind="playlist_item",
+                playlist_id=kwargs["playlist_id"],
+                status=kwargs["status"],
+            )
+            self.rows[str(row["id"])] = row
+        row.update(
+            {
+                "kind": "playlist_item",
+                "playlist_id": kwargs["playlist_id"],
+                "source_url": kwargs["source_url"],
+                "title": kwargs["title"],
+                "options_hash": kwargs["options_hash"],
+                "format_selector": kwargs["format_selector"],
+                "status": kwargs["status"],
+                "progress": 100 if kwargs["status"] == "ready" else 0,
+                "asset_id": kwargs.get("asset_id"),
+                "error": kwargs.get("error") or "",
+                "artist": kwargs.get("artist") or "",
+                "album": kwargs.get("album") or "",
+                "item_index": kwargs.get("item_index") or 0,
+                "item_count": kwargs.get("item_count") or 0,
+            }
+        )
+        self.item_jobs.append(dict(row))
+        return dict(row)
 
     async def mark_ready(self, db, job_id, *, asset_id=None):
         fields = {"status": "ready", "progress": 100, "error": ""}
@@ -86,6 +122,7 @@ class RecordingPlaylists:
                     canonical_id=entry["canonical_id"],
                     source_url=entry["source_url"],
                     title=entry["title"],
+                    channel=entry.get("channel") or "",
                     duration_seconds=entry.get("duration_seconds"),
                 )
             )
@@ -204,6 +241,7 @@ def playlist_info(entries, *, thumbnail=None):
                 "title": entry["title"],
                 "url": entry["source_url"],
                 "canonical_id": entry["canonical_id"],
+                "channel": entry.get("channel") or "",
                 "duration": entry.get("duration_seconds"),
                 "thumbnail": entry.get("thumbnail"),
             }
@@ -227,7 +265,7 @@ def _fake_ytdlp(*, info, download, thumbnail=None):
     )
 
 
-def _writing_download(fail_urls=(), cancel_event=None):
+def _writing_download(fail_urls=(), cancel_event=None, before=None):
     calls: list[str] = []
 
     def download(
@@ -242,6 +280,8 @@ def _writing_download(fail_urls=(), cancel_event=None):
         cover=None,
     ):
         calls.append(url)
+        if before is not None:
+            before(url)
         if cancel_event is not None and url.endswith("/v2"):
             cancel_event.set()
             raise ytdlp_service.DownloadCancelled()
@@ -284,12 +324,14 @@ def _worker(tmp_path, jobs, playlists, assets, ytdlp):
     )
 
 
-def _entries(count):
+def _entries(count, *, channels=None):
+    channels = channels or {}
     return [
         {
             "canonical_id": f"youtube:vid{position}",
             "source_url": f"https://example.test/v{position}",
             "title": f"Clip {position}",
+            "channel": channels.get(position, ""),
             "duration_seconds": 10,
         }
         for position in range(1, count + 1)
@@ -335,6 +377,22 @@ def test_playlist_success_downloads_every_item_and_links_assets(tmp_path):
         path = worker.storage.validate_relative_path(fields["file_path"])
         assert path.is_file()
 
+    # Each successful item is recorded immediately as a terminal job and the
+    # playlist item links to it.
+    assert [job["status"] for job in jobs.item_jobs] == ["ready", "ready"]
+    assert [job["kind"] for job in jobs.item_jobs] == [
+        "playlist_item",
+        "playlist_item",
+    ]
+    assert [job["item_index"] for job in jobs.item_jobs] == [1, 2]
+    assert [job["item_count"] for job in jobs.item_jobs] == [2, 2]
+    assert all(job["asset_id"] for job in jobs.item_jobs)
+    assert [job["artist"] for job in jobs.item_jobs] == ["Channel", "Channel"]
+    assert [job["album"] for job in jobs.item_jobs] == ["List", "List"]
+    assert [item["job_id"] for item in playlists.items] == [
+        job["id"] for job in jobs.item_jobs
+    ]
+
     assert ytdlp.download_video.calls == [
         "https://example.test/v1",
         "https://example.test/v2",
@@ -375,6 +433,20 @@ def test_playlist_partial_failure_marks_item_failed_and_job_ready(tmp_path):
     assert len(assets.ready) == 1
     assert len(assets.failed) == 1
 
+    # One ready and one failed item job; the failed job carries the safe error
+    # and never an asset.
+    assert [job["status"] for job in jobs.item_jobs] == ["ready", "failed"]
+    ready_job, failed_job = jobs.item_jobs
+    assert ready_job["asset_id"] is not None
+    assert failed_job["asset_id"] is None
+    assert failed_job["error"] == "Network error while contacting the site."
+    assert failed_job["artist"] == "Channel"
+    assert failed_job["album"] == "List"
+    assert [item["job_id"] for item in playlists.items] == [
+        ready_job["id"],
+        failed_job["id"],
+    ]
+
     row = jobs.rows[str(job["id"])]
     assert row["status"] == "ready"
     assert row["progress"] == 100
@@ -382,6 +454,103 @@ def test_playlist_partial_failure_marks_item_failed_and_job_ready(tmp_path):
         "1 of 2 items failed. Network error while contacting the site."
     )
     assert row["item_index"] == 2
+
+
+def test_ready_item_job_is_recorded_before_the_next_item_starts(tmp_path):
+    entries = _entries(2)
+    job = _playlist_job()
+    jobs = RecordingJobs([job])
+    playlists = RecordingPlaylists(entries)
+    assets = PlaylistAssets()
+
+    def assert_first_item_recorded(url):
+        if not url.endswith("/v2"):
+            return
+        # The first item's terminal job must already be observable while the
+        # second item is still being downloaded.
+        assert len(jobs.item_jobs) == 1
+        assert jobs.item_jobs[0]["status"] == "ready"
+        assert jobs.item_jobs[0]["item_index"] == 1
+        assert playlists.items[0]["status"] == "ready"
+
+    ytdlp = _fake_ytdlp(
+        info=lambda url, settings: playlist_info(entries),
+        download=_writing_download(before=assert_first_item_recorded),
+    )
+    worker = _worker(tmp_path, jobs, playlists, assets, ytdlp)
+
+    run(worker.process_job(job))
+
+    assert [job["status"] for job in jobs.item_jobs] == ["ready", "ready"]
+
+
+def test_playlist_item_jobs_use_each_entry_channel_as_artist(tmp_path):
+    entries = _entries(2, channels={1: "First artist", 2: "Second artist"})
+    job = _playlist_job()
+    jobs = RecordingJobs([job])
+    playlists = RecordingPlaylists(entries)
+    assets = PlaylistAssets()
+    ytdlp = _fake_ytdlp(
+        info=lambda url, settings: playlist_info(entries),
+        download=_writing_download(),
+    )
+    worker = _worker(tmp_path, jobs, playlists, assets, ytdlp)
+
+    run(worker.process_job(job))
+
+    assert [job["artist"] for job in jobs.item_jobs] == [
+        "First artist",
+        "Second artist",
+    ]
+    assert [job["album"] for job in jobs.item_jobs] == ["List", "List"]
+
+
+def test_playlist_rerun_updates_the_linked_item_job(tmp_path):
+    """A re-run reuses the item job recorded by the previous run.
+
+    ``replace_items`` keeps ``playlist_items.job_id`` pointing at the job that
+    recorded the item last time. The worker must pass that id through, so the
+    existing row is updated instead of a duplicate job being inserted.
+    """
+    entries = _entries(1)
+    job = _playlist_job()
+    previous_item_job = job_row(
+        user_id=USER_ID,
+        kind="playlist_item",
+        playlist_id=PLAYLIST_ID,
+        status="ready",
+        title="Clip 1 (previous run)",
+    )
+    jobs = RecordingJobs([job, previous_item_job])
+    playlists = RecordingPlaylists(entries)
+    # What replace_items returns for an item whose canonical id is unchanged.
+    playlists.items[0]["job_id"] = previous_item_job["id"]
+    assets = PlaylistAssets(ready_canonicals={"youtube:vid1"})
+    ytdlp = _fake_ytdlp(
+        info=lambda url, settings: playlist_info(entries),
+        download=_writing_download(),
+    )
+    worker = _worker(tmp_path, jobs, playlists, assets, ytdlp)
+
+    run(worker.process_job(job))
+
+    # The ready outcome was recorded against the preserved job id.
+    assert [call.get("job_id") for call in jobs.record_calls] == [
+        previous_item_job["id"]
+    ]
+    assert jobs.record_calls[0]["status"] == "ready"
+    assert playlists.items[0]["job_id"] == previous_item_job["id"]
+
+    # No duplicate row was inserted: one playlist_item job exists, and it is
+    # the previous run's row, now finished again with the new asset.
+    item_jobs = [
+        row for row in jobs.rows.values() if row["kind"] == "playlist_item"
+    ]
+    assert [row["id"] for row in item_jobs] == [previous_item_job["id"]]
+    assert item_jobs[0]["status"] == "ready"
+    assert item_jobs[0]["title"] == "Clip 1"
+    assert item_jobs[0]["artist"] == "Channel"
+    assert item_jobs[0]["album"] == "List"
 
 
 def test_playlist_cancellation_keeps_completed_assets_and_stops(tmp_path):
@@ -411,6 +580,14 @@ def test_playlist_cancellation_keeps_completed_assets_and_stops(tmp_path):
     )
     assert path.is_file()
 
+    # Only the completed item produced a job; cancelled items never do.
+    assert [job["status"] for job in jobs.item_jobs] == ["ready"]
+    assert [item["job_id"] for item in playlists.items] == [
+        jobs.item_jobs[0]["id"],
+        None,
+        None,
+    ]
+
     row = jobs.rows[str(job["id"])]
     assert row["status"] == "cancelled"
     assert row["cancel_requested"] is True
@@ -438,6 +615,10 @@ def test_playlist_reuses_video_cache_hit_for_one_item(tmp_path):
     ]["id"]
     assert [item["status"] for item in playlists.items] == ["ready", "ready"]
     assert jobs.rows[str(job["id"])]["status"] == "ready"
+    assert [item["status"] for item in jobs.item_jobs] == ["ready", "ready"]
+    assert jobs.item_jobs[1]["asset_id"] == assets.ready_assets[
+        "youtube:vid2"
+    ]["id"]
 
 
 def test_playlist_all_items_failing_marks_job_failed(tmp_path):
@@ -458,6 +639,9 @@ def test_playlist_all_items_failing_marks_job_failed(tmp_path):
     assert jobs.rows[str(job["id"])]["status"] == "failed"
     assert "2 of 2 items failed." in jobs.rows[str(job["id"])]["error"]
     assert all(item["status"] == "failed" for item in playlists.items)
+    assert [job["status"] for job in jobs.item_jobs] == ["failed", "failed"]
+    assert all(job["asset_id"] is None for job in jobs.item_jobs)
+    assert all(job["error"] for job in jobs.item_jobs)
 
 
 def test_playlist_item_thumbnail_from_flat_entry_is_stored(tmp_path):

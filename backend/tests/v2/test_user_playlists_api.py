@@ -7,6 +7,7 @@ import pytest
 
 from backend.app.services.signing import verify_media_token
 from backend.tests.v2.fakes import (
+    NOW,
     FakeDatabase,
     app_client,
     auth_headers,
@@ -21,8 +22,8 @@ from backend.tests.v2.fakes import (
 MEDIA_SECRET = "media-secret-for-tests"
 
 
-def _approved():
-    return profile_row(email="alice@example.test", is_approved=True)
+def _approved(email="alice@example.test"):
+    return profile_row(email=email, is_approved=True)
 
 
 def _headers(profile):
@@ -57,6 +58,8 @@ def test_list_user_playlists_returns_the_callers_page(tmp_path):
             "description": "chill",
             "cover_path": None,
             "track_count": 2,
+            "owner_email": "",
+            "is_owner": True,
             "created_at": "2026-11-21T12:00:00Z",
             "updated_at": "2026-11-21T12:00:00Z",
         }
@@ -856,3 +859,193 @@ def test_reorder_empty_playlist_with_an_empty_order(tmp_path):
     assert body["items"] == []
     assert db.connection.commits == 1
     assert all("set position" not in call[1] for call in db.calls)
+
+
+def test_list_shared_playlists_is_routed_before_the_id_lookup(tmp_path):
+    settings = make_settings(tmp_path)
+    viewer = _approved(email="viewer@example.test")
+    owner = _approved(email="owner@example.test")
+    row = user_playlist_row(
+        user_id=owner["id"],
+        name="Owner mix",
+        track_count=2,
+        owner_email=owner["email"],
+        is_owner=False,
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(viewer, {"total": 1})
+    db.queue_fetch([row])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/user-playlists/shared?limit=10&offset=5",
+            headers=_headers(viewer),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["limit"] == 10
+    assert body["offset"] == 5
+    item = body["items"][0]
+    assert item["name"] == "Owner mix"
+    assert item["owner_email"] == owner["email"]
+    assert item["is_owner"] is False
+    assert item["track_count"] == 2
+
+    total_query, total_args = db.calls[1][1], db.calls[1][2]
+    assert "user_playlist_shares" in total_query
+    assert "p.deleted_at is null" in total_query
+    assert total_args == (viewer["id"],)
+    page_query, page_args = db.calls[2][1], db.calls[2][2]
+    assert "owner.email as owner_email" in page_query
+    assert 'join "public".profiles owner on owner.id = p.user_id' in page_query
+    assert page_args == (viewer["id"], 10, 5)
+
+
+def test_share_playlist_with_email_returns_the_recipient(tmp_path):
+    settings = make_settings(tmp_path)
+    owner = _approved()
+    friend = _approved(email="friend@example.test")
+    playlist = user_playlist_row(user_id=owner["id"])
+    db = FakeDatabase()
+    db.queue_fetchrow(
+        owner,
+        playlist,
+        friend,
+        {"user_id": friend["id"], "created_at": NOW},
+    )
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/user-playlists/{playlist['id']}/shares",
+            json={"email": "  Friend@Example.Test  "},
+            headers=_headers(owner),
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "user_id": str(friend["id"]),
+        "email": "friend@example.test",
+        "created_at": "2026-11-21T12:00:00Z",
+    }
+
+    lookup_query, lookup_args = db.calls[2][1], db.calls[2][2]
+    assert "lower(email) = lower($1)" in lookup_query
+    assert lookup_args == ("friend@example.test",)
+    insert_query, insert_args = db.calls[3][1], db.calls[3][2]
+    assert 'insert into "public".user_playlist_shares' in insert_query
+    assert "on conflict (playlist_id, user_id) do nothing" in insert_query
+    assert insert_args == (playlist["id"], friend["id"])
+
+
+@pytest.mark.parametrize("recipient", ["unknown@example.test", "self@example.test"])
+def test_share_playlist_rejects_an_unknown_or_self_recipient(
+    tmp_path, recipient
+):
+    settings = make_settings(tmp_path)
+    owner = _approved(email="self@example.test")
+    playlist = user_playlist_row(user_id=owner["id"])
+    target = None
+    if recipient == "self@example.test":
+        target = dict(owner)
+    db = FakeDatabase()
+    db.queue_fetchrow(owner, playlist, target)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/user-playlists/{playlist['id']}/shares",
+            json={"email": recipient},
+            headers=_headers(owner),
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "code": "invalid_request",
+            "message": "That account cannot be added.",
+        }
+    }
+    assert all(
+        "insert into" not in call[1] for call in non_session_calls(db)
+    )
+
+
+def test_share_playlist_hides_a_foreign_or_missing_playlist(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, None)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            f"/api/user-playlists/{uuid4()}/shares",
+            json={"email": "friend@example.test"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "playlist_not_found"
+    # The recipient lookup never runs once ownership fails.
+    assert len(db.calls) == 2
+    assert "user_playlists" in db.calls[1][1]
+    assert "user_playlist_shares" not in db.calls[1][1]
+
+
+def test_list_playlist_shares_returns_the_recipients(tmp_path):
+    settings = make_settings(tmp_path)
+    owner = _approved()
+    friend = _approved(email="friend@example.test")
+    playlist = user_playlist_row(user_id=owner["id"])
+    db = FakeDatabase()
+    db.queue_fetchrow(owner, playlist)
+    db.queue_fetch(
+        [{"user_id": friend["id"], "email": friend["email"], "created_at": NOW}]
+    )
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            f"/api/user-playlists/{playlist['id']}/shares",
+            headers=_headers(owner),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "user_id": str(friend["id"]),
+                "email": "friend@example.test",
+                "created_at": "2026-11-21T12:00:00Z",
+            }
+        ]
+    }
+    share_query, share_args = db.calls[2][1], db.calls[2][2]
+    assert 'join "public".profiles p on p.id = s.user_id' in share_query
+    assert share_args == (playlist["id"],)
+
+
+def test_unshare_playlist_reports_a_missing_share(tmp_path):
+    settings = make_settings(tmp_path)
+    owner = _approved()
+    playlist = user_playlist_row(user_id=owner["id"])
+    friend_id = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow(owner, playlist, {"user_id": friend_id})
+    db.queue_fetchrow(owner, playlist, None)
+
+    with app_client(settings, db) as (app, client):
+        removed = client.delete(
+            f"/api/user-playlists/{playlist['id']}/shares/{friend_id}",
+            headers=_headers(owner),
+        )
+        missing = client.delete(
+            f"/api/user-playlists/{playlist['id']}/shares/{friend_id}",
+            headers=_headers(owner),
+        )
+
+    assert removed.status_code == 204
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "share_not_found"
+    delete_query, delete_args = db.calls[2][1], db.calls[2][2]
+    assert 'delete from "public".user_playlist_shares' in delete_query
+    assert delete_args == (playlist["id"], friend_id)

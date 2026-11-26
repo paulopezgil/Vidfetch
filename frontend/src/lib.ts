@@ -41,7 +41,7 @@ export const STATUS_LABELS: Record<string, string> = {
   queued: "En cua",
   resolving: "Resolent",
   "fetching information": "Obtenint informació",
-  downloading: "Descarregant",
+  downloading: "Preparant",
   processing: "Processant",
   ready: "A punt",
   partial: "Parcial",

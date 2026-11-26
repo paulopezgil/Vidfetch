@@ -6,6 +6,7 @@ The models intentionally mirror the database columns so routers can hand
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -261,6 +262,7 @@ class TrackOut(_ORMModel):
     cover_path: str | None = None
     cover_url: str | None = None
     thumbnail_path: str | None = None
+    thumbnail_url: str | None = None
     duration_seconds: int | None = None
     file_size_bytes: int | None = None
     output_ext: str | None = None
@@ -387,6 +389,7 @@ class PlaylistItemOut(_ORMModel):
     canonical_id: str = ""
     source_url: str = ""
     title: str = ""
+    channel: str = ""
     duration_seconds: int | None = None
     asset_id: UUID | None = None
     job_id: UUID | None = None
@@ -431,6 +434,16 @@ class PlaylistList(_ORMModel):
 
 USER_PLAYLIST_NAME_MAX = 200
 USER_PLAYLIST_DESCRIPTION_MAX = 500
+USER_PLAYLIST_SHARE_EMAIL_MAX = 254
+
+# The same pragmatic address shape used for sign-up: a local part plus at least
+# one dotted domain label. The service still resolves the address against the
+# profiles table; this only rejects obvious garbage before a database round-trip.
+_SHARE_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
 
 
 def _trim_playlist_name(value: Any) -> str:
@@ -462,7 +475,11 @@ def _trim_playlist_description(value: Any) -> str:
 
 
 class UserPlaylistOut(_ORMModel):
-    """A per-user curated playlist with a count of its visible tracks."""
+    """A per-user curated playlist with a count of its visible tracks.
+
+    ``is_owner`` is ``False`` for a playlist shared with the caller, and
+    ``owner_email`` names the account that owns it.
+    """
 
     id: UUID
     user_id: UUID
@@ -470,6 +487,8 @@ class UserPlaylistOut(_ORMModel):
     description: str = ""
     cover_path: str | None = None
     track_count: int = 0
+    owner_email: str = ""
+    is_owner: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -545,6 +564,40 @@ class UserPlaylistOrder(BaseModel):
     """A complete, new ordering of a curated playlist's tracks."""
 
     track_ids: list[UUID] = Field(default_factory=list)
+
+
+class UserPlaylistShareCreate(BaseModel):
+    """Share a curated playlist with the account behind ``email``."""
+
+    email: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _validate_email(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Enter a valid email address.")
+        candidate = value.strip().lower()
+        if (
+            not candidate
+            or len(candidate) > USER_PLAYLIST_SHARE_EMAIL_MAX
+            or not _SHARE_EMAIL_RE.match(candidate)
+        ):
+            raise ValueError("Enter a valid email address.")
+        return candidate
+
+
+class UserPlaylistShareOut(_ORMModel):
+    """One account a curated playlist is shared with."""
+
+    user_id: UUID
+    email: str
+    created_at: datetime
+
+
+class UserPlaylistShareList(_ORMModel):
+    """Every account a curated playlist is shared with."""
+
+    items: list[UserPlaylistShareOut] = Field(default_factory=list)
 
 
 class InfoRequest(BaseModel):

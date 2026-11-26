@@ -28,6 +28,7 @@ import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
 import OfflineButton from "../components/OfflineButton";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
@@ -78,11 +79,13 @@ function playlistItemToTrack(
     job_id: item.job_id ?? item.id,
     canonical_id: item.canonical_id,
     title: item.title,
-    artist: channel,
+    // Prefer the individual video's channel; fall back to the playlist owner.
+    artist: item.channel || channel,
     album: playlistTitle,
     cover_path: null,
     cover_url: item.thumbnail_url ?? null,
     thumbnail_path: null,
+    thumbnail_url: item.thumbnail_url ?? null,
     duration_seconds: item.duration_seconds,
     file_size_bytes: null,
     output_ext: mediaType === "audio" ? "mp3" : "mp4",
@@ -272,7 +275,7 @@ export default function PlaylistDetail() {
           to="/playlists"
           className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
         >
-          <Icon name="arrow_back" className="text-[20px]" /> Playlists
+          <Icon name="arrow_back" className="text-[20px]" /> Llistes
         </Link>
         <EmptyState
           icon="playlist_remove"
@@ -284,6 +287,9 @@ export default function PlaylistDetail() {
   }
 
   const items = detail.items;
+  // Failed items have no usable media and their error details are never shown
+  // here; they are surfaced generically on Home instead.
+  const visibleItems = items.filter((item) => item.status !== "failed");
   const readyCount = items.filter(
     (item) => item.status === "ready" && item.asset_id,
   ).length;
@@ -297,7 +303,7 @@ export default function PlaylistDetail() {
         to="/playlists"
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <Icon name="arrow_back" className="text-[20px]" /> Playlists
+        <Icon name="arrow_back" className="text-[20px]" /> Llistes
       </Link>
 
       <Card variant="outlined" className="p-4 sm:p-6">
@@ -339,7 +345,7 @@ export default function PlaylistDetail() {
               </div>
               <ProgressBar
                 value={overall}
-                label="Progrés de la descàrrega de la llista"
+                label="Progrés de preparació de la llista"
                 status={
                   failedCount && readyCount ? "completed" : undefined
                 }
@@ -417,12 +423,12 @@ export default function PlaylistDetail() {
         </div>
       </Card>
 
-      {items.length > 0 ? (
+      {visibleItems.length > 0 ? (
         <Card
           variant="outlined"
           className="divide-y divide-outline-variant overflow-hidden"
         >
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <ItemRow
               key={item.id}
               item={item}
@@ -447,11 +453,26 @@ export default function PlaylistDetail() {
         </Card>
       ) : (
         <EmptyState
-          icon="playlist_play"
-          title="No hi ha elements per mostrar"
-          description="Aquesta llista de reproducció encara no té cap element per descarregar."
+          icon={failedCount > 0 ? "error" : "playlist_play"}
+          title={
+            failedCount > 0
+              ? "No hi ha elements descarregats"
+              : "No hi ha elements per mostrar"
+          }
+          description={
+            failedCount > 0
+              ? "Les descàrregues que no s’han pogut completar es mostren a l’inici, a «Descàrregues fallides»."
+              : "Aquesta llista de reproducció encara no té cap element per descarregar."
+          }
         />
       )}
+
+      {failedCount > 0 && visibleItems.length > 0 ? (
+        <p className="px-1 text-body-small text-on-surface-variant">
+          {failedCount} {failedCount === 1 ? "element no s’ha" : "elements no s’han"}{" "}
+          pogut descarregar. Consulta «Descàrregues fallides» a l’inici.
+        </p>
+      ) : null}
 
       <ConfirmDialog
         open={deleteOpen}
@@ -525,9 +546,12 @@ function ItemRow({
       </span>
       <Thumbnail src={thumbSrc} icon="movie" className="aspect-video w-16" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-large text-on-surface">
-          {item.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">
+            {item.title}
+          </p>
+          {playerActive ? <NowPlayingIndicator /> : null}
+        </div>
         <div className="mt-0.5 flex items-center gap-3 text-label-medium text-on-surface-variant">
           {item.duration_seconds ? (
             <span className="tabular-nums">
@@ -535,9 +559,6 @@ function ItemRow({
             </span>
           ) : null}
           <span>{mediaType === "audio" ? "Àudio" : "Vídeo"}</span>
-          {item.status === "failed" && item.error ? (
-            <span className="truncate text-error">{item.error}</span>
-          ) : null}
         </div>
       </div>
       <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">

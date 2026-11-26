@@ -71,13 +71,13 @@ export default function PlayerBar() {
         .map((value) => value.trim())
         .filter((value) => value.length > 0)
         .join(" · ") || "Artista desconegut"
-    : "Tria un track per començar a escoltar";
+    : "Tria una cançó per començar a escoltar";
   const art = current?.cover_url ?? artworkUrl;
 
   const controls = (
     <>
       <IconButton
-        label="Pista anterior"
+        label="Cançó anterior"
         onClick={previous}
         disabled={!hasTrack}
       >
@@ -96,7 +96,7 @@ export default function PlayerBar() {
           className="text-[24px]"
         />
       </IconButton>
-      <IconButton label="Pista següent" onClick={next} disabled={!hasNext}>
+      <IconButton label="Cançó següent" onClick={next} disabled={!hasNext}>
         <Icon name="skip_next" className="text-[22px]" />
       </IconButton>
     </>

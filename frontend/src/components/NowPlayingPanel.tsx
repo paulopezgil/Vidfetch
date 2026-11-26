@@ -64,7 +64,7 @@ export default function NowPlayingPanel({
     (track: Track) => {
       // Refresh the title/artist/album/cover here without reloading the audio.
       updateTrack(track);
-      toast("Track actualitzat", "success");
+      toast("Cançó actualitzada", "success");
     },
     [toast, updateTrack],
   );
@@ -132,7 +132,7 @@ export default function NowPlayingPanel({
 
   const transportControls = (
     <>
-      <IconButton label="Pista anterior" onClick={previous}>
+      <IconButton label="Cançó anterior" onClick={previous}>
         <Icon name="skip_previous" className="text-[24px]" />
       </IconButton>
       <IconButton
@@ -147,7 +147,7 @@ export default function NowPlayingPanel({
           className="text-[26px]"
         />
       </IconButton>
-      <IconButton label="Pista següent" onClick={next} disabled={!hasNext}>
+      <IconButton label="Cançó següent" onClick={next} disabled={!hasNext}>
         <Icon name="skip_next" className="text-[24px]" />
       </IconButton>
     </>

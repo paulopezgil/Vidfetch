@@ -10,9 +10,13 @@ import {
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
+import GroupEditDialog, {
+  type GroupEditKind,
+} from "../components/GroupEditDialog";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
 import Menu from "../components/Menu";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import OfflineButton from "../components/OfflineButton";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
@@ -33,9 +37,12 @@ interface Group {
 const TRACK_LIMIT = 200;
 
 const tabOptions = [
-  { value: "artists", label: "Artists", icon: "person" },
-  { value: "albums", label: "Albums", icon: "album" },
+  { value: "artists", label: "Artistes", icon: "graphic_eq" },
+  { value: "albums", label: "Àlbums", icon: "album" },
 ];
+
+const UNKNOWN_ARTIST = "Artista desconegut";
+const UNKNOWN_ALBUM = "Àlbum desconegut";
 
 /**
  * Group tracks by a trimmed metadata field, folding blank values into the
@@ -71,17 +78,22 @@ export default function ArtistsAlbums() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Track | null>(null);
+  const [editingGroup, setEditingGroup] = useState<{
+    kind: GroupEditKind;
+    name: string;
+    tracks: Track[];
+  } | null>(null);
   const toast = useToast();
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     try {
       const page = await listTracks({ limit: TRACK_LIMIT });
       setTracks(page.items);
       setError(null);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "Could not load your tracks.",
+        e instanceof Error ? e.message : "No s’han pogut carregar les cançons.",
       );
     } finally {
       setLoading(false);
@@ -93,11 +105,11 @@ export default function ArtistsAlbums() {
   }, [refresh]);
 
   const artists = useMemo(
-    () => groupTracks(tracks, (track) => track.artist, "Unknown artist"),
+    () => groupTracks(tracks, (track) => track.artist, UNKNOWN_ARTIST),
     [tracks],
   );
   const albums = useMemo(
-    () => groupTracks(tracks, (track) => track.album, "Unknown album"),
+    () => groupTracks(tracks, (track) => track.album, UNKNOWN_ALBUM),
     [tracks],
   );
 
@@ -118,15 +130,26 @@ export default function ArtistsAlbums() {
       setTracks((prev) =>
         prev.map((track) => (track.id === updated.id ? updated : track)),
       );
-      toast("Track actualitzat", "success");
+      toast("Cançó actualitzada", "success");
     },
     [toast],
+  );
+
+  const handleGroupApplied = useCallback(
+    (failed: number) => {
+      // Refetch so the regroup reflects every saved row, not just optimistic
+      // copies; a partial failure still refreshes what did save. The refresh
+      // is silent so the dialog never unmounts mid-retry.
+      void refresh({ silent: true });
+      if (failed === 0) toast("Canvis aplicats", "success");
+    },
+    [refresh, toast],
   );
 
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-        <Spinner /> Loading your music…
+        <Spinner /> S’està carregant la música…
       </div>
     );
   }
@@ -137,9 +160,9 @@ export default function ArtistsAlbums() {
 
       {!error && tracks.length === 0 ? (
         <EmptyState
-          icon="person"
-          title="No artists or albums yet"
-          description="Downloaded tracks will appear here, grouped by their artist and album."
+          icon="library_music"
+          title="Encara no hi ha artistes ni àlbums"
+          description="Les cançons descarregades apareixeran aquí, agrupades per artista i àlbum."
         />
       ) : null}
 
@@ -150,7 +173,7 @@ export default function ArtistsAlbums() {
               options={tabOptions}
               value={tab}
               onChange={changeTab}
-              label="Group your music by"
+              label="Agrupa la música per"
             />
           </div>
 
@@ -161,12 +184,16 @@ export default function ArtistsAlbums() {
             >
               <div className="flex items-center gap-2">
                 <IconButton
-                  label={`Back to ${tab === "artists" ? "artists" : "albums"}`}
+                  label={
+                    tab === "artists"
+                      ? "Torna als artistes"
+                      : "Torna als àlbums"
+                  }
                   onClick={() => setSelected(null)}
                 >
                   <Icon name="arrow_back" className="text-[20px]" />
                 </IconButton>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2
                     id="group-heading"
                     className="truncate text-title-large text-on-surface"
@@ -175,9 +202,31 @@ export default function ArtistsAlbums() {
                   </h2>
                   <p className="text-body-small text-on-surface-variant">
                     {selectedGroup.tracks.length}{" "}
-                    {selectedGroup.tracks.length === 1 ? "track" : "tracks"}
+                    {selectedGroup.tracks.length === 1 ? "cançó" : "cançons"}
                   </p>
                 </div>
+                <Menu
+                  label="Més accions"
+                  actions={[
+                    {
+                      id: "edit-group",
+                      label:
+                        tab === "albums" ? "Edita l’àlbum" : "Edita el grup",
+                      icon: "edit",
+                      onSelect: () =>
+                        setEditingGroup({
+                          kind: tab === "albums" ? "album" : "artist",
+                          // The fallback bucket has no real name to prefill.
+                          name:
+                            selectedGroup.name === UNKNOWN_ARTIST ||
+                            selectedGroup.name === UNKNOWN_ALBUM
+                              ? ""
+                              : selectedGroup.name,
+                          tracks: selectedGroup.tracks,
+                        }),
+                    },
+                  ]}
+                />
               </div>
 
               <Card
@@ -201,7 +250,7 @@ export default function ArtistsAlbums() {
                   id="group-grid-heading"
                   className="text-title-medium text-on-surface"
                 >
-                  {tab === "artists" ? "Artists" : "Albums"}
+                  {tab === "artists" ? "Artistes" : "Àlbums"}
                 </h2>
                 <span className="text-label-medium text-on-surface-variant">
                   {groups.length}
@@ -229,6 +278,15 @@ export default function ArtistsAlbums() {
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
       />
+
+      <GroupEditDialog
+        open={editingGroup !== null}
+        kind={editingGroup?.kind ?? "artist"}
+        name={editingGroup?.name ?? ""}
+        tracks={editingGroup?.tracks ?? []}
+        onClose={() => setEditingGroup(null)}
+        onApplied={handleGroupApplied}
+      />
     </div>
   );
 }
@@ -243,7 +301,6 @@ function GroupCard({
   onSelect: () => void;
 }) {
   const count = group.tracks.length;
-  const initial = Array.from(group.name)[0]?.toUpperCase() ?? "?";
 
   return (
     <Card
@@ -255,30 +312,92 @@ function GroupCard({
         onClick={onSelect}
         className="flex h-full w-full flex-col items-center gap-3 p-3 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       >
-        {variant === "artists" ? (
-          <span
-            aria-hidden="true"
-            className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-container text-headline-medium text-on-primary-container"
-          >
-            {initial}
-          </span>
-        ) : (
-          <Thumbnail
-            src={null}
-            icon="album"
-            className="aspect-square w-full rounded-md"
-          />
-        )}
-        <span className="min-w-0">
+        <GroupArtwork group={group} variant={variant} />
+        <span className="min-w-0 self-stretch">
           <span className="block truncate text-title-small text-on-surface">
             {group.name}
           </span>
           <span className="mt-0.5 block text-label-medium text-on-surface-variant">
-            {count} {count === 1 ? "track" : "tracks"}
+            {count} {count === 1 ? "cançó" : "cançons"}
           </span>
         </span>
       </button>
     </Card>
+  );
+}
+
+/**
+ * Group artwork from the first track: a square album cover, or a vinyl-style
+ * record for artists. Neither reads as a user profile avatar, and the fallback
+ * icons are music glyphs (`album` / `graphic_eq`) rather than `person`.
+ */
+function GroupArtwork({
+  group,
+  variant,
+}: {
+  group: Group;
+  variant: GroupTab;
+}) {
+  const first = group.tracks[0] ?? null;
+  const artwork = first?.cover_url ?? first?.thumbnail_url ?? null;
+
+  if (variant === "albums") {
+    return <AlbumArtwork src={artwork} />;
+  }
+
+  return <VinylArtwork src={artwork} />;
+}
+
+/** Rounded-square cover art, with an album glyph when nothing is available. */
+function AlbumArtwork({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="block aspect-square w-full rounded-md object-cover"
+      />
+    );
+  }
+
+  return (
+    <span className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-container-high text-on-surface-variant">
+      <Icon name="album" className="text-[40px]" />
+    </span>
+  );
+}
+
+/** Circular record with groove ring and center spindle. */
+function VinylArtwork({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block aspect-square w-full"
+    >
+      {src && !failed ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="block h-full w-full rounded-full object-cover"
+        />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant">
+          <Icon name="graphic_eq" className="text-[40px]" />
+        </span>
+      )}
+      {/* Vinyl grooves plus a center label and spindle hole. */}
+      <span className="pointer-events-none absolute inset-[8%] rounded-full border border-on-surface/10" />
+      <span className="pointer-events-none absolute left-1/2 top-1/2 h-[26%] w-[26%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-container/95 ring-1 ring-outline-variant" />
+      <span className="pointer-events-none absolute left-1/2 top-1/2 h-[7%] w-[7%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-on-primary-container/60" />
+    </span>
   );
 }
 
@@ -293,12 +412,16 @@ function TrackRow({
 }) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const toast = useToast();
-  // Only ask for a token when there is no cover and the asset has a thumbnail.
+  // Only ask for a token when the track has neither signed artwork URL nor a
+  // thumbnail path; the API now sends `thumbnail_url` for ready tracks.
   const { token } = useMediaToken(
-    !track.cover_url && track.thumbnail_path ? track.asset_id : null,
+    !track.cover_url && !track.thumbnail_url && track.thumbnail_path
+      ? track.asset_id
+      : null,
   );
   const [downloading, setDownloading] = useState(false);
-  const artwork = track.cover_url ?? token?.thumbnail_url ?? null;
+  const artwork =
+    track.cover_url ?? track.thumbnail_url ?? token?.thumbnail_url ?? null;
   const active = current?.id === track.id;
   const playing = active && isPlaying;
   const mediaType = mediaTypeFor(track);
@@ -343,11 +466,14 @@ function TrackRow({
         className="h-11 w-11 rounded-md"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-large text-on-surface">
-          {track.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">
+            {track.title}
+          </p>
+          {active ? <NowPlayingIndicator /> : null}
+        </div>
         <p className="mt-0.5 truncate text-body-small text-on-surface-variant">
-          {credit || "Unknown artist"}
+          {credit || "Artista desconegut"}
           {duration ? ` · ${duration}` : ""}
         </p>
       </div>
@@ -374,7 +500,7 @@ function TrackRow({
       ) : null}
       <IconButton
         variant={playing ? "filled" : "tonal"}
-        label={playing ? "Pause" : "Play"}
+        label={playing ? "Pausa" : "Reprodueix"}
         onClick={() => (active ? togglePlay() : playTrack(track, queue))}
       >
         <Icon

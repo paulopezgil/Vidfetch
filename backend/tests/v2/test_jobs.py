@@ -267,3 +267,116 @@ def test_recover_stale_jobs_requeues_and_counts():
     assert "attempts = attempts + 1" in query
     assert "status = 'queued'" in query
     assert args == (300,)
+
+
+def _record_item(db, **overrides):
+    kwargs = {
+        "user_id": uuid4(),
+        "playlist_id": uuid4(),
+        "source_url": "https://example.test/v1",
+        "title": "Clip 1",
+        "options_hash": "a" * 64,
+        "format_selector": "best",
+        "status": "ready",
+        "asset_id": uuid4(),
+        "artist": "The channel",
+        "album": "The playlist",
+        "item_index": 1,
+        "item_count": 3,
+    }
+    kwargs.update(overrides)
+    return jobs.record_playlist_item_job(db, **kwargs)
+
+
+def test_record_playlist_item_job_inserts_a_terminal_ready_row():
+    owner = uuid4()
+    playlist_id = uuid4()
+    asset_id = uuid4()
+    inserted = job_row(
+        user_id=owner,
+        kind="playlist_item",
+        status="ready",
+        playlist_id=playlist_id,
+        asset_id=asset_id,
+        artist="The channel",
+        album="The playlist",
+        item_index=1,
+        item_count=3,
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(inserted)
+
+    result = run(
+        _record_item(
+            db,
+            user_id=owner,
+            playlist_id=playlist_id,
+            asset_id=asset_id,
+        )
+    )
+
+    assert result == inserted
+    assert len(db.calls) == 1
+    method, query, args = db.calls[0]
+    assert 'insert into "public".download_jobs' in query
+    assert "'playlist_item'" in query
+    # The row is terminal on insert, so the dispatcher can never claim it.
+    assert args[6] == "ready"
+    assert args[7] == 100
+    assert args[8] == asset_id
+    assert args[10] == "The channel"
+    assert args[11] == "The playlist"
+    assert args[12] == 1
+    assert args[13] == 3
+
+
+def test_record_playlist_item_job_updates_the_linked_job_instead_of_inserting():
+    playlist_id = uuid4()
+    existing = job_row(
+        kind="playlist_item",
+        status="ready",
+        playlist_id=playlist_id,
+        artist="Old channel",
+    )
+    failed = {
+        **existing,
+        "status": "failed",
+        "asset_id": None,
+        "error": "Network error.",
+        "artist": "New channel",
+    }
+    db = FakeDatabase()
+    db.queue_fetchrow(failed)
+
+    result = run(
+        _record_item(
+            db,
+            user_id=existing["user_id"],
+            playlist_id=existing["playlist_id"],
+            job_id=existing["id"],
+            status="failed",
+            error="Network error.",
+            artist="New channel",
+        )
+    )
+
+    assert result == failed
+    assert len(db.calls) == 1
+    method, query, args = db.calls[0]
+    assert method == "fetchrow"
+    assert "update " in query
+    assert "kind = 'playlist_item'" in query
+    assert "and kind = 'playlist_item' returning" in query
+    assert args[0] == existing["id"]
+    assert args[6] == "failed"
+    assert args[7] == 0
+    assert args[8] is None
+
+
+def test_record_playlist_item_job_rejects_queued_status_and_missing_hash():
+    db = FakeDatabase()
+    with pytest.raises(ValueError):
+        run(_record_item(db, status="queued"))
+    with pytest.raises(ValueError):
+        run(_record_item(db, options_hash=""))
+    assert db.calls == []

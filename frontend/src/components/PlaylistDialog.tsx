@@ -204,12 +204,12 @@ export default function PlaylistDialog({
           <div className="flex items-start justify-between gap-2 px-6 pt-5">
             <div className="min-w-0">
               <h2 id={headingId} className="text-headline-small">
-                {editing ? "Edit playlist" : "Create playlist"}
+                {editing ? "Edita la llista" : "Crea una llista"}
               </h2>
               <p className="mt-0.5 text-body-small text-on-surface-variant">
                 {editing
-                  ? "Update the name and description."
-                  : "Give your playlist a name. You can add tracks afterwards."}
+                  ? "Actualitza el nom i la descripció."
+                  : "Posa un nom a la llista. Després hi pots afegir cançons."}
               </p>
             </div>
             <IconButton label="Tanca" onClick={requestClose} disabled={busy}>
@@ -220,7 +220,7 @@ export default function PlaylistDialog({
           <div className="space-y-4 px-6 pb-2 pt-5">
             <TextField
               id="playlist-name"
-              label="Name"
+              label="Nom"
               value={name}
               maxLength={NAME_MAX}
               disabled={busy}
@@ -231,7 +231,7 @@ export default function PlaylistDialog({
 
             <TextArea
               id="playlist-description"
-              label="Description (optional)"
+              label="Descripció (opcional)"
               value={description}
               maxLength={DESCRIPTION_MAX}
               disabled={busy}
@@ -262,7 +262,7 @@ export default function PlaylistDialog({
             </Button>
             <Button type="submit" variant="filled" disabled={busy}>
               {busy ? <Spinner className="text-[18px]" /> : null}
-              {editing ? "Save" : "Create"}
+              {editing ? "Desa" : "Crea"}
             </Button>
           </div>
         </form>

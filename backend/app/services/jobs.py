@@ -16,10 +16,10 @@ MAX_PAGE_SIZE = 200
 
 JOB_COLUMNS = (
     "id, user_id, asset_id, playlist_id, kind, source_url, title, options_hash, "
-    "format_selector, idempotency_key, status, progress, downloaded_bytes, "
-    "total_bytes, speed, eta_seconds, error, attempts, created_at, updated_at, "
-    "started_at, completed_at, cancel_requested, item_index, item_count, "
-    "current_item_title, current_item_progress"
+    "format_selector, artist, album, idempotency_key, status, progress, "
+    "downloaded_bytes, total_bytes, speed, eta_seconds, error, attempts, "
+    "created_at, updated_at, started_at, completed_at, cancel_requested, "
+    "item_index, item_count, current_item_title, current_item_progress"
 )
 
 JOB_STATUSES = frozenset(
@@ -36,6 +36,9 @@ JOB_STATUSES = frozenset(
 
 JOB_KINDS = frozenset({"video", "playlist", "playlist_item"})
 
+# Playlist items are recorded per item and are never queued for the dispatcher.
+PLAYLIST_ITEM_TERMINAL_STATUSES = frozenset({"ready", "failed"})
+
 # Columns a caller may update. ``id``, ``user_id``, ``created_at``, and
 # ``options_hash`` are deliberately not updatable.
 UPDATABLE_COLUMNS = frozenset(
@@ -46,6 +49,8 @@ UPDATABLE_COLUMNS = frozenset(
         "source_url",
         "title",
         "format_selector",
+        "artist",
+        "album",
         "idempotency_key",
         "status",
         "progress",
@@ -152,6 +157,106 @@ async def create_job(
         raise
     if record is None:  # pragma: no cover - INSERT ... RETURNING always returns
         raise RuntimeError("Job insert returned no row.")
+    return dict(record)
+
+
+async def record_playlist_item_job(
+    db: Database,
+    *,
+    user_id: str | UUID,
+    playlist_id: str | UUID,
+    source_url: str,
+    title: str,
+    options_hash: str,
+    format_selector: str = "",
+    status: str,
+    asset_id: str | UUID | None = None,
+    error: str = "",
+    artist: str = "",
+    album: str = "",
+    item_index: int = 0,
+    item_count: int = 0,
+    job_id: str | UUID | None = None,
+    completed_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Record one finished playlist item as a terminal ``playlist_item`` job.
+
+    The dispatcher only claims ``queued`` jobs, so these rows are inserted in a
+    terminal state and can never be picked up again. Passing ``job_id`` updates
+    that job when it is a ``playlist_item`` job owned by the same user and
+    playlist (a re-run of an already-downloaded playlist), otherwise a new job
+    row is inserted.
+    """
+    candidate = str(status or "").strip()
+    if candidate not in PLAYLIST_ITEM_TERMINAL_STATUSES:
+        raise ValueError("Playlist item job status must be ready or failed.")
+    if not isinstance(options_hash, str) or not options_hash.strip():
+        raise ValueError("options_hash is required.")
+
+    owner = _as_uuid(user_id)
+    playlist = _as_uuid(playlist_id)
+    asset = _as_uuid(asset_id) if asset_id is not None else None
+    if candidate == "failed":
+        # A failed item never owns media, so it can never seed a track.
+        asset = None
+    identifier = _as_uuid(job_id) if job_id is not None else None
+    finished = completed_at or _now()
+    progress = 100 if candidate == "ready" else 0
+    safe_error = "" if candidate == "ready" else (error or "")[:500]
+    try:
+        index = max(0, int(item_index))
+        count = max(0, int(item_count))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Playlist item position must be an integer.") from exc
+
+    values = (
+        (source_url or "")[:2048],
+        (title or "")[:500],
+        options_hash,
+        format_selector or "",
+        candidate,
+        progress,
+        asset,
+        safe_error,
+        (artist or "")[:500],
+        (album or "")[:500],
+        index,
+        count,
+        finished,
+    )
+
+    if identifier is not None:
+        updated = await db.fetchrow(
+            f"update {db.schema_sql}.download_jobs set "
+            f"kind = 'playlist_item', source_url = $3, title = $4, "
+            f"options_hash = $5, format_selector = $6, status = $7, "
+            f"progress = $8, asset_id = $9, error = $10, artist = $11, "
+            f"album = $12, item_index = $13, item_count = $14, "
+            f"started_at = coalesce(started_at, $15), completed_at = $15, "
+            f"cancel_requested = false, updated_at = now() "
+            f"where id = $1 and user_id = $2 and playlist_id = $16 "
+            f"and kind = 'playlist_item' returning {JOB_COLUMNS}",
+            identifier,
+            owner,
+            *values,
+            playlist,
+        )
+        if updated is not None:
+            return dict(updated)
+
+    record = await db.fetchrow(
+        f"insert into {db.schema_sql}.download_jobs "
+        f"(user_id, kind, playlist_id, source_url, title, options_hash, "
+        f"format_selector, status, progress, asset_id, error, artist, album, "
+        f"item_index, item_count, started_at, completed_at) "
+        f"values ($1, 'playlist_item', $2, $3, $4, $5, $6, $7, $8, $9, "
+        f"$10, $11, $12, $13, $14, $15, $15) returning {JOB_COLUMNS}",
+        owner,
+        playlist,
+        *values,
+    )
+    if record is None:  # pragma: no cover - INSERT ... RETURNING always returns
+        raise RuntimeError("Playlist item job insert returned no row.")
     return dict(record)
 
 

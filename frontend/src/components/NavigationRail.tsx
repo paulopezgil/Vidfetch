@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import Icon from "./Icon";
 import { destinationsFor } from "../navigation";
 import { useAuth } from "../auth/AuthProvider";
+import Logo from "./Logo";
 
 /** Material 3 navigation rail for medium windows. */
 export default function NavigationRail() {
@@ -13,7 +14,7 @@ export default function NavigationRail() {
       aria-label="Navegació principal"
       className="hidden w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-outline-variant bg-surface py-4 md:flex lg:hidden"
     >
-      <img src="/favicon.svg" alt="" className="mb-1 h-10 w-10" />
+      <Logo className="mb-1 h-10 w-10" />
 
       {destinations.map((destination) => (
         <NavLink

@@ -23,6 +23,8 @@ import type {
   UserPlaylistDetail,
   UserPlaylistInput,
   UserPlaylistList,
+  UserPlaylistShare,
+  UserPlaylistShareList,
 } from "../types/v2";
 import { clearToken, getToken, notifyUnauthorized } from "./session";
 import {
@@ -403,12 +405,28 @@ export const COVER_CONTENT_TYPES = [
   "image/webp",
 ] as const;
 
-/** Resolve a signed cover URL against the API origin when it is relative. */
+/**
+ * Resolve the signed cover and asset-thumbnail URLs against the API origin
+ * when they are relative.
+ */
 function resolveTrackCover(track: Track): Track {
   const cover = track.cover_url;
-  if (!cover) return track;
-  const resolved = resolveApiUrl(cover);
-  return resolved === cover ? track : { ...track, cover_url: resolved };
+  const thumbnail = track.thumbnail_url;
+  const resolvedCover = cover ? resolveApiUrl(cover) : cover;
+  const resolvedThumbnail = thumbnail ? resolveApiUrl(thumbnail) : thumbnail;
+  if (
+    resolvedCover === cover &&
+    resolvedThumbnail === thumbnail
+  ) {
+    return track;
+  }
+  return {
+    ...track,
+    ...(resolvedCover !== cover ? { cover_url: resolvedCover } : {}),
+    ...(resolvedThumbnail !== thumbnail
+      ? { thumbnail_url: resolvedThumbnail }
+      : {}),
+  };
 }
 
 /** Authenticated binary fetch, used for on-demand archives and exports. */
@@ -858,6 +876,60 @@ export function listUserPlaylists(
   const suffix = query.toString();
   return apiFetch<UserPlaylistList>(
     `/user-playlists${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+/**
+ * `GET /api/user-playlists/shared` — curated playlists other users shared with
+ * the caller. Every entry has `is_owner: false` and the owner's email, and the
+ * detail view exposes the owner's visible tracks read-only.
+ */
+export function listSharedUserPlaylists(
+  params: UserPlaylistQuery = {},
+): Promise<UserPlaylistList> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  const suffix = query.toString();
+  return apiFetch<UserPlaylistList>(
+    `/user-playlists/shared${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+/** `GET /api/user-playlists/{playlist_id}/shares` — recipients (owner only). */
+export function listUserPlaylistShares(
+  playlistId: string,
+): Promise<UserPlaylistShareList> {
+  return apiFetch<UserPlaylistShareList>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/shares`,
+  );
+}
+
+/**
+ * `POST /api/user-playlists/{playlist_id}/shares` — share with an account by
+ * email (owner only). Unknown or invalid recipients answer 400/404.
+ */
+export function shareUserPlaylist(
+  playlistId: string,
+  email: string,
+): Promise<MutationResult<UserPlaylistShare>> {
+  return apiMutation<UserPlaylistShare>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/shares`,
+    { method: "POST", body: JSON.stringify({ email }) },
+  );
+}
+
+/**
+ * `DELETE /api/user-playlists/{playlist_id}/shares/{user_id}` — revoke a
+ * recipient's access (owner only).
+ */
+export function unshareUserPlaylist(
+  playlistId: string,
+  userId: string,
+): Promise<MutationResult<void>> {
+  return apiMutation<void>(
+    `/user-playlists/${encodeURIComponent(playlistId)}/shares/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
   );
 }
 
