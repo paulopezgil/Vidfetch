@@ -31,6 +31,9 @@ chosen at release time; this section deliberately carries no version number.
   group and, for albums, update the artist across every track in one action.
 - **Full Catalan interface copy.** Remaining English labels, dialogs, status
   text, error fallbacks, and the navigation destinations were translated.
+- **PWA install guide tab.** A new `Instal·la` destination explains how to
+  install Vidfetch from the browser, with a segmented switch for Android,
+  iPhone, and desktop and Catalan step-by-step instructions for each.
 
 ### Fixed
 
@@ -74,9 +77,10 @@ chosen at release time; this section deliberately carries no version number.
 
 ### Verification
 
-- Backend with real PostgreSQL: `863 passed` (`TEST_DATABASE_URL` against a
+- Backend with real PostgreSQL: `865 passed` (`TEST_DATABASE_URL` against a
   migrated throwaway database); `python3 -c "import backend.app.main"` OK.
-- Frontend production build: green, zero TypeScript errors.
+- Frontend production build: green, zero TypeScript errors; `/install` served
+  with HTTP 200 in preview.
 - Browser E2E: downloaded a 19-item MP3 playlist and watched items appear in
   Songs incrementally before the playlist finished; confirmed artist/album
   metadata; confirmed a deliberately failed download appeared only in Home with
