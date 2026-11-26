@@ -4,6 +4,88 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.3.0`. The next semantic version is
+chosen at release time; this section deliberately carries no version number.
+
+### Added
+
+- **Per-playlist-item jobs and incremental library delivery.** Every finished
+  playlist item is recorded immediately as its own terminal `playlist_item`
+  job. Ready items create the owner's `user_tracks` row at once, so completed
+  songs appear in Songs/Videos while the rest of the playlist is still
+  downloading. Failed items stay asset-less and never seed a track.
+- **Playlist metadata defaults.** Playlist items inherit the playlist title as
+  their album and each video's own channel as their artist; single-video jobs
+  use the source channel as the artist. The track trigger only fills blank
+  artist/album fields, so later downloads never overwrite user edits.
+- **Curated playlist sharing.** Owners can share a curated playlist with another
+  approved account by email, list/revoke recipients, and shared users get a
+  read-only detail view plus playback and file download. New
+  `user_playlist_shares` table and `/api/user-playlists/shared` and
+  `/{id}/shares` endpoints.
+- **Signed track thumbnail URLs.** `/api/tracks` and curated-playlist details
+  now expose a signed `thumbnail_url` for each asset, bound to the viewer.
+- **Artists/Albums group editing.** Album and artist drill-downs can rename the
+  group and, for albums, update the artist across every track in one action.
+- **Full Catalan interface copy.** Remaining English labels, dialogs, status
+  text, error fallbacks, and the navigation destinations were translated.
+
+### Fixed
+
+- **Playlist items missing from Songs/Videos.** The library no longer excludes
+  tracks whose representative job has a `playlist_id`; media type decides the
+  destination.
+- **Failed downloads leaking into the library and UI.** Failed jobs are shown
+  only in the Home `Descàrregues fallides` section with a generic message. Raw
+  backend error text is no longer rendered in `JobCard` or imported playlist
+  rows, and failed items are hidden from the playlist item list.
+- **Playlist progress stalling until completion.** Ready items are now exposed
+  as soon as they finish instead of after the whole playlist run.
+- **Missing player artwork.** The mini player and maximized player resolve
+  artwork from the custom cover, the signed track thumbnail, or the media
+  token, including offline copies.
+- **Three-dot menus shifting songs.** Overflow menus now render through a body
+  portal with fixed positioning and `preventScroll` focus, so they overlay the
+  list and never move or clip the row.
+- **Server processing labelled as a download.** The job card now says
+  "Preparant"/"S'està preparant el fitxer al servidor…" for server-side work;
+  user file actions remain "Descarrega".
+- **Logo disappearing offline.** The app mark is inline SVG and the service
+  worker precaches/cache-first serves the public brand assets.
+- **Artists destination looked like a user profile.** The navigation
+  destination and artist cards now use disc/music iconography and album art.
+
+### Changed
+
+- Added the now-playing equalizer indicator to Songs, imported playlist,
+  curated playlist, Artists/Albums, and add-tracks rows, replacing the
+  redundant ready/active chip in library rows.
+- Enlarged the compact bottom navigation bar and its icon/label targets.
+- `Artists & Albums` is now `Artistes i àlbums`, `Playlists` is `Llistes`, and
+  `Home` is `Inici`.
+
+### Database
+
+- Added `db/migrations/00000000000002_track_metadata_and_sharing.sql` and its
+  template: `download_jobs.artist`/`album`, `playlist_items.channel`, the
+  `user_playlist_shares` table, and the metadata-aware user-track trigger.
+
+### Verification
+
+- Backend with real PostgreSQL: `863 passed` (`TEST_DATABASE_URL` against a
+  migrated throwaway database); `python3 -c "import backend.app.main"` OK.
+- Frontend production build: green, zero TypeScript errors.
+- Browser E2E: downloaded a 19-item MP3 playlist and watched items appear in
+  Songs incrementally before the playlist finished; confirmed artist/album
+  metadata; confirmed a deliberately failed download appeared only in Home with
+  generic copy and no library track; confirmed Songs/Videos separation.
+- Browser E2E: menu overlay did not move the row; equalizer and player artwork
+  rendered; shared a curated playlist with a second approved account, saw it in
+  `Compartides amb mi`, and played it read-only; edited an album group across
+  19 tracks and restored the original name.
+
 ## [v2.3.0] — 2026-11-24
 
 Target release for the Spotify-style navigation and personal-library rewrite.
