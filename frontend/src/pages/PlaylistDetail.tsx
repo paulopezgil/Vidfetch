@@ -284,6 +284,9 @@ export default function PlaylistDetail() {
   }
 
   const items = detail.items;
+  // Failed items have no usable media and their error details are never shown
+  // here; they are surfaced generically on Home instead.
+  const visibleItems = items.filter((item) => item.status !== "failed");
   const readyCount = items.filter(
     (item) => item.status === "ready" && item.asset_id,
   ).length;
@@ -417,12 +420,12 @@ export default function PlaylistDetail() {
         </div>
       </Card>
 
-      {items.length > 0 ? (
+      {visibleItems.length > 0 ? (
         <Card
           variant="outlined"
           className="divide-y divide-outline-variant overflow-hidden"
         >
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <ItemRow
               key={item.id}
               item={item}
@@ -447,11 +450,26 @@ export default function PlaylistDetail() {
         </Card>
       ) : (
         <EmptyState
-          icon="playlist_play"
-          title="No hi ha elements per mostrar"
-          description="Aquesta llista de reproducció encara no té cap element per descarregar."
+          icon={failedCount > 0 ? "error" : "playlist_play"}
+          title={
+            failedCount > 0
+              ? "No hi ha elements descarregats"
+              : "No hi ha elements per mostrar"
+          }
+          description={
+            failedCount > 0
+              ? "Les descàrregues que no s’han pogut completar es mostren a l’inici, a «Descàrregues fallides»."
+              : "Aquesta llista de reproducció encara no té cap element per descarregar."
+          }
         />
       )}
+
+      {failedCount > 0 && visibleItems.length > 0 ? (
+        <p className="px-1 text-body-small text-on-surface-variant">
+          {failedCount} {failedCount === 1 ? "element no s’ha" : "elements no s’han"}{" "}
+          pogut descarregar. Consulta «Descàrregues fallides» a l’inici.
+        </p>
+      ) : null}
 
       <ConfirmDialog
         open={deleteOpen}
@@ -535,9 +553,6 @@ function ItemRow({
             </span>
           ) : null}
           <span>{mediaType === "audio" ? "Àudio" : "Vídeo"}</span>
-          {item.status === "failed" && item.error ? (
-            <span className="truncate text-error">{item.error}</span>
-          ) : null}
         </div>
       </div>
       <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">

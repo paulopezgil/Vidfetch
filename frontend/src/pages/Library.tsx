@@ -197,13 +197,11 @@ export default function Library({ kind }: { kind: LibraryKind }) {
     [refresh, toast, updateTrack],
   );
 
-  // Items downloaded as part of a playlist are reachable through the playlist
-  // detail view; keep them out of the individual-file sections. The destination
-  // selects the media kind, and images never belong to either list.
+  // Playlist downloads produce normal per-user tracks too, so they belong to
+  // the song/video sections like any other download. The destination selects
+  // the media kind, and images never belong to either list.
   const visibleTracks = useMemo(() => {
-    const matching = items.filter(
-      (item) => !item.playlist_id && mediaTypeFor(item) === kind,
-    );
+    const matching = items.filter((item) => mediaTypeFor(item) === kind);
     if (sort === "title") {
       return [...matching].sort((a, b) =>
         a.title.localeCompare(b.title, "ca", { sensitivity: "base" }),
