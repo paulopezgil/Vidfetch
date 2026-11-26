@@ -4,10 +4,10 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
-## [Unreleased]
+## [v2.4.0] — 2026-11-26
 
-Changes accumulated on `dev` after `v2.3.0`. The next semantic version is
-chosen at release time; this section deliberately carries no version number.
+Release focused on playlist correctness, incremental library delivery,
+failed-download isolation, curated playlist sharing, and the PWA install guide.
 
 ### Added
 
