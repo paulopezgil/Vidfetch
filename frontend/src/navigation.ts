@@ -11,7 +11,7 @@ export const destinations: Destination[] = [
   { to: "/songs", label: "Cançons", icon: "music_note" },
   { to: "/videos", label: "Vídeos", icon: "movie" },
   { to: "/playlists", label: "Llistes", icon: "queue_music" },
-  { to: "/artists", label: "Artistes i àlbums", icon: "person" },
+  { to: "/artists", label: "Artistes i àlbums", icon: "album" },
   { to: "/settings", label: "Configuració", icon: "settings" },
 ];
 
