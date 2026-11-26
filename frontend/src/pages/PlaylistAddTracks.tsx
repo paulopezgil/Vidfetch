@@ -21,11 +21,13 @@ import ErrorBanner from "../components/ErrorBanner";
 import FilterChip from "../components/FilterChip";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import SearchBar from "../components/SearchBar";
 import Spinner from "../components/Spinner";
 import Thumbnail from "../components/Thumbnail";
 import { useToast } from "../components/Toast";
 import { useMediaToken } from "../lib/useMediaToken";
+import { usePlayer } from "../player/PlayerProvider";
 
 type Filter = "all" | "videos" | "audio" | "images";
 
@@ -112,7 +114,7 @@ export default function PlaylistAddTracks() {
       setError(
         e instanceof Error
           ? e.message
-          : "No s’han pogut carregar els tracks.",
+          : "No s’han pogut carregar les cançons.",
       );
     } finally {
       setLoading(false);
@@ -222,8 +224,8 @@ export default function PlaylistAddTracks() {
           e instanceof Error
             ? e.message
             : inPlaylist
-              ? "No s’ha pogut treure el track de la playlist"
-              : "No s’ha pogut afegir el track a la playlist",
+              ? "No s’ha pogut treure la cançó de la llista"
+              : "No s’ha pogut afegir la cançó a la llista",
           "error",
         );
       } finally {
@@ -252,7 +254,7 @@ export default function PlaylistAddTracks() {
   if (membershipLoading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-        <Spinner /> S’està carregant la playlist…
+        <Spinner /> S’està carregant la llista…
       </div>
     );
   }
@@ -264,15 +266,15 @@ export default function PlaylistAddTracks() {
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
         <Icon name="arrow_back" className="text-[20px]" />
-        {playlistName || "Playlist"}
+        {playlistName || "Llista"}
       </Link>
 
       <header className="space-y-1">
         <h1 className="break-words text-headline-small text-on-surface">
-          Afegeix tracks
+          Afegeix cançons
         </h1>
         <p className="text-body-medium text-on-surface-variant">
-          {membership.size} {membership.size === 1 ? "track" : "tracks"}
+          {membership.size} {membership.size === 1 ? "cançó" : "cançons"}
         </p>
       </header>
 
@@ -296,7 +298,7 @@ export default function PlaylistAddTracks() {
             value={searchInput}
             onChange={handleSearchChange}
             onSubmit={() => submitSearch(searchInput)}
-            label="Cerca tracks"
+            label="Cerca cançons"
             placeholder="Cerca per títol, artista o àlbum"
             loading={loading}
           />
@@ -314,7 +316,7 @@ export default function PlaylistAddTracks() {
 
           {loading && items.length === 0 ? (
             <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-              <Spinner /> S’estan carregant els tracks…
+              <Spinner /> S’estan carregant les cançons…
             </div>
           ) : (
             <>
@@ -345,13 +347,13 @@ export default function PlaylistAddTracks() {
                   <EmptyState
                     icon="search_off"
                     title="Cap resultat per a la cerca"
-                    description={`No hi ha cap track que coincideixi amb «${query}». Prova un altre terme o neteja la cerca.`}
+                    description={`No hi ha cap cançó que coincideixi amb «${query}». Prova un altre terme o neteja la cerca.`}
                   />
                 ) : total === 0 ? (
                   <EmptyState
                     icon="library_music"
-                    title="Encara no hi ha tracks a la biblioteca"
-                    description="Descarrega vídeos o àudio des de l’Inici i apareixeran aquí per afegir-los a la playlist."
+                    title="Encara no hi ha cançons a la biblioteca"
+                    description="Descarrega vídeos o àudio des de l’Inici i apareixeran aquí per afegir-los a la llista."
                     action={
                       <Button variant="outlined" onClick={() => navigate("/")}>
                         <Icon name="home" className="text-[18px]" />
@@ -363,7 +365,7 @@ export default function PlaylistAddTracks() {
                   <EmptyState
                     icon="filter_alt_off"
                     title="Aquí no hi ha res"
-                    description="Prova un altre filtre per veure més tracks de la biblioteca."
+                    description="Prova un altre filtre per veure més cançons de la biblioteca."
                   />
                 )
               ) : null}
@@ -416,6 +418,7 @@ function PickerRow({
   const { token } = useMediaToken(
     track.cover_url || !track.thumbnail_path ? null : track.asset_id,
   );
+  const { current } = usePlayer();
   const src = track.cover_url ?? token?.thumbnail_url ?? null;
   const credit = [track.artist, track.album]
     .map((value) => value.trim())
@@ -426,9 +429,12 @@ function PickerRow({
     <div className="flex items-center gap-3 p-4">
       <Thumbnail src={src} icon={trackIcon(track)} className="aspect-video w-20" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-title-small text-on-surface">
-          {track.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-title-small text-on-surface">
+            {track.title}
+          </p>
+          {current?.id === track.id ? <NowPlayingIndicator /> : null}
+        </div>
         <p className="mt-0.5 flex items-center gap-2 truncate text-body-small text-on-surface-variant">
           {track.duration_seconds ? (
             <span className="tabular-nums">
@@ -440,7 +446,7 @@ function PickerRow({
       </div>
       <IconButton
         variant={inPlaylist ? "filled" : "tonal"}
-        label={inPlaylist ? "Treu de la playlist" : "Afegeix a la playlist"}
+        label={inPlaylist ? "Treu de la llista" : "Afegeix a la llista"}
         ariaPressed={inPlaylist}
         disabled={busy}
         onClick={onToggle}

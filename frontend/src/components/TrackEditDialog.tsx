@@ -301,7 +301,7 @@ export default function TrackEditDialog({
       setError(
         e instanceof Error
           ? e.message
-          : "No s’han pogut desar els canvis del track.",
+          : "No s’han pogut desar els canvis de la cançó.",
       );
     }
   }
@@ -328,7 +328,7 @@ export default function TrackEditDialog({
               Edita els detalls
             </h2>
             <p className="mt-0.5 truncate text-body-small text-on-surface-variant">
-              {track.title || "Track sense títol"}
+              {track.title || "Cançó sense títol"}
             </p>
           </div>
           <IconButton label="Tanca" onClick={requestClose} disabled={busy}>

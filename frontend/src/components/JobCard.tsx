@@ -45,7 +45,7 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
   const waiting =
     indeterminateStatuses.has(job.status) && job.progress === 0;
   const progressStatus = job.status === "ready" ? "completed" : job.status;
-  const title = job.title || "Descàrrega sense títol";
+  const title = job.title || "Element sense títol";
 
   const handleCancel = async () => {
     if (!onCancel || cancelling) return;
@@ -81,7 +81,7 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
               size="sm"
               onClick={handleCancel}
               disabled={cancelling}
-              aria-label={`Cancel·la la descàrrega de ${title}`}
+              aria-label={`Cancel·la la preparació de ${title}`}
             >
               {cancelling ? (
                 <Spinner className="text-[18px]" />
@@ -103,12 +103,18 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
         </p>
       ) : null}
 
+      {job.status === "downloading" || job.status === "processing" ? (
+        <p className="mt-2 text-body-small text-on-surface-variant">
+          S’està preparant el fitxer al servidor…
+        </p>
+      ) : null}
+
       <div className="mt-3">
         <ProgressBar
           value={job.progress}
           status={progressStatus}
           indeterminate={waiting}
-          label={`Progrés de la descàrrega de ${title}`}
+          label={`Progrés de preparació de ${title}`}
         />
       </div>
 
@@ -143,7 +149,7 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
 
       {job.status === "failed" ? (
         <p className="mt-2 text-body-small text-on-surface-variant">
-          No s’ha pogut completar la descàrrega.
+          No s’ha pogut preparar el fitxer.
         </p>
       ) : null}
     </Card>

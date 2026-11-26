@@ -13,6 +13,7 @@ import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
 import Menu from "../components/Menu";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import OfflineButton from "../components/OfflineButton";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
@@ -33,8 +34,8 @@ interface Group {
 const TRACK_LIMIT = 200;
 
 const tabOptions = [
-  { value: "artists", label: "Artists", icon: "person" },
-  { value: "albums", label: "Albums", icon: "album" },
+  { value: "artists", label: "Artistes", icon: "person" },
+  { value: "albums", label: "Àlbums", icon: "album" },
 ];
 
 /**
@@ -81,7 +82,7 @@ export default function ArtistsAlbums() {
       setError(null);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "Could not load your tracks.",
+        e instanceof Error ? e.message : "No s’han pogut carregar les cançons.",
       );
     } finally {
       setLoading(false);
@@ -93,11 +94,11 @@ export default function ArtistsAlbums() {
   }, [refresh]);
 
   const artists = useMemo(
-    () => groupTracks(tracks, (track) => track.artist, "Unknown artist"),
+    () => groupTracks(tracks, (track) => track.artist, "Artista desconegut"),
     [tracks],
   );
   const albums = useMemo(
-    () => groupTracks(tracks, (track) => track.album, "Unknown album"),
+    () => groupTracks(tracks, (track) => track.album, "Àlbum desconegut"),
     [tracks],
   );
 
@@ -118,7 +119,7 @@ export default function ArtistsAlbums() {
       setTracks((prev) =>
         prev.map((track) => (track.id === updated.id ? updated : track)),
       );
-      toast("Track actualitzat", "success");
+      toast("Cançó actualitzada", "success");
     },
     [toast],
   );
@@ -126,7 +127,7 @@ export default function ArtistsAlbums() {
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
-        <Spinner /> Loading your music…
+        <Spinner /> S’està carregant la música…
       </div>
     );
   }
@@ -138,8 +139,8 @@ export default function ArtistsAlbums() {
       {!error && tracks.length === 0 ? (
         <EmptyState
           icon="person"
-          title="No artists or albums yet"
-          description="Downloaded tracks will appear here, grouped by their artist and album."
+          title="Encara no hi ha artistes ni àlbums"
+          description="Les cançons descarregades apareixeran aquí, agrupades per artista i àlbum."
         />
       ) : null}
 
@@ -150,7 +151,7 @@ export default function ArtistsAlbums() {
               options={tabOptions}
               value={tab}
               onChange={changeTab}
-              label="Group your music by"
+              label="Agrupa la música per"
             />
           </div>
 
@@ -161,7 +162,11 @@ export default function ArtistsAlbums() {
             >
               <div className="flex items-center gap-2">
                 <IconButton
-                  label={`Back to ${tab === "artists" ? "artists" : "albums"}`}
+                  label={
+                    tab === "artists"
+                      ? "Torna als artistes"
+                      : "Torna als àlbums"
+                  }
                   onClick={() => setSelected(null)}
                 >
                   <Icon name="arrow_back" className="text-[20px]" />
@@ -175,7 +180,7 @@ export default function ArtistsAlbums() {
                   </h2>
                   <p className="text-body-small text-on-surface-variant">
                     {selectedGroup.tracks.length}{" "}
-                    {selectedGroup.tracks.length === 1 ? "track" : "tracks"}
+                    {selectedGroup.tracks.length === 1 ? "cançó" : "cançons"}
                   </p>
                 </div>
               </div>
@@ -201,7 +206,7 @@ export default function ArtistsAlbums() {
                   id="group-grid-heading"
                   className="text-title-medium text-on-surface"
                 >
-                  {tab === "artists" ? "Artists" : "Albums"}
+                  {tab === "artists" ? "Artistes" : "Àlbums"}
                 </h2>
                 <span className="text-label-medium text-on-surface-variant">
                   {groups.length}
@@ -274,7 +279,7 @@ function GroupCard({
             {group.name}
           </span>
           <span className="mt-0.5 block text-label-medium text-on-surface-variant">
-            {count} {count === 1 ? "track" : "tracks"}
+            {count} {count === 1 ? "cançó" : "cançons"}
           </span>
         </span>
       </button>
@@ -343,11 +348,14 @@ function TrackRow({
         className="h-11 w-11 rounded-md"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-large text-on-surface">
-          {track.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">
+            {track.title}
+          </p>
+          {active ? <NowPlayingIndicator /> : null}
+        </div>
         <p className="mt-0.5 truncate text-body-small text-on-surface-variant">
-          {credit || "Unknown artist"}
+          {credit || "Artista desconegut"}
           {duration ? ` · ${duration}` : ""}
         </p>
       </div>
@@ -374,7 +382,7 @@ function TrackRow({
       ) : null}
       <IconButton
         variant={playing ? "filled" : "tonal"}
-        label={playing ? "Pause" : "Play"}
+        label={playing ? "Pausa" : "Reprodueix"}
         onClick={() => (active ? togglePlay() : playTrack(track, queue))}
       >
         <Icon

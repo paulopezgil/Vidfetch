@@ -11,7 +11,7 @@ export default function NavigationBar() {
   return (
     <nav
       aria-label="Navegació principal"
-      className="flex h-20 shrink-0 items-stretch border-t border-outline-variant bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="flex h-24 shrink-0 items-stretch border-t border-outline-variant bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {destinations.map((destination) => (
         <NavLink
@@ -24,7 +24,7 @@ export default function NavigationBar() {
           {({ isActive }) => (
             <>
               <span
-                className={`flex h-8 w-full max-w-[4rem] items-center justify-center rounded-full transition-colors ${
+                className={`flex h-9 w-full max-w-[4rem] items-center justify-center rounded-full transition-colors ${
                   isActive
                     ? "bg-secondary-container text-on-secondary-container"
                     : "text-on-surface-variant group-hover:bg-on-surface/8 group-active:bg-on-surface/12"
@@ -33,15 +33,15 @@ export default function NavigationBar() {
                 <Icon
                   name={destination.icon}
                   filled={isActive}
-                  className="text-[24px]"
+                  className="text-[26px]"
                 />
               </span>
               <span
-                className={
+                className={`max-w-full truncate px-1 text-center leading-tight ${
                   isActive
-                    ? "max-w-full truncate px-1 text-center text-on-surface"
-                    : "max-w-full truncate px-1 text-center text-on-surface-variant"
-                }
+                    ? "text-on-surface"
+                    : "text-on-surface-variant"
+                }`}
               >
                 {destination.label}
               </span>
