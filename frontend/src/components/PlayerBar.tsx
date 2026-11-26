@@ -156,18 +156,27 @@ export default function PlayerBar() {
               className={`h-12 w-12 ${hasTrack ? "" : "opacity-60"}`}
             />
           </button>
-          <div className="min-w-0 flex-1">
-            <p
-              className={`truncate text-title-small ${
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            disabled={!hasTrack}
+            aria-label="Obre el reproductor a pantalla completa"
+            aria-expanded={expanded}
+            aria-controls="now-playing-panel"
+            title="Obre el reproductor a pantalla completa"
+            className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-high disabled:cursor-default"
+          >
+            <span
+              className={`block truncate text-title-small ${
                 hasTrack ? "text-on-surface" : "text-on-surface-variant"
               }`}
             >
               {hasTrack ? current.title : "No s’està reproduint res"}
-            </p>
-            <p className="truncate text-body-small text-on-surface-variant">
+            </span>
+            <span className="mt-0.5 block truncate text-body-small text-on-surface-variant">
               {credit}
-            </p>
-          </div>
+            </span>
+          </button>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:hidden">

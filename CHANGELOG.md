@@ -4,6 +4,27 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.4.1`.
+
+### Added
+
+- **Offline font and image cache.** The Material Symbols icon font, Roboto,
+  thumbnails and covers are cached locally. The service worker now handles
+  Google Fonts and image requests from any origin, with signed-image cache keys
+  normalized to `origin + pathname` so tokens and CDN parameters can change.
+  Saved media also warms its thumbnail cache.
+
+### Fixed
+
+- **Offline icons and images disappearing on iOS.** The app shell could render
+  while the icon font and artwork vanished because those requests were not in
+  Cache Storage. They now survive a network drop after one online load.
+- **Player-bar title did not maximize.** Clicking the song title/credit in the
+  docked player now opens the full-screen now-playing view, with the same
+  keyboard and ARIA behaviour as the artwork button.
+
 ## [v2.4.1] — 2026-11-27
 
 Patch release for the profile-menu navigation move and the iOS safe-area

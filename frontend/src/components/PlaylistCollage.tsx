@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Track } from "../types/v2";
 import { getMediaToken } from "../lib/api";
+import { useImageCache } from "../offline/images";
 import Icon from "./Icon";
 
 interface PlaylistCollageProps {
@@ -89,6 +90,7 @@ export default function PlaylistCollage({
 /** One collage cell; a broken image leaves a neutral surface tile. */
 function CollageTile({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
+  useImageCache(src);
 
   if (failed) {
     return <span className="block min-h-0 bg-surface-container-high" />;

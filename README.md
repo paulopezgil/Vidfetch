@@ -36,7 +36,7 @@ Only packaging and hosting differ.
 | --- | --- | --- |
 | **Frontend** | React 18, Vite, TypeScript, React Router | SPA shell, routes, type-safe UI |
 | **UI system** | Tailwind CSS, Material Design 3 roles, Material Symbols | Themeable, accessible components (light/dark/system) |
-| **Offline** | IndexedDB, Cache Storage, service worker | Cached library metadata, queued edits, saved media, offline app shell |
+| **Offline** | IndexedDB, Cache Storage, service worker | Cached library metadata, queued edits, saved media, app shell, icon fonts and artwork |
 | **Backend** | FastAPI, Python 3.11, Uvicorn | JSON API, authentication, media streaming |
 | **Database access** | psycopg 3 + `psycopg_pool`, SQL in a service/repository layer | Direct PostgreSQL access with pooled connections |
 | **Authentication** | Argon2id password hashes, opaque bearer sessions stored as SHA-256 hashes | Local email/password login, approval, roles, revocation |
@@ -54,6 +54,7 @@ Only packaging and hosting differ.
 - [Production deployment](#production-deployment)
 - [The problem Vidfetch solves](#the-problem-vidfetch-solves)
 - [How it works](#how-it-works)
+- [Offline mode](#offline-mode)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Project layout](#project-layout)
@@ -325,6 +326,71 @@ DOWNLOAD_DIR volume
 
 ---
 
+## Offline mode
+
+Offline support is a first-class feature, not a side effect of browser caching.
+After one online session, Vidfetch can reopen without the backend or an internet
+connection and keep playing saved media.
+
+### What stays available offline
+
+| Data | Where it lives | Behaviour |
+| --- | --- | --- |
+| App shell and route code | Service worker `vidfetch-shell-v3` cache | The SPA opens offline; built assets are cache-first |
+| Library, playlists and facets | IndexedDB `responses` store | Previously loaded views render without the API |
+| Offline edits | IndexedDB `queue` store | Metadata/playlist edits replay FIFO on reconnect |
+| Saved audio and video | Cache Storage `vidfetch-media-v1` | The player prefers the local blob; no media request is made |
+| Material Symbols and Roboto | Cache Storage `vidfetch-fonts-v1` | Icons and text keep rendering without Google Fonts |
+| Thumbnails and covers | Cache Storage `vidfetch-images-v1` | Artwork stays visible offline, keyed without signed query strings |
+| Session, theme, profile | `localStorage` | The shell can boot with the stored identity |
+
+### How it is achieved
+
+- **Service worker (`frontend/public/sw.js`)**
+  - network-first navigation requests with the cached `/index.html` shell as the
+    offline fallback;
+  - cache-first `/assets/` bundles with a background refresh;
+  - precached public shell files (manifest, favicon and app icons);
+  - cache-first Google Fonts stylesheets and `.woff2` files;
+  - cache-first images from any origin with a background refresh. Signed
+    thumbnail/cover URLs are normalized to `origin + pathname`, so a changed
+    token or YouTube CDN parameter still hits the cached artwork;
+  - only old `vidfetch-shell-*` caches are deleted on activation; media, font and
+    image caches survive shell upgrades.
+- **IndexedDB (`frontend/src/offline/db.ts`)** stores cached API response bodies,
+  the offline mutation queue (capped at 200), and one small metadata row per
+  saved media file.
+- **Cache Storage** holds the media blobs (`vidfetch-media-v1`), font files
+  (`vidfetch-fonts-v1`), images (`vidfetch-images-v1`) and the app shell.
+- **Automatic media transfer**: completed audio jobs are copied locally after the
+  server finishes; videos use the explicit save control. The player checks the
+  local blob before requesting a signed URL.
+- **Artwork warming**: rendered thumbnails/covers are written to the image cache,
+  a media transfer also warms its own thumbnail, and the font warmer
+  (`frontend/src/offline/fonts.ts`) caches the Google Fonts CSS and font files
+  after load.
+- **Persistence request**: after the first successful local media copy, the app
+  calls `navigator.storage.persist()` once. A grant makes eviction much less
+  likely but is not a contract.
+
+### Persistence limits
+
+- Browser storage is per origin. Clearing site data, private browsing, browser
+  eviction, or OS pressure can remove offline copies.
+- `navigator.storage.persist()` is best-effort. Some browsers deny it or do not
+  expose it; support and eviction behaviour vary by platform.
+- On **iOS/iPadOS**, install Vidfetch to the Home Screen for the best storage
+  treatment. Safari tabs are more likely to have storage reclaimed.
+- The PostgreSQL database remains the durable source of truth for the user's
+  library, playlists and metadata. Local media is a cache and can be downloaded
+  again from the server.
+- There is no cross-device sync of local media and no OPFS migration yet.
+
+The in-app **Informació** page (profile menu) contains the install steps for
+Android, iPhone/iPad and desktop, including the Safari requirement on iOS.
+
+---
+
 ## Configuration
 
 ### Local
@@ -390,7 +456,9 @@ backend.
 
 - Docker volume `pgdata` → PostgreSQL data.
 - Docker volume `vidfetch_downloads` → media, thumbnails, covers, temporary work.
-- Browser IndexedDB/Cache Storage → optional offline library and saved media.
+- Browser IndexedDB/Cache Storage → cached metadata, queued edits, saved media,
+  icon fonts and artwork (best-effort persistent storage; see
+  [Offline mode](#offline-mode)).
 
 Removing an item from a library only hides the user's entry. It never deletes a
 shared media file that another user may still need.
@@ -548,9 +616,12 @@ scripts/                     migrations, admin CLI wrapper, checks
   Horizontal scaling would need shared storage and a shared worker deployment.
 - There is no email verification, self-service password reset, or login rate
   limiting yet. Administrators can reset passwords from the API/CLI.
-- Offline media is stored per browser origin; clearing site data or browser
-  eviction removes it. The UI keeps saved songs permanent, so it does not offer
-  an un-download action.
+- Offline media is stored per browser origin; clearing site data, browser
+  eviction or OS pressure removes it. `navigator.storage.persist()` is
+  best-effort, and installing to the Home Screen on iOS gives the best storage
+  treatment. The PostgreSQL database remains the durable source of truth and
+  media can be downloaded again. The UI keeps saved songs permanent, so it does
+  not offer an un-download action.
 - The interface is currently Catalan only; the Settings language control is a
   placeholder for future locales.
 - Large playlists consume disk until the media cache is managed.
