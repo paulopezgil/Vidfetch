@@ -26,6 +26,7 @@ import { useToast } from "../components/Toast";
 import { usePlayer } from "../player/PlayerProvider";
 import { useMediaToken } from "../lib/useMediaToken";
 import { mediaTypeFor } from "../lib/trackDisplay";
+import { useImageCache } from "../offline/images";
 
 type GroupTab = "artists" | "albums";
 
@@ -351,6 +352,7 @@ function GroupArtwork({
 /** Rounded-square cover art, with an album glyph when nothing is available. */
 function AlbumArtwork({ src }: { src: string | null }) {
   const [failed, setFailed] = useState(false);
+  useImageCache(src);
 
   if (src && !failed) {
     return (
@@ -374,6 +376,7 @@ function AlbumArtwork({ src }: { src: string | null }) {
 /** Circular record with groove ring and center spindle. */
 function VinylArtwork({ src }: { src: string | null }) {
   const [failed, setFailed] = useState(false);
+  useImageCache(src);
 
   return (
     <span

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { useImageCache } from "../offline/images";
 import IconButton from "./IconButton";
 import Icon from "./Icon";
 
@@ -31,6 +32,7 @@ export default function MediaPreviewDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
+  useImageCache(open ? src : null);
 
   useEffect(() => {
     onCloseRef.current = onClose;

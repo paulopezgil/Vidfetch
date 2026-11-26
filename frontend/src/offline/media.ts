@@ -6,6 +6,7 @@ import {
   readMediaEntry,
   type OfflineMediaEntry,
 } from "./db";
+import { cacheImageUrl } from "./images";
 import { requestPersistentStorageOnce } from "./storage";
 
 /**
@@ -313,6 +314,13 @@ async function transfer(task: SaveTask): Promise<boolean> {
   try {
     const token = await getMediaToken(assetId);
     if (!token?.url) throw new Error(SAVE_FAILED);
+
+    // Warm the artwork cache alongside the media transfer, so a saved song
+    // still shows its cover offline. Never let a thumbnail failure abort the
+    // audio/video copy.
+    if (token.thumbnail_url) {
+      void cacheImageUrl(token.thumbnail_url);
+    }
 
     const response = await fetch(token.url, {
       credentials: "omit",
