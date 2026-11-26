@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { PlaylistV2, Track, UserPlaylist } from "../types/v2";
 import {
   getUserPlaylist,
   listPlaylists,
+  listSharedUserPlaylists,
   listUserPlaylists,
 } from "../lib/api";
 import Button from "../components/Button";
@@ -29,6 +30,7 @@ export default function Playlists() {
   const toast = useToast();
   const navigate = useNavigate();
   const [curated, setCurated] = useState<UserPlaylist[]>([]);
+  const [shared, setShared] = useState<UserPlaylist[]>([]);
   const [imported, setImported] = useState<PlaylistV2[]>([]);
   const [covers, setCovers] = useState<Record<string, Track[]>>({});
   const [loading, setLoading] = useState(true);
@@ -39,10 +41,12 @@ export default function Playlists() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [curatedResult, importedResult] = await Promise.allSettled([
-        listUserPlaylists({ limit: PLAYLIST_LIMIT }),
-        listPlaylists({ limit: PLAYLIST_LIMIT }),
-      ]);
+      const [curatedResult, sharedResult, importedResult] =
+        await Promise.allSettled([
+          listUserPlaylists({ limit: PLAYLIST_LIMIT }),
+          listSharedUserPlaylists({ limit: PLAYLIST_LIMIT }),
+          listPlaylists({ limit: PLAYLIST_LIMIT }),
+        ]);
       const failures: string[] = [];
 
       if (curatedResult.status === "fulfilled") {
@@ -52,6 +56,16 @@ export default function Playlists() {
           curatedResult.reason instanceof Error
             ? curatedResult.reason.message
             : "Could not load your playlists.",
+        );
+      }
+
+      if (sharedResult.status === "fulfilled") {
+        setShared(sharedResult.value.items);
+      } else {
+        failures.push(
+          sharedResult.reason instanceof Error
+            ? sharedResult.reason.message
+            : "No s’han pogut carregar les llistes compartides amb tu.",
         );
       }
 
@@ -79,18 +93,27 @@ export default function Playlists() {
     void refresh();
   }, [refresh]);
 
-  // Curated playlists only carry a relative cover path, so the collage uses
-  // the first few tracks of each playlist. Failures leave the placeholder.
+  // Curated and shared playlists only carry a relative cover path, so the
+  // collage uses the first few tracks of each playlist. Failures leave the
+  // placeholder.
+  const collagePlaylists = useMemo(
+    () => [...curated, ...shared],
+    [curated, shared],
+  );
   useEffect(() => {
-    if (curated.length === 0) {
+    if (collagePlaylists.length === 0) {
       setCovers({});
       return;
     }
     let cancelled = false;
     // Playlists without tracks have no collage to build.
-    const ids = curated
-      .filter((playlist) => playlist.track_count > 0)
-      .map((playlist) => playlist.id);
+    const ids = [
+      ...new Set(
+        collagePlaylists
+          .filter((playlist) => playlist.track_count > 0)
+          .map((playlist) => playlist.id),
+      ),
+    ];
     if (ids.length === 0) {
       setCovers({});
       return;
@@ -111,7 +134,7 @@ export default function Playlists() {
     return () => {
       cancelled = true;
     };
-  }, [curated]);
+  }, [collagePlaylists]);
 
   const handleCreated = useCallback(
     (playlist: UserPlaylist) => {
@@ -171,6 +194,39 @@ export default function Playlists() {
           />
         ) : null}
       </section>
+
+      {shared.length > 0 ? (
+        <section aria-labelledby="shared-heading" className="space-y-3">
+          <div className="flex items-baseline justify-between gap-3 px-1">
+            <div className="min-w-0">
+              <h2
+                id="shared-heading"
+                className="text-title-medium text-on-surface"
+              >
+                Compartides amb mi
+              </h2>
+              <p className="text-body-small text-on-surface-variant">
+                Llistes que altres usuaris han compartit amb tu. Són de només
+                lectura.
+              </p>
+            </div>
+            <span className="text-label-medium text-on-surface-variant">
+              {shared.length}
+            </span>
+          </div>
+
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {shared.map((playlist) => (
+              <li key={playlist.id} className="min-w-0">
+                <SharedPlaylistCard
+                  playlist={playlist}
+                  tracks={covers[playlist.id] ?? []}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-labelledby="imported-heading" className="space-y-3">
         <div className="flex items-baseline justify-between gap-3 px-1">
@@ -259,6 +315,49 @@ function CuratedPlaylistCard({
               {playlist.description}
             </p>
           ) : null}
+          <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
+            <Icon name="music_note" className="text-[16px]" />
+            {count} {count === 1 ? "track" : "tracks"}
+          </p>
+        </div>
+      </Link>
+    </Card>
+  );
+}
+
+function SharedPlaylistCard({
+  playlist,
+  tracks,
+}: {
+  playlist: UserPlaylist;
+  tracks: Track[];
+}) {
+  const count = playlist.track_count;
+  const owner = playlist.owner_email || "un altre usuari";
+
+  return (
+    <Card
+      variant="elevated"
+      className="group h-full overflow-hidden rounded-lg transition-shadow duration-200 hover:shadow-elevation-2 focus-within:shadow-elevation-2"
+    >
+      <Link
+        to={`/playlists/${encodeURIComponent(playlist.id)}`}
+        className="flex h-full flex-col rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        <div className="p-2 pb-0">
+          <PlaylistCollage
+            tracks={tracks}
+            className="aspect-square w-full"
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 p-3">
+          <p className="truncate text-title-small text-on-surface">
+            {playlist.name}
+          </p>
+          <p className="flex min-w-0 items-center gap-1 text-body-small text-on-surface-variant">
+            <Icon name="share" className="shrink-0 text-[14px]" />
+            <span className="truncate">Compartida per {owner}</span>
+          </p>
           <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
             <Icon name="music_note" className="text-[16px]" />
             {count} {count === 1 ? "track" : "tracks"}

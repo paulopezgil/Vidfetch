@@ -28,7 +28,10 @@ export default function PlaylistCollage({
   const picked = tracks.slice(0, MAX_TILES);
   // Refetch only when the selected tracks (or their covers) change.
   const signature = picked
-    .map((track) => `${track.id}:${track.cover_url ?? ""}`)
+    .map(
+      (track) =>
+        `${track.id}:${track.cover_url ?? ""}:${track.thumbnail_url ?? ""}`,
+    )
     .join("|");
 
   useEffect(() => {
@@ -41,6 +44,7 @@ export default function PlaylistCollage({
     void Promise.all(
       picked.map(async (track) => {
         if (track.cover_url) return track.cover_url;
+        if (track.thumbnail_url) return track.thumbnail_url;
         if (!track.asset_id || !track.thumbnail_path) return null;
         try {
           const token = await getMediaToken(track.asset_id);
