@@ -141,12 +141,9 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
         </div>
       ) : null}
 
-      {job.error ? (
-        <p
-          role="alert"
-          className="mt-2 line-clamp-3 text-body-small text-error"
-        >
-          {job.error}
+      {job.status === "failed" ? (
+        <p className="mt-2 text-body-small text-on-surface-variant">
+          No s’ha pogut completar la descàrrega.
         </p>
       ) : null}
     </Card>

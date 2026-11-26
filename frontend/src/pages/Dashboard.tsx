@@ -61,9 +61,16 @@ export default function Dashboard() {
   const recentFinished = useMemo(
     () =>
       finishedJobs
-        .filter((job) => job.status === "ready" || job.status === "failed")
+        .filter((job) => job.status === "ready")
         .filter(isRecentJob)
         .slice(0, 3),
+    [finishedJobs],
+  );
+
+  // Failed downloads are surfaced in their own section only, never mixed into
+  // the finished list or the library. Polling already returns them.
+  const failedJobs = useMemo(
+    () => finishedJobs.filter((job) => job.status === "failed"),
     [finishedJobs],
   );
 
@@ -165,6 +172,19 @@ export default function Dashboard() {
           </p>
         )}
       </section>
+
+      {failedJobs.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-title-medium text-on-surface">
+            Descàrregues fallides
+          </h2>
+          <div className="space-y-3">
+            {failedJobs.map((job) => (
+              <JobCard key={job.id} job={job} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {recentFinished.length > 0 ? (
         <section className="space-y-3">

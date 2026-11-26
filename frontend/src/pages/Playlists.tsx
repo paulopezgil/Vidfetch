@@ -121,6 +121,12 @@ export default function Playlists() {
     [navigate, toast],
   );
 
+  // An import that failed entirely produced nothing usable, so it must not be
+  // shown as a successful playlist. Partially successful imports stay visible.
+  const visibleImported = imported.filter(
+    (playlist) => playlist.status !== "failed",
+  );
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
@@ -180,15 +186,15 @@ export default function Playlists() {
             </p>
           </div>
           <span className="text-label-medium text-on-surface-variant">
-            {imported.length}
+            {visibleImported.length}
           </span>
         </div>
 
-        {loading && imported.length === 0 ? (
+        {loading && visibleImported.length === 0 ? (
           <SectionLoading label="Loading imported playlists…" />
-        ) : imported.length > 0 ? (
+        ) : visibleImported.length > 0 ? (
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {imported.map((playlist) => (
+            {visibleImported.map((playlist) => (
               <li key={playlist.id} className="min-w-0">
                 <ImportedPlaylistCard playlist={playlist} />
               </li>
