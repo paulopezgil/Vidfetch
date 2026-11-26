@@ -5,8 +5,8 @@ scope and worktree details live in `.opencode/agents/*.md`.
 
 ## Current state
 
-- `main` — stable production releases only. Current release: `v2.3.0`.
-- `dev` — active development and integration for the next release (`v2.4.0`).
+- `main` — stable production releases only. Current release: `v2.4.0`.
+- `dev` — active development and integration for the next release.
 - The v2 rewrite is released; there is no long-lived `v2` branch anymore.
 - v2 stack: React + FastAPI + **PostgreSQL** + **local email/password sessions**
   + shared media cache. Supabase and Google OAuth are gone.

@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.3.0` released** |
+| Status | **`v2.4.0` released** |
 | Baseline | `v1.9.0` |
-| Current released version | `v2.3.0` |
+| Current released version | `v2.4.0` |
 | Branch | `main` |
-| Last updated | 2026-11-24 |
+| Last updated | 2026-11-27 |
 
 This is the implementation checklist for the current development cycle. The root
 `README.md` documents the shipped application; `docs/V2_SETUP.md` has the
@@ -63,6 +63,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 - [x] Final release checks and `v2.2.0` release/tag from `main`.
 - [x] Final release checks and `v2.2.1` release/tag from `main`.
 - [x] Final release checks and `v2.3.0` release/tag from `main`.
+- [x] Final release checks and `v2.4.0` release/tag from `main`.
 - [ ] Live production smoke test on Vercel + VPS + Supabase Cloud.
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming endpoint.
