@@ -10,6 +10,9 @@ import {
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
+import GroupEditDialog, {
+  type GroupEditKind,
+} from "../components/GroupEditDialog";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
 import Menu from "../components/Menu";
@@ -34,9 +37,12 @@ interface Group {
 const TRACK_LIMIT = 200;
 
 const tabOptions = [
-  { value: "artists", label: "Artistes", icon: "person" },
+  { value: "artists", label: "Artistes", icon: "graphic_eq" },
   { value: "albums", label: "Àlbums", icon: "album" },
 ];
+
+const UNKNOWN_ARTIST = "Artista desconegut";
+const UNKNOWN_ALBUM = "Àlbum desconegut";
 
 /**
  * Group tracks by a trimmed metadata field, folding blank values into the
@@ -72,10 +78,15 @@ export default function ArtistsAlbums() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Track | null>(null);
+  const [editingGroup, setEditingGroup] = useState<{
+    kind: GroupEditKind;
+    name: string;
+    tracks: Track[];
+  } | null>(null);
   const toast = useToast();
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     try {
       const page = await listTracks({ limit: TRACK_LIMIT });
       setTracks(page.items);
@@ -94,11 +105,11 @@ export default function ArtistsAlbums() {
   }, [refresh]);
 
   const artists = useMemo(
-    () => groupTracks(tracks, (track) => track.artist, "Artista desconegut"),
+    () => groupTracks(tracks, (track) => track.artist, UNKNOWN_ARTIST),
     [tracks],
   );
   const albums = useMemo(
-    () => groupTracks(tracks, (track) => track.album, "Àlbum desconegut"),
+    () => groupTracks(tracks, (track) => track.album, UNKNOWN_ALBUM),
     [tracks],
   );
 
@@ -124,6 +135,17 @@ export default function ArtistsAlbums() {
     [toast],
   );
 
+  const handleGroupApplied = useCallback(
+    (failed: number) => {
+      // Refetch so the regroup reflects every saved row, not just optimistic
+      // copies; a partial failure still refreshes what did save. The refresh
+      // is silent so the dialog never unmounts mid-retry.
+      void refresh({ silent: true });
+      if (failed === 0) toast("Canvis aplicats", "success");
+    },
+    [refresh, toast],
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-3 py-20 text-body-medium text-on-surface-variant">
@@ -138,7 +160,7 @@ export default function ArtistsAlbums() {
 
       {!error && tracks.length === 0 ? (
         <EmptyState
-          icon="person"
+          icon="library_music"
           title="Encara no hi ha artistes ni àlbums"
           description="Les cançons descarregades apareixeran aquí, agrupades per artista i àlbum."
         />
@@ -171,7 +193,7 @@ export default function ArtistsAlbums() {
                 >
                   <Icon name="arrow_back" className="text-[20px]" />
                 </IconButton>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2
                     id="group-heading"
                     className="truncate text-title-large text-on-surface"
@@ -183,6 +205,28 @@ export default function ArtistsAlbums() {
                     {selectedGroup.tracks.length === 1 ? "cançó" : "cançons"}
                   </p>
                 </div>
+                <Menu
+                  label="Més accions"
+                  actions={[
+                    {
+                      id: "edit-group",
+                      label:
+                        tab === "albums" ? "Edita l’àlbum" : "Edita el grup",
+                      icon: "edit",
+                      onSelect: () =>
+                        setEditingGroup({
+                          kind: tab === "albums" ? "album" : "artist",
+                          // The fallback bucket has no real name to prefill.
+                          name:
+                            selectedGroup.name === UNKNOWN_ARTIST ||
+                            selectedGroup.name === UNKNOWN_ALBUM
+                              ? ""
+                              : selectedGroup.name,
+                          tracks: selectedGroup.tracks,
+                        }),
+                    },
+                  ]}
+                />
               </div>
 
               <Card
@@ -234,6 +278,15 @@ export default function ArtistsAlbums() {
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
       />
+
+      <GroupEditDialog
+        open={editingGroup !== null}
+        kind={editingGroup?.kind ?? "artist"}
+        name={editingGroup?.name ?? ""}
+        tracks={editingGroup?.tracks ?? []}
+        onClose={() => setEditingGroup(null)}
+        onApplied={handleGroupApplied}
+      />
     </div>
   );
 }
@@ -248,7 +301,6 @@ function GroupCard({
   onSelect: () => void;
 }) {
   const count = group.tracks.length;
-  const initial = Array.from(group.name)[0]?.toUpperCase() ?? "?";
 
   return (
     <Card
@@ -260,21 +312,8 @@ function GroupCard({
         onClick={onSelect}
         className="flex h-full w-full flex-col items-center gap-3 p-3 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       >
-        {variant === "artists" ? (
-          <span
-            aria-hidden="true"
-            className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-container text-headline-medium text-on-primary-container"
-          >
-            {initial}
-          </span>
-        ) : (
-          <Thumbnail
-            src={null}
-            icon="album"
-            className="aspect-square w-full rounded-md"
-          />
-        )}
-        <span className="min-w-0">
+        <GroupArtwork group={group} variant={variant} />
+        <span className="min-w-0 self-stretch">
           <span className="block truncate text-title-small text-on-surface">
             {group.name}
           </span>
@@ -284,6 +323,81 @@ function GroupCard({
         </span>
       </button>
     </Card>
+  );
+}
+
+/**
+ * Group artwork from the first track: a square album cover, or a vinyl-style
+ * record for artists. Neither reads as a user profile avatar, and the fallback
+ * icons are music glyphs (`album` / `graphic_eq`) rather than `person`.
+ */
+function GroupArtwork({
+  group,
+  variant,
+}: {
+  group: Group;
+  variant: GroupTab;
+}) {
+  const first = group.tracks[0] ?? null;
+  const artwork = first?.cover_url ?? first?.thumbnail_url ?? null;
+
+  if (variant === "albums") {
+    return <AlbumArtwork src={artwork} />;
+  }
+
+  return <VinylArtwork src={artwork} />;
+}
+
+/** Rounded-square cover art, with an album glyph when nothing is available. */
+function AlbumArtwork({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="block aspect-square w-full rounded-md object-cover"
+      />
+    );
+  }
+
+  return (
+    <span className="flex aspect-square w-full items-center justify-center rounded-md bg-surface-container-high text-on-surface-variant">
+      <Icon name="album" className="text-[40px]" />
+    </span>
+  );
+}
+
+/** Circular record with groove ring and center spindle. */
+function VinylArtwork({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <span
+      aria-hidden="true"
+      className="relative block aspect-square w-full"
+    >
+      {src && !failed ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="block h-full w-full rounded-full object-cover"
+        />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant">
+          <Icon name="graphic_eq" className="text-[40px]" />
+        </span>
+      )}
+      {/* Vinyl grooves plus a center label and spindle hole. */}
+      <span className="pointer-events-none absolute inset-[8%] rounded-full border border-on-surface/10" />
+      <span className="pointer-events-none absolute left-1/2 top-1/2 h-[26%] w-[26%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-container/95 ring-1 ring-outline-variant" />
+      <span className="pointer-events-none absolute left-1/2 top-1/2 h-[7%] w-[7%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-on-primary-container/60" />
+    </span>
   );
 }
 
@@ -298,12 +412,16 @@ function TrackRow({
 }) {
   const { current, isPlaying, playTrack, togglePlay } = usePlayer();
   const toast = useToast();
-  // Only ask for a token when there is no cover and the asset has a thumbnail.
+  // Only ask for a token when the track has neither signed artwork URL nor a
+  // thumbnail path; the API now sends `thumbnail_url` for ready tracks.
   const { token } = useMediaToken(
-    !track.cover_url && track.thumbnail_path ? track.asset_id : null,
+    !track.cover_url && !track.thumbnail_url && track.thumbnail_path
+      ? track.asset_id
+      : null,
   );
   const [downloading, setDownloading] = useState(false);
-  const artwork = track.cover_url ?? token?.thumbnail_url ?? null;
+  const artwork =
+    track.cover_url ?? track.thumbnail_url ?? token?.thumbnail_url ?? null;
   const active = current?.id === track.id;
   const playing = active && isPlaying;
   const mediaType = mediaTypeFor(track);

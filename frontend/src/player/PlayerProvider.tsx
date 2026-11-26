@@ -208,7 +208,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       currentRef.current = track;
       setCurrent(track);
-      setArtworkUrl(null);
+      // Show any artwork the track already carries while the source loads;
+      // the signed token can add an asset thumbnail a moment later.
+      setArtworkUrl(track.cover_url ?? track.thumbnail_url ?? null);
       setDuration(track.duration_seconds ?? 0);
       setPosition(startAt);
       setPlaying(false);
@@ -240,7 +242,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           blobUrlRef.current = objectUrl;
           // A blob URL never expires, so do not refresh it on play.
           expiresAtRef.current = Number.MAX_SAFE_INTEGER;
-          setArtworkUrl(track.cover_url ?? null);
+          // Offline copies have no media token; use the track's own artwork.
+          setArtworkUrl(track.cover_url ?? track.thumbnail_url ?? null);
           mediaRef.current = media;
           media.src = objectUrl;
           media.load();
@@ -253,7 +256,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (loadId !== loadIdRef.current) return;
 
         expiresAtRef.current = tokenExpiry(token);
-        setArtworkUrl(track.cover_url ?? token.thumbnail_url ?? null);
+        // Prefer custom art, then the API's asset thumbnail from the track,
+        // then the thumbnail carried by the signed token.
+        const artwork =
+          track.cover_url ??
+          track.thumbnail_url ??
+          token.thumbnail_url ??
+          null;
+        if (artwork) setArtworkUrl(artwork);
         mediaRef.current = media;
         media.src = token.url;
         media.load();
@@ -422,11 +432,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       currentRef.current = track;
       setCurrent(track);
       // `artworkUrl` is the signed thumbnail resolved when the source loaded.
-      // Only touch it when the cover really changed, so an unrelated metadata
-      // edit keeps the current artwork.
-      if (previous.cover_url !== track.cover_url) {
-        setArtworkUrl(track.cover_url ?? null);
-      }
+      // Only replace it when the edited track actually supplies artwork, so
+      // clearing a cover never blanks the mini/maximized player.
+      const artwork = track.cover_url ?? track.thumbnail_url ?? null;
+      if (artwork) setArtworkUrl(artwork);
     }
 
     if (queueRef.current.some((item) => item.id === track.id)) {

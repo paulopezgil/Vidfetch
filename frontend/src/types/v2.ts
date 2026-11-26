@@ -126,6 +126,8 @@ export interface Track {
   /** Short-lived signed URL for the uploaded cover, when one exists. */
   cover_url: string | null;
   thumbnail_path: string | null;
+  /** Signed URL for the asset thumbnail, when the API can mint one. */
+  thumbnail_url?: string | null;
   duration_seconds: number | null;
   file_size_bytes: number | null;
   output_ext: string | null;
@@ -195,6 +197,8 @@ export interface PlaylistItemV2 {
   canonical_id: string;
   source_url: string;
   title: string;
+  /** Channel of this individual video, when the source reports one. */
+  channel?: string;
   duration_seconds: number | null;
   asset_id: string | null;
   job_id: string | null;
@@ -233,8 +237,30 @@ export interface UserPlaylist {
   /** Relative cover path, when a custom cover exists. */
   cover_path: string | null;
   track_count: number;
+  /** Owner's email; set on shared listings and the owner's own entry. */
+  owner_email?: string;
+  /** Whether the caller owns this playlist. Absent on older payloads. */
+  is_owner?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** One user a curated playlist is shared with (`UserPlaylistShareOut`). */
+export interface UserPlaylistShare {
+  user_id: string;
+  email: string;
+  created_at: string;
+}
+
+/** `GET /api/user-playlists/{playlist_id}/shares` — current recipients. */
+export interface UserPlaylistShareList {
+  items: UserPlaylistShare[];
+}
+
+/** Request body for `POST /api/user-playlists/{playlist_id}/shares`. */
+export interface UserPlaylistShareInput {
+  /** Email of the recipient account. */
+  email: string;
 }
 
 /** `GET /api/user-playlists/{playlist_id}` — playlist plus ordered tracks. */
