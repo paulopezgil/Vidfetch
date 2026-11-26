@@ -11,7 +11,7 @@ export default function NavigationBar() {
   return (
     <nav
       aria-label="Navegació principal"
-      className="flex h-24 shrink-0 items-stretch border-t border-outline-variant bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="flex h-[calc(6rem+env(safe-area-inset-bottom))] shrink-0 items-stretch border-t border-outline-variant bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       {destinations.map((destination) => (
         <NavLink
@@ -19,7 +19,7 @@ export default function NavigationBar() {
           to={destination.to}
           end={destination.end}
           title={destination.label}
-          className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden px-0.5 py-3 text-label-medium"
+          className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 py-3 text-label-medium"
         >
           {({ isActive }) => (
             <>

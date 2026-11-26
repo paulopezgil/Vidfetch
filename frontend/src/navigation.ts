@@ -12,8 +12,6 @@ export const destinations: Destination[] = [
   { to: "/videos", label: "Vídeos", icon: "movie" },
   { to: "/playlists", label: "Llistes", icon: "queue_music" },
   { to: "/artists", label: "Artistes i àlbums", icon: "album" },
-  { to: "/install", label: "Instal·la", icon: "add_to_home_screen" },
-  { to: "/settings", label: "Configuració", icon: "settings" },
 ];
 
 /** Admin-only destination, appended for accounts with `app_role = 'admin'`. */
@@ -75,7 +73,7 @@ export function titleForPath(
     return playlistTitle?.trim() || "Llista importada";
   }
   if (pathname === "/artists") return "Artistes i àlbums";
-  if (pathname === "/install") return "Instal·la";
+  if (pathname === "/install") return "Informació";
   if (pathname === "/settings") return "Configuració";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";
