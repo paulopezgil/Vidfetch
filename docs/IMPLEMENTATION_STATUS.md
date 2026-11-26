@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | **`v2.4.0` released** |
+| Status | **`v2.4.1` released** |
 | Baseline | `v1.9.0` |
-| Current released version | `v2.4.0` |
+| Current released version | `v2.4.1` |
 | Branch | `main` |
 | Last updated | 2026-11-27 |
 
@@ -64,6 +64,7 @@ The long-lived `v2` branch was merged and deleted after the v2.0.x releases.
 - [x] Final release checks and `v2.2.1` release/tag from `main`.
 - [x] Final release checks and `v2.3.0` release/tag from `main`.
 - [x] Final release checks and `v2.4.0` release/tag from `main`.
+- [x] Final release checks and `v2.4.1` release/tag from `main`.
 - [ ] Live production smoke test on Vercel + VPS + Supabase Cloud.
 - [ ] Playlist-item retry job creation.
 - [ ] Playlist cover streaming endpoint.

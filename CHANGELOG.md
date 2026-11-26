@@ -4,9 +4,10 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
-## [Unreleased]
+## [v2.4.1] — 2026-11-27
 
-Changes accumulated on `dev` after `v2.4.0`.
+Patch release for the profile-menu navigation move and the iOS safe-area
+bottom-bar fix.
 
 ### Changed
 
