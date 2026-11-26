@@ -114,7 +114,7 @@ const PLATFORM_TIPS = [
 ];
 
 /**
- * PWA installation guide.
+ * Information page hosting the PWA installation guide.
  *
  * Vidfetch is installed from the browser rather than an app store, and every
  * platform uses a different menu, so the steps live behind a segmented switch.
@@ -127,32 +127,48 @@ export default function InstallGuide() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
       <div>
-        <h2 className="text-headline-small text-on-surface">
-          Instal·la Vidfetch
-        </h2>
+        <h2 className="text-headline-small text-on-surface">Informació</h2>
         <p className="mt-2 text-body-medium text-on-surface-variant">
-          Vidfetch s’instal·la com una aplicació web des del navegador. No cal
-          cap botiga d’aplicacions: un cop instal·lada, s’obre en una finestra
-          pròpia i continua funcionant sense connexió.
+          Aquí trobaràs com instal·lar Vidfetch com una aplicació web i com
+          continuar fent-lo servir fora de línia.
         </p>
       </div>
 
-      <Card variant="outlined" className="space-y-4 p-4 sm:p-5">
+      <section
+        aria-labelledby="install-guide-heading"
+        className="space-y-4"
+      >
         <div>
-          <p className="text-title-medium text-on-surface">
-            Tria el teu dispositiu
-          </p>
-          <p className="mt-0.5 text-body-small text-on-surface-variant">
-            Els passos canvien segons el navegador i el sistema operatiu.
+          <h3
+            id="install-guide-heading"
+            className="text-title-large text-on-surface"
+          >
+            Instal·la Vidfetch com a aplicació web
+          </h3>
+          <p className="mt-1 text-body-medium text-on-surface-variant">
+            Vidfetch s’instal·la des del navegador. No cal cap botiga
+            d’aplicacions: un cop instal·lada, s’obre en una finestra pròpia i
+            continua funcionant sense connexió.
           </p>
         </div>
-        <SegmentedButton
-          label="Dispositiu per instal·lar Vidfetch"
-          value={platform}
-          onChange={(value) => setPlatform(value as Platform)}
-          options={PLATFORM_OPTIONS}
-        />
-      </Card>
+
+        <Card variant="outlined" className="space-y-4 p-4 sm:p-5">
+          <div>
+            <p className="text-title-medium text-on-surface">
+              Tria el teu dispositiu
+            </p>
+            <p className="mt-0.5 text-body-small text-on-surface-variant">
+              Els passos canvien segons el navegador i el sistema operatiu.
+            </p>
+          </div>
+          <SegmentedButton
+            label="Dispositiu per instal·lar Vidfetch"
+            value={platform}
+            onChange={(value) => setPlatform(value as Platform)}
+            options={PLATFORM_OPTIONS}
+          />
+        </Card>
+      </section>
 
       <section aria-labelledby="install-platform-heading" className="space-y-3">
         <div className="flex items-center gap-2 px-1">
