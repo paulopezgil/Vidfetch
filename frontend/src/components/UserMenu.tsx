@@ -50,14 +50,14 @@ export default function UserMenu() {
 
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
-    if (restoreFocus) triggerRef.current?.focus();
+    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
     if (!open) return;
 
     const frame = window.requestAnimationFrame(() => {
-      itemRefs.current[0]?.focus();
+      itemRefs.current[0]?.focus({ preventScroll: true });
     });
 
     function onPointerDown(event: PointerEvent) {
@@ -71,7 +71,7 @@ export default function UserMenu() {
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
-        triggerRef.current?.focus();
+        triggerRef.current?.focus({ preventScroll: true });
       }
     }
 
@@ -128,7 +128,7 @@ export default function UserMenu() {
     const count = itemRefs.current.length;
     if (count === 0) return;
     const next = (index + count) % count;
-    itemRefs.current[next]?.focus();
+    itemRefs.current[next]?.focus({ preventScroll: true });
   }
 
   function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {

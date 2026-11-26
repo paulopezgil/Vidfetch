@@ -6,6 +6,7 @@ import Card from "../components/Card";
 import ErrorBanner from "../components/ErrorBanner";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
+import Logo from "../components/Logo";
 import SegmentedButton from "../components/SegmentedButton";
 import Spinner from "../components/Spinner";
 import TextField from "../components/TextField";
@@ -95,7 +96,7 @@ export default function LoginPage() {
     <div className="flex min-h-full items-center justify-center bg-surface px-4 py-10 text-on-surface">
       <div className="w-full max-w-md">
         <div className="mb-6 flex flex-col items-center text-center">
-          <img src="/favicon.svg" alt="" className="h-16 w-16" />
+          <Logo className="h-16 w-16" />
           <h1 className="mt-4 text-headline-medium text-on-surface">Vidfetch</h1>
           <p className="mt-1 text-body-large text-on-surface-variant">
             El teu descarregador de vídeo i àudio

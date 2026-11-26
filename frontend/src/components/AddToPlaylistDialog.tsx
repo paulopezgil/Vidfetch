@@ -174,7 +174,7 @@ export default function AddToPlaylistDialog({
       onClose();
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "No s’ha pogut afegir el track.",
+        e instanceof Error ? e.message : "No s’ha pogut afegir la cançó.",
       );
     } finally {
       setBusyId(null);
@@ -216,8 +216,8 @@ export default function AddToPlaylistDialog({
       } catch (e) {
         setError(
           e instanceof Error
-            ? `La llista s’ha creat, però no s’ha pogut afegir el track: ${e.message}`
-            : "La llista s’ha creat, però no s’ha pogut afegir el track.",
+            ? `La llista s’ha creat, però no s’ha pogut afegir la cançó: ${e.message}`
+            : "La llista s’ha creat, però no s’ha pogut afegir la cançó.",
         );
       }
     } catch (e) {
@@ -251,10 +251,10 @@ export default function AddToPlaylistDialog({
         <div className="flex items-start justify-between gap-2 px-6 pt-5">
           <div className="min-w-0">
             <h2 id={headingId} className="text-headline-small">
-              Afegeix a una playlist
+              Afegeix a una llista
             </h2>
             <p className="mt-0.5 truncate text-body-small text-on-surface-variant">
-              {track.title || "Track sense títol"}
+              {track.title || "Cançó sense títol"}
             </p>
           </div>
           <IconButton label="Tanca" onClick={requestClose} disabled={busy}>
@@ -268,7 +268,7 @@ export default function AddToPlaylistDialog({
               <Spinner /> S’estan carregant les llistes…
             </div>
           ) : playlists.length > 0 ? (
-            <ul aria-label="Les meves llistes de reproducció">
+            <ul aria-label="Les meves llistes">
               {playlists.map((playlist) => (
                 <li key={playlist.id}>
                   <button
@@ -286,7 +286,7 @@ export default function AddToPlaylistDialog({
                       </span>
                       <span className="block text-label-medium text-on-surface-variant">
                         {playlist.track_count}{" "}
-                        {playlist.track_count === 1 ? "track" : "tracks"}
+                        {playlist.track_count === 1 ? "cançó" : "cançons"}
                       </span>
                     </span>
                     {busyId === playlist.id ? (
@@ -376,7 +376,7 @@ export default function AddToPlaylistDialog({
               disabled={busy}
             >
               <Icon name="add" className="text-[18px]" />
-              New playlist
+              Crea una llista
             </Button>
           )}
         </div>

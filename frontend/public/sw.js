@@ -12,9 +12,25 @@
  * app through Cache Storage and is never touched here.
  */
 
-const SHELL_CACHE = "vidfetch-shell-v1";
+const SHELL_CACHE = "vidfetch-shell-v2";
 const INDEX_KEY = "/index.html";
-const PRECACHE = [INDEX_KEY, "/manifest.webmanifest", "/favicon.svg"];
+
+/**
+ * Public static shell files served at the origin root. They are precached and
+ * answered cache-first so the logo, manifest and installed-app icons are
+ * available offline instead of failing as a broken image.
+ */
+const STATIC_SHELL = [
+  "/favicon.svg",
+  "/manifest.webmanifest",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
+  "/apple-touch-icon.png",
+];
+const STATIC_SHELL_PATHS = new Set(STATIC_SHELL);
+
+const PRECACHE = [INDEX_KEY, ...STATIC_SHELL];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -93,6 +109,23 @@ async function handleAsset(request) {
   return fresh || Response.error();
 }
 
+/** Cache-first public shell file, so the brand assets survive offline. */
+async function handleStaticShell(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return Response.error();
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
@@ -105,6 +138,11 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(handleNavigation(request));
+    return;
+  }
+
+  if (STATIC_SHELL_PATHS.has(url.pathname)) {
+    event.respondWith(handleStaticShell(request));
     return;
   }
 

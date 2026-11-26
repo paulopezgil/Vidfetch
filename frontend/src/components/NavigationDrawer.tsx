@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import Icon from "./Icon";
 import { destinationsFor } from "../navigation";
 import { useAuth } from "../auth/AuthProvider";
+import Logo from "./Logo";
 
 /** Material 3 navigation drawer for expanded windows. */
 export default function NavigationDrawer() {
@@ -14,7 +15,7 @@ export default function NavigationDrawer() {
       className="hidden w-72 shrink-0 flex-col gap-1 border-r border-outline-variant bg-surface py-4 lg:flex"
     >
       <div className="mb-4 flex items-center gap-3 px-6">
-        <img src="/favicon.svg" alt="" className="h-10 w-10" />
+        <Logo className="h-10 w-10" />
         <span className="text-title-large text-on-surface">Vidfetch</span>
       </div>
 
@@ -53,7 +54,7 @@ export default function NavigationDrawer() {
       ))}
 
       <div className="mt-auto px-6 py-4 text-body-small text-on-surface-variant">
-        Powered by yt-dlp
+        Funciona amb yt-dlp
       </div>
     </nav>
   );

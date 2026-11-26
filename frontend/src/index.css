@@ -229,12 +229,73 @@
 }
 
 /*
+ * Now-playing equalizer. The three bars share one keyframe and stagger their
+ * delay so they read as a small equalizer rather than a single pulsing block.
+ * The reduced-motion block below replaces the animation with fixed heights.
+ */
+@keyframes vidfetch-equalizer {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/*
  * The video stage is the fullscreen element. Pin it to the viewport and remove
  * every framing style an ancestor could have left behind, so the video always
  * sits inside a 100vw × 100vh black surface rather than a shifted top-layer
  * copy of the panel.
  */
 @layer components {
+  .now-playing-indicator {
+    display: inline-flex;
+    height: 1rem;
+    width: 1rem;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .now-playing-bar {
+    display: block;
+    height: 100%;
+    width: 3px;
+    border-radius: 9999px;
+    background-color: rgb(var(--md-primary));
+    transform-origin: bottom;
+    animation: vidfetch-equalizer 900ms ease-in-out infinite;
+  }
+
+  .now-playing-bar:nth-child(2) {
+    animation-delay: 150ms;
+  }
+
+  .now-playing-bar:nth-child(3) {
+    animation-delay: 300ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .now-playing-bar {
+      animation: none;
+      transform: none;
+    }
+
+    .now-playing-bar:nth-child(1) {
+      transform: scaleY(0.45);
+    }
+
+    .now-playing-bar:nth-child(2) {
+      transform: scaleY(0.85);
+    }
+
+    .now-playing-bar:nth-child(3) {
+      transform: scaleY(0.6);
+    }
+  }
+
   .video-stage:fullscreen {
     position: fixed;
     inset: 0;

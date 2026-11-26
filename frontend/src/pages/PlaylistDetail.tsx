@@ -28,6 +28,7 @@ import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
 import OfflineButton from "../components/OfflineButton";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
@@ -272,7 +273,7 @@ export default function PlaylistDetail() {
           to="/playlists"
           className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
         >
-          <Icon name="arrow_back" className="text-[20px]" /> Playlists
+          <Icon name="arrow_back" className="text-[20px]" /> Llistes
         </Link>
         <EmptyState
           icon="playlist_remove"
@@ -300,7 +301,7 @@ export default function PlaylistDetail() {
         to="/playlists"
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <Icon name="arrow_back" className="text-[20px]" /> Playlists
+        <Icon name="arrow_back" className="text-[20px]" /> Llistes
       </Link>
 
       <Card variant="outlined" className="p-4 sm:p-6">
@@ -342,7 +343,7 @@ export default function PlaylistDetail() {
               </div>
               <ProgressBar
                 value={overall}
-                label="Progrés de la descàrrega de la llista"
+                label="Progrés de preparació de la llista"
                 status={
                   failedCount && readyCount ? "completed" : undefined
                 }
@@ -543,9 +544,12 @@ function ItemRow({
       </span>
       <Thumbnail src={thumbSrc} icon="movie" className="aspect-video w-16" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-large text-on-surface">
-          {item.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">
+            {item.title}
+          </p>
+          {playerActive ? <NowPlayingIndicator /> : null}
+        </div>
         <div className="mt-0.5 flex items-center gap-3 text-label-medium text-on-surface-variant">
           {item.duration_seconds ? (
             <span className="tabular-nums">

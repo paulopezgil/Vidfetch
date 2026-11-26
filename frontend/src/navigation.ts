@@ -7,11 +7,11 @@ export interface Destination {
 
 /** Top-level destinations. Order is stable across every navigation form. */
 export const destinations: Destination[] = [
-  { to: "/", label: "Home", icon: "home", end: true },
+  { to: "/", label: "Inici", icon: "home", end: true },
   { to: "/songs", label: "Cançons", icon: "music_note" },
   { to: "/videos", label: "Vídeos", icon: "movie" },
-  { to: "/playlists", label: "Playlists", icon: "queue_music" },
-  { to: "/artists", label: "Artists & Albums", icon: "person" },
+  { to: "/playlists", label: "Llistes", icon: "queue_music" },
+  { to: "/artists", label: "Artistes i àlbums", icon: "person" },
   { to: "/settings", label: "Configuració", icon: "settings" },
 ];
 
@@ -58,22 +58,22 @@ export function titleForPath(
   pathname: string,
   playlistTitle: string | null = activePlaylistTitle,
 ): string {
-  if (pathname === "/") return "Home";
+  if (pathname === "/") return "Inici";
   if (pathname === "/songs") return "Cançons";
   if (pathname === "/videos") return "Vídeos";
   // Compatibility for bookmarks and redirects that still use the old path.
   if (pathname === "/tracks" || pathname === "/library") return "Cançons";
-  if (pathname === "/playlists") return "Playlists";
+  if (pathname === "/playlists") return "Llistes";
   if (pathname.startsWith("/playlists/") && /\/add\/?$/.test(pathname)) {
-    return "Afegeix tracks";
+    return "Afegeix cançons";
   }
   if (pathname.startsWith("/playlists/")) {
-    return playlistTitle?.trim() || "Playlist";
+    return playlistTitle?.trim() || "Llista";
   }
   if (pathname.startsWith("/imported/")) {
-    return playlistTitle?.trim() || "Imported playlist";
+    return playlistTitle?.trim() || "Llista importada";
   }
-  if (pathname === "/artists") return "Artists & Albums";
+  if (pathname === "/artists") return "Artistes i àlbums";
   if (pathname === "/settings") return "Configuració";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";

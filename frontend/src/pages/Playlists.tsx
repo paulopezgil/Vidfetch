@@ -51,7 +51,7 @@ export default function Playlists() {
         failures.push(
           curatedResult.reason instanceof Error
             ? curatedResult.reason.message
-            : "Could not load your playlists.",
+            : "No s’han pogut carregar les teves llistes.",
         );
       }
 
@@ -61,7 +61,7 @@ export default function Playlists() {
         failures.push(
           importedResult.reason instanceof Error
             ? importedResult.reason.message
-            : "Could not load imported playlists.",
+            : "No s’han pogut carregar les llistes importades.",
         );
       }
 
@@ -138,20 +138,20 @@ export default function Playlists() {
               id="curated-heading"
               className="text-title-medium text-on-surface"
             >
-              Your playlists
+              Les teves llistes
             </h2>
             <p className="text-body-small text-on-surface-variant">
-              Your own ordered selections of tracks.
+              Les teves seleccions de cançons ordenades.
             </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
             <Icon name="add" className="text-[18px]" />
-            Create playlist
+            Crea una llista
           </Button>
         </div>
 
         {loading && curated.length === 0 ? (
-          <SectionLoading label="Loading your playlists…" />
+          <SectionLoading label="S’estan carregant les teves llistes…" />
         ) : curated.length > 0 ? (
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {curated.map((playlist) => (
@@ -166,8 +166,8 @@ export default function Playlists() {
         ) : !loading && !failed.curated ? (
           <EmptyState
             icon="queue_music"
-            title="No playlists yet"
-            description="Create a playlist to group tracks in whatever order you like."
+            title="Encara no hi ha llistes"
+            description="Crea una llista per agrupar cançons en l’ordre que vulguis."
           />
         ) : null}
       </section>
@@ -179,10 +179,10 @@ export default function Playlists() {
               id="imported-heading"
               className="text-title-medium text-on-surface"
             >
-              Imported
+              Importades
             </h2>
             <p className="text-body-small text-on-surface-variant">
-              Playlists downloaded from a source site.
+              Llistes descarregades d’un lloc d’origen.
             </p>
           </div>
           <span className="text-label-medium text-on-surface-variant">
@@ -191,7 +191,7 @@ export default function Playlists() {
         </div>
 
         {loading && visibleImported.length === 0 ? (
-          <SectionLoading label="Loading imported playlists…" />
+          <SectionLoading label="S’estan carregant les llistes importades…" />
         ) : visibleImported.length > 0 ? (
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {visibleImported.map((playlist) => (
@@ -203,8 +203,8 @@ export default function Playlists() {
         ) : !loading && !failed.imported ? (
           <EmptyState
             icon="playlist_play"
-            title="No imported playlists"
-            description="Playlists you import from Home will appear here."
+            title="No hi ha llistes importades"
+            description="Les llistes que importis des de l’Inici apareixeran aquí."
           />
         ) : null}
       </section>
@@ -261,7 +261,7 @@ function CuratedPlaylistCard({
           ) : null}
           <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
             <Icon name="music_note" className="text-[16px]" />
-            {count} {count === 1 ? "track" : "tracks"}
+            {count} {count === 1 ? "cançó" : "cançons"}
           </p>
         </div>
       </Link>
@@ -271,7 +271,7 @@ function CuratedPlaylistCard({
 
 function ImportedPlaylistCard({ playlist }: { playlist: PlaylistV2 }) {
   const count = playlist.item_count;
-  const subtitle = `${count} ${count === 1 ? "video" : "videos"}`;
+  const subtitle = `${count} ${count === 1 ? "vídeo" : "vídeos"}`;
 
   return (
     <Card
@@ -291,7 +291,7 @@ function ImportedPlaylistCard({ playlist }: { playlist: PlaylistV2 }) {
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 p-3">
           <p className="truncate text-title-small text-on-surface">
-            {playlist.title || "Playlist"}
+            {playlist.title || "Llista"}
           </p>
           {playlist.channel ? (
             <p className="truncate text-body-small text-on-surface-variant">

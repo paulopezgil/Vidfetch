@@ -22,6 +22,7 @@ import EmptyState from "../components/EmptyState";
 import Icon from "../components/Icon";
 import IconButton from "../components/IconButton";
 import Menu from "../components/Menu";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import OfflineButton from "../components/OfflineButton";
 import PlaylistCollage from "../components/PlaylistCollage";
 import PlaylistDialog from "../components/PlaylistDialog";
@@ -125,7 +126,7 @@ export default function UserPlaylistDetail() {
           : prev,
       );
       updateTrack(updated);
-      toast("Track actualitzat", "success");
+      toast("Cançó actualitzada", "success");
     },
     [toast, updateTrack],
   );
@@ -170,14 +171,14 @@ export default function UserPlaylistDetail() {
             : prev,
         );
         toast(
-          result.queued ? result.message : "Track tret de la llista",
+          result.queued ? result.message : "Cançó treta de la llista",
           result.queued ? "info" : "success",
         );
       } catch (e) {
         toast(
           e instanceof Error
             ? e.message
-            : "No s’ha pogut treure el track de la llista",
+            : "No s’ha pogut treure la cançó de la llista",
           "error",
         );
       } finally {
@@ -244,7 +245,7 @@ export default function UserPlaylistDetail() {
           to="/playlists"
           className="mb-4 inline-flex items-center gap-1.5 text-label-large text-primary hover:text-primary/80"
         >
-          <Icon name="arrow_back" className="text-[20px]" /> Playlists
+          <Icon name="arrow_back" className="text-[20px]" /> Llistes
         </Link>
         <EmptyState
           icon="playlist_remove"
@@ -280,7 +281,7 @@ export default function UserPlaylistDetail() {
         to="/playlists"
         className="inline-flex w-fit items-center gap-1.5 rounded-full pr-3 text-label-large text-primary hover:text-primary/80"
       >
-        <Icon name="arrow_back" className="text-[20px]" /> Playlists
+        <Icon name="arrow_back" className="text-[20px]" /> Llistes
       </Link>
 
       <Card variant="outlined" className="p-4 sm:p-6">
@@ -296,7 +297,7 @@ export default function UserPlaylistDetail() {
                   {detail.name}
                 </h1>
                 <p className="mt-1 text-body-medium text-on-surface-variant">
-                  {items.length} {items.length === 1 ? "track" : "tracks"}
+                  {items.length} {items.length === 1 ? "cançó" : "cançons"}
                 </p>
                 {detail.description ? (
                   <p className="mt-1 max-w-prose whitespace-pre-line text-body-medium text-on-surface-variant">
@@ -305,17 +306,17 @@ export default function UserPlaylistDetail() {
                 ) : null}
               </div>
               <Menu
-                label="Playlist options"
+                label="Opcions de la llista"
                 actions={[
                   {
                     id: "edit",
-                    label: "Edit details",
+                    label: "Edita els detalls",
                     icon: "edit",
                     onSelect: () => setEditOpen(true),
                   },
                   {
                     id: "delete",
-                    label: "Delete playlist",
+                    label: "Elimina la llista",
                     icon: "delete",
                     onSelect: () => setDeleteOpen(true),
                   },
@@ -326,14 +327,14 @@ export default function UserPlaylistDetail() {
             <div className="mt-6 flex flex-wrap items-center gap-2">
               <Button onClick={playAll} disabled={items.length === 0}>
                 <Icon name="play_arrow" className="text-[18px]" />
-                Play
+                Reprodueix
               </Button>
               <Button
                 variant="outlined"
                 onClick={() => navigate(`/playlists/${detail.id}/add`)}
               >
                 <Icon name="playlist_add" className="text-[18px]" />
-                Afegeix tracks
+                Afegeix cançons
               </Button>
             </div>
           </div>
@@ -363,15 +364,15 @@ export default function UserPlaylistDetail() {
       ) : (
         <EmptyState
           icon="queue_music"
-          title="Aquesta playlist és buida"
-          description="Afegeix tracks de la vostra biblioteca per començar a escoltar-los en ordre."
+          title="Aquesta llista és buida"
+          description="Afegeix cançons de la vostra biblioteca per començar a escoltar-les en ordre."
           action={
             <Button
               variant="outlined"
               onClick={() => navigate(`/playlists/${detail.id}/add`)}
             >
               <Icon name="playlist_add" className="text-[18px]" />
-              Afegeix tracks
+              Afegeix cançons
             </Button>
           }
         />
@@ -398,7 +399,7 @@ export default function UserPlaylistDetail() {
           <>
             S’eliminarà{" "}
             <span className="font-medium text-on-surface">{detail.name}</span>.
-            Els tracks continuen a la vostra biblioteca; els fitxers
+            Les cançons continuen a la vostra biblioteca; els fitxers
             multimèdia compartits no s’eliminen.
           </>
         }
@@ -479,9 +480,12 @@ function PlaylistTrackRow({
       </span>
       <Thumbnail src={src} icon={trackIcon(track)} className="h-12 w-12" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-large text-on-surface">
-          {track.title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-body-large text-on-surface">
+            {track.title}
+          </p>
+          {playerActive ? <NowPlayingIndicator /> : null}
+        </div>
         <p className="mt-0.5 flex items-center gap-2 truncate text-label-medium text-on-surface-variant">
           {track.duration_seconds ? (
             <span className="tabular-nums">

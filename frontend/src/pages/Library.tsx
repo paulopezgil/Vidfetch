@@ -21,6 +21,7 @@ import Card from "../components/Card";
 import Spinner from "../components/Spinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Menu from "../components/Menu";
+import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import AddToPlaylistDialog from "../components/AddToPlaylistDialog";
 import TrackEditDialog from "../components/TrackEditDialog";
 import SearchBar from "../components/SearchBar";
@@ -169,7 +170,7 @@ export default function Library({ kind }: { kind: LibraryKind }) {
     if (!pendingDelete) return;
     try {
       await removeFromLibrary(pendingDelete.id);
-      toast("Track amagat", "success");
+      toast("Tret de la biblioteca", "success");
       setPendingDelete(null);
       // Removing the last item on a page would leave the offset past the end.
       if (items.length === 1 && offset > 0) {
@@ -191,7 +192,7 @@ export default function Library({ kind }: { kind: LibraryKind }) {
       );
       // Keep the docked/full-screen player in step when this row is playing.
       updateTrack(updated);
-      toast("Track actualitzat", "success");
+      toast("Cançó actualitzada", "success");
       void refresh();
     },
     [refresh, toast, updateTrack],
@@ -346,7 +347,7 @@ export default function Library({ kind }: { kind: LibraryKind }) {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Voleu treure el track?"
+        title="Voleu treure aquest element?"
         message={
           <>
             S’amagarà{" "}
@@ -433,7 +434,11 @@ function FileRow({
           <p className="truncate text-title-small text-on-surface">
             {item.title}
           </p>
-          <StatusChip status={item.status} />
+          {playerActive ? (
+            <NowPlayingIndicator />
+          ) : item.status !== "ready" ? (
+            <StatusChip status={item.status} />
+          ) : null}
         </div>
         <p className="mt-0.5 text-body-small text-on-surface-variant">
           {formatBytes(item.file_size_bytes ?? 0)} ·{" "}
@@ -470,7 +475,11 @@ function FileRow({
             <Icon name="download" className="text-[20px]" />
           )}
         </IconButton>
-        <IconButton variant="danger" label="Treu el track" onClick={onDelete}>
+        <IconButton
+          variant="danger"
+          label="Treu de la biblioteca"
+          onClick={onDelete}
+        >
           <Icon name="delete" className="text-[20px]" />
         </IconButton>
         <Menu
@@ -478,7 +487,7 @@ function FileRow({
           actions={[
             {
               id: "add-to-playlist",
-              label: "Afegeix a una playlist",
+              label: "Afegeix a una llista",
               icon: "playlist_add",
               onSelect: onAddToPlaylist,
             },
