@@ -360,7 +360,7 @@ function SharedPlaylistCard({
           </p>
           <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
             <Icon name="music_note" className="text-[16px]" />
-            {count} {count === 1 ? "track" : "tracks"}
+            {count} {count === 1 ? "cançó" : "cançons"}
           </p>
         </div>
       </Link>

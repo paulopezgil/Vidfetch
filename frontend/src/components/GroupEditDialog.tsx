@@ -177,7 +177,7 @@ export default function GroupEditDialog({
       if (failed > 0) {
         // Allow a retry without discarding the typed values.
         setError(
-          `No s’han pogut desar ${failed} de ${tracks.length} tracks. Torna-ho a provar.`,
+          `No s’han pogut desar ${failed} de ${tracks.length} cançons. Torna-ho a provar.`,
         );
         onApplied(failed);
         return;
@@ -219,8 +219,8 @@ export default function GroupEditDialog({
               </h2>
               <p className="mt-0.5 text-body-small text-on-surface-variant">
                 {editingAlbum
-                  ? `S’aplicarà a ${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}. L’artista és opcional.`
-                  : `S’aplicarà a ${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}.`}
+                  ? `S’aplicarà a ${tracks.length} ${tracks.length === 1 ? "cançó" : "cançons"}. L’artista és opcional.`
+                  : `S’aplicarà a ${tracks.length} ${tracks.length === 1 ? "cançó" : "cançons"}.`}
               </p>
             </div>
             <IconButton label="Tanca" onClick={requestClose} disabled={busy}>

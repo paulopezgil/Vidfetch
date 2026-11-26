@@ -246,7 +246,7 @@ export default function SharePlaylistDialog({
 
         <div className="space-y-4 overflow-y-auto px-6 pb-2 pt-5">
           <p className="text-body-medium text-on-surface-variant">
-            Les persones convidades poden escoltar i descarregar els tracks,
+            Les persones convidades poden escoltar i descarregar les cançons,
             però no poden editar la llista.
           </p>
 
