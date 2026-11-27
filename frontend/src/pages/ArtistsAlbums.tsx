@@ -340,7 +340,13 @@ function GroupArtwork({
   variant: GroupTab;
 }) {
   const first = group.tracks[0] ?? null;
-  const artwork = first?.cover_url ?? first?.thumbnail_url ?? null;
+  const { token } = useMediaToken(
+    first && !first.cover_url && !first.thumbnail_url && first.thumbnail_path
+      ? first.asset_id
+      : null,
+  );
+  const artwork =
+    first?.cover_url ?? first?.thumbnail_url ?? token?.thumbnail_url ?? null;
 
   if (variant === "albums") {
     return <AlbumArtwork src={artwork} />;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useImageCache } from "../offline/images";
 import Icon from "./Icon";
 
@@ -16,6 +16,12 @@ export default function Thumbnail({
 }: ThumbnailProps) {
   const [failed, setFailed] = useState(false);
   useImageCache(src);
+
+  // A URL that failed once (for example while a token was unavailable) must be
+  // retried when a cached signed URL arrives.
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
 
   if (!src || failed) {
     return (
