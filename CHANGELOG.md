@@ -6,7 +6,19 @@ Semantic Versioning and are cut from `main`.
 
 ## [Unreleased]
 
-Changes accumulated on `dev` after `v2.4.2`.
+Changes accumulated on `dev` after `v2.4.3`.
+
+### Added
+
+- **Administrator password reset.** The admin user list now has a per-account
+  **Restableix la contrasenya** action. An admin can enter or generate a strong
+  temporary password, which is shown exactly once; the reset revokes every
+  session for that account and writes a secret-free `reset_password` row to the
+  admin audit log.
+
+## [v2.4.3] — 2026-11-27
+
+Patch release for airplane-mode offline recovery and safe PWA updates.
 
 ### Fixed
 
