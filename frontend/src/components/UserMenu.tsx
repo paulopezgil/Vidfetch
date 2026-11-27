@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -102,23 +101,8 @@ export default function UserMenu() {
     }
   }
 
-  // Page destinations the main navigation no longer carries. They sit above
-  // the account actions and close the menu before routing.
-  const navigationItems: MenuItem[] = [
-    {
-      id: "info",
-      label: "Informació",
-      icon: "info",
-      onSelect: () => navigate("/install"),
-    },
-    {
-      id: "settings",
-      label: "Configuració",
-      icon: "settings",
-      onSelect: () => navigate("/settings"),
-    },
-  ];
-
+  // Informació and Configuració are top-level destinations now, so the menu
+  // only carries the account actions (plus the admin shortcut).
   const accountItems: MenuItem[] = [
     {
       id: "switch-account",
@@ -142,8 +126,7 @@ export default function UserMenu() {
     });
   }
 
-  const items = [...navigationItems, ...accountItems];
-  const accountSeparatorIndex = navigationItems.length;
+  const items = accountItems;
 
   function focusItem(index: number) {
     const count = itemRefs.current.length;
@@ -234,31 +217,24 @@ export default function UserMenu() {
           <div role="separator" className="my-1 h-px bg-outline-variant" />
 
           {items.map((item, index) => (
-            <Fragment key={item.id}>
-              {index === accountSeparatorIndex ? (
-                <div
-                  role="separator"
-                  className="my-1 h-px bg-outline-variant"
-                />
-              ) : null}
-              <button
-                ref={(element) => {
-                  itemRefs.current[index] = element;
-                }}
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                disabled={busy}
-                onClick={() => {
-                  close(true);
-                  item.onSelect();
-                }}
-                className="flex h-12 w-full items-center gap-3 px-3 text-left text-label-large text-on-surface transition-colors hover:bg-on-surface/8 focus-visible:bg-on-surface/12 focus-visible:outline-none active:bg-on-surface/12 disabled:pointer-events-none disabled:opacity-[0.38]"
-              >
-                <Icon name={item.icon} className="text-[20px]" />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              </button>
-            </Fragment>
+            <button
+              key={item.id}
+              ref={(element) => {
+                itemRefs.current[index] = element;
+              }}
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              disabled={busy}
+              onClick={() => {
+                close(true);
+                item.onSelect();
+              }}
+              className="flex h-12 w-full items-center gap-3 px-3 text-left text-label-large text-on-surface transition-colors hover:bg-on-surface/8 focus-visible:bg-on-surface/12 focus-visible:outline-none active:bg-on-surface/12 disabled:pointer-events-none disabled:opacity-[0.38]"
+            >
+              <Icon name={item.icon} className="text-[20px]" />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            </button>
           ))}
         </div>
       ) : null}

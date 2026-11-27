@@ -66,7 +66,14 @@ function initialSort(): SortMode {
   }
 }
 
-export default function Library({ kind }: { kind: LibraryKind }) {
+export default function Library({
+  kind,
+  embedded = false,
+}: {
+  kind: LibraryKind;
+  /** Renders inside the Biblioteca hub, which owns the page padding. */
+  embedded?: boolean;
+}) {
   const toast = useToast();
   const { jobs } = useDownloads();
   const { updateTrack } = usePlayer();
@@ -223,9 +230,12 @@ export default function Library({ kind }: { kind: LibraryKind }) {
   const isEmpty = visibleTracks.length === 0;
   const sortLabel =
     sort === "title" ? "Títol (A–Z)" : "Data de descàrrega";
+  const containerClass = embedded
+    ? "w-full space-y-6"
+    : "mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8";
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className={containerClass}>
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
       <div className="flex items-center gap-2">
