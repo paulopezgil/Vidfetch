@@ -5,6 +5,8 @@ import io
 import zipfile
 from uuid import uuid4
 
+from backend.app.api.routes.playlists import _item_out
+from backend.app.services.signing import verify_media_token
 from backend.app.services.storage import Storage
 from backend.tests.v2.fakes import (
     FakeDatabase,
@@ -17,6 +19,8 @@ from backend.tests.v2.fakes import (
     playlist_row,
     profile_row,
 )
+
+MEDIA_SECRET = "test-media-secret-playlists"
 
 
 def _approved():
@@ -91,6 +95,67 @@ def test_get_playlist_returns_items_in_position_order(tmp_path):
     assert body["items"][1]["status"] == "ready"
     assert body["items"][1]["asset_id"] == str(second["asset_id"])
     assert "user_id = $2" in db.calls[1][1]
+
+
+def test_get_playlist_signs_item_thumbnail_urls(tmp_path):
+    settings = make_settings(
+        tmp_path,
+        MEDIA_TOKEN_SECRET=MEDIA_SECRET,
+        PUBLIC_API_URL="https://api.example.test",
+    )
+    profile = _approved()
+    playlist = playlist_row(user_id=profile["id"])
+    asset_id = uuid4()
+    with_thumbnail = playlist_item_row(
+        playlist_id=playlist["id"],
+        position=1,
+        status="ready",
+        asset_id=asset_id,
+        asset_thumbnail_path=f"assets/{asset_id}/thumb.jpg",
+    )
+    without_thumbnail = playlist_item_row(
+        playlist_id=playlist["id"],
+        position=2,
+        status="ready",
+        asset_id=uuid4(),
+        asset_thumbnail_path=None,
+    )
+    without_asset = playlist_item_row(
+        playlist_id=playlist["id"],
+        position=3,
+        status="pending",
+        asset_thumbnail_path=None,
+    )
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, playlist)
+    db.queue_fetch([with_thumbnail, without_thumbnail, without_asset])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            f"/api/playlists/{playlist['id']}", headers=_headers(profile)
+        )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    signed = items[0]["thumbnail_url"]
+    assert signed.startswith(
+        f"https://api.example.test/api/thumbnails/{asset_id}?token="
+    )
+    claims = verify_media_token(signed.split("token=", 1)[1], MEDIA_SECRET)
+    assert claims.asset_id == str(asset_id)
+    assert claims.user_id == str(profile["id"])
+    assert items[1]["thumbnail_url"] is None
+    assert items[2]["thumbnail_url"] is None
+    # The storage-relative path is internal and must never leak.
+    assert all("asset_thumbnail_path" not in item for item in items)
+    assert "asset_thumbnail_path" not in _item_out(
+        settings, profile["id"], dict(with_thumbnail)
+    )
+
+    query = db.calls[2][1]
+    assert "left join" in query
+    assert "a.thumbnail_path as asset_thumbnail_path" in query
+    assert "order by pi.position asc, pi.id asc" in query
 
 
 def test_get_playlist_hides_another_users_playlist(tmp_path):

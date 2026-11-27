@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
+from ...core.config import Settings
 from ...core.db import DB_UNAVAILABLE, Database
 from ...models.schemas import (
     PlaylistDetailOut,
@@ -19,8 +20,9 @@ from ...models.schemas import (
 )
 from ...services import assets, playlists
 from ...services.filenames import sanitize_filename
+from ...services.signing import sign_media_token
 from ...services.storage import Storage
-from ..deps import get_db, get_storage, require_approved
+from ..deps import get_db, get_settings, get_storage, require_approved
 from ..errors import ApiError
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
@@ -44,6 +46,38 @@ def _empty_zip() -> ApiError:
         "playlist_empty",
         "This playlist has no downloadable files yet.",
     )
+
+
+def _public_url(settings: Settings, path: str) -> str:
+    """Prefix an API path with ``PUBLIC_API_URL`` when one is configured."""
+    return f"{settings.public_api_url}{path}" if settings.public_api_url else path
+
+
+def _item_thumbnail_url(
+    settings: Settings,
+    user_id: UUID,
+    item: dict,
+) -> str | None:
+    """Build a signed thumbnail URL for an item whose asset has a thumbnail."""
+    relative = str(item.get("asset_thumbnail_path") or "").strip()
+    asset_id = item.get("asset_id")
+    if not relative or asset_id is None:
+        return None
+    token = sign_media_token(
+        settings.media_token_secret,
+        str(asset_id),
+        str(user_id),
+        settings.media_token_ttl_seconds,
+    )
+    return _public_url(settings, f"/api/thumbnails/{asset_id}?token={token}")
+
+
+def _item_out(settings: Settings, user_id: UUID, row: dict) -> dict:
+    """Return an item mapping with a signed URL and no internal path."""
+    data = dict(row)
+    data.pop("asset_thumbnail_path", None)
+    data["thumbnail_url"] = _item_thumbnail_url(settings, user_id, row)
+    return data
 
 
 @router.get("", response_model=PlaylistList)
@@ -75,6 +109,7 @@ async def get_playlist(
     playlist_id: UUID,
     profile: ProfileOut = Depends(require_approved),
     db: Database | None = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PlaylistDetailOut:
     """Return one of the caller's playlists with its items."""
     if db is None:
@@ -85,12 +120,21 @@ async def get_playlist(
         )
         if row is None:
             raise _not_found()
-        items = await playlists.list_items(db, playlist_id)
+        items = await playlists.list_items_with_thumbnail_paths(
+            db, playlist_id
+        )
     except ValueError as exc:
         raise _not_found() from exc
     except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
-    return PlaylistDetailOut.model_validate({**row, "items": items})
+    return PlaylistDetailOut.model_validate(
+        {
+            **row,
+            "items": [
+                _item_out(settings, profile.id, item) for item in items
+            ],
+        }
+    )
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)
