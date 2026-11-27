@@ -5,13 +5,17 @@ import base64
 from datetime import datetime, timezone
 
 import pytest
+from fastapi.testclient import TestClient
 
-from backend.app.services import assets, jobs, library, tracks
+from backend.app.core.config import Settings
+from backend.app.main import create_app
+from backend.app.services import assets, auth, jobs, library, tracks
 from backend.tests.integration.conftest import (
     cleanup_test_data,
     create_profile,
     create_ready_job,
     make_ready_asset,
+    unique_email,
 )
 
 pytestmark = pytest.mark.integration
@@ -513,3 +517,152 @@ def test_tracks_sort_by_download_date_or_resolved_title_across_pages(
             )
 
     db_run(scenario)
+
+
+def test_tracks_api_filters_by_media_kind_across_pages(
+    database_url, db_run, media_storage
+):
+    """The server-side kind filter must page over one media type only."""
+    email = unique_email("itest-kind")
+    state: dict = {}
+
+    async def seed(db):
+        session = await auth.register(db, email, "kind-password-1")
+        await db.execute(
+            f"update {db.schema_sql}.profiles set is_approved = true "
+            "where id = $1",
+            session.profile["id"],
+        )
+        canonical_ids = [
+            "youtube:kind-audio",
+            "youtube:kind-video",
+            "youtube:kind-image",
+            "youtube:kind-unknown",
+        ]
+        seeds = [
+            ("youtube:kind-audio", "Audio Song", "mp3", "2026-01-01"),
+            ("youtube:kind-video", "Video Clip", "mp4", "2026-02-01"),
+            ("youtube:kind-image", "Image Plate", "png", "2026-03-01"),
+            # An unrecognised container must be treated as video, not dropped.
+            ("youtube:kind-unknown", "Unknown Container", "mkv", "2026-04-01"),
+        ]
+        for canonical, title, extension, completed in seeds:
+            asset = await make_ready_asset(
+                db,
+                media_storage,
+                canonical_id=canonical,
+                title=title,
+                output_ext=extension,
+            )
+            await create_ready_job(
+                db,
+                user_id=session.profile["id"],
+                asset_id=asset["id"],
+                title=title,
+                completed_at=datetime.fromisoformat(completed).replace(
+                    tzinfo=timezone.utc
+                ),
+            )
+        state.update(
+            token=session.token,
+            profile_id=session.profile["id"],
+            canonical_ids=canonical_ids,
+        )
+
+    try:
+        db_run(seed)
+        settings = Settings.from_env(
+            {
+                "ENVIRONMENT": "test",
+                "DATABASE_URL": database_url,
+                "MEDIA_TOKEN_SECRET": "itest-media-secret",
+                "DOWNLOAD_DIR": str(media_storage.root),
+            }
+        )
+        headers = {"Authorization": f"Bearer {state['token']}"}
+        with TestClient(create_app(settings)) as client:
+            everything = client.get("/api/tracks?limit=50", headers=headers)
+            assert everything.status_code == 200, everything.text
+            assert everything.json()["total"] == 4
+
+            audio = client.get(
+                "/api/tracks", params={"kind": "audio"}, headers=headers
+            )
+            assert audio.status_code == 200, audio.text
+            assert audio.json()["total"] == 1
+            assert [item["output_ext"] for item in audio.json()["items"]] == [
+                "mp3"
+            ]
+
+            image = client.get(
+                "/api/tracks", params={"kind": "image"}, headers=headers
+            )
+            assert image.status_code == 200, image.text
+            assert image.json()["total"] == 1
+            assert [item["output_ext"] for item in image.json()["items"]] == [
+                "png"
+            ]
+
+            video = client.get(
+                "/api/tracks", params={"kind": "video"}, headers=headers
+            )
+            assert video.status_code == 200, video.text
+            assert video.json()["total"] == 2
+            assert [
+                (item["title"], item["output_ext"])
+                for item in video.json()["items"]
+            ] == [
+                ("Unknown Container", "mkv"),
+                ("Video Clip", "mp4"),
+            ]
+
+            # The kind filter pages independently: two one-item pages cover the
+            # video set in the same order as the full request, with no overlap.
+            full = client.get(
+                "/api/tracks",
+                params={"kind": "video", "sort": "title", "limit": 10},
+                headers=headers,
+            )
+            assert full.status_code == 200, full.text
+            expected_ids = [item["id"] for item in full.json()["items"]]
+            assert len(expected_ids) == 2
+
+            pages: list[str] = []
+            for offset in (0, 1):
+                page = client.get(
+                    "/api/tracks",
+                    params={
+                        "kind": "video",
+                        "sort": "title",
+                        "limit": 1,
+                        "offset": offset,
+                    },
+                    headers=headers,
+                )
+                assert page.status_code == 200, page.text
+                assert page.json()["total"] == 2
+                assert page.json()["limit"] == 1
+                assert page.json()["offset"] == offset
+                pages.extend(item["id"] for item in page.json()["items"])
+            assert pages == expected_ids
+            assert len(set(pages)) == 2
+
+            # Search composes with the kind filter instead of broadening it.
+            searched = client.get(
+                "/api/tracks",
+                params={"kind": "video", "q": "audio"},
+                headers=headers,
+            )
+            assert searched.status_code == 200, searched.text
+            assert searched.json()["total"] == 0
+    finally:
+        async def cleanup(db):
+            await db.execute(
+                f"delete from {db.schema_sql}.profiles where id = $1",
+                state["profile_id"],
+            )
+            await cleanup_test_data(
+                db, canonical_ids=state.get("canonical_ids", [])
+            )
+
+        db_run(cleanup)

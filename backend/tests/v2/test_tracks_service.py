@@ -643,3 +643,96 @@ def test_list_tracks_rejects_an_unknown_sort_before_querying():
         run(tracks.list_tracks(db, uuid4(), sort="album"))
 
     assert db.calls == []
+
+
+def _track_kind_queries(kind: str, **kwargs):
+    """Run one list with ``kind`` and return its owner, queries, and args."""
+    owner = uuid4()
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, owner, kind=kind, **kwargs))
+
+    count_query, count_args = db.calls[0][1], db.calls[0][2]
+    page_query, page_args = db.calls[1][1], db.calls[1][2]
+    return owner, count_query, count_args, page_query, page_args
+
+
+def test_list_tracks_audio_kind_filters_on_the_audio_extensions():
+    owner, count_query, count_args, page_query, page_args = (
+        _track_kind_queries("audio", q="mix", limit=7, offset=14)
+    )
+
+    expected = (
+        "and (regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '') "
+        "= any(array['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus']))"
+    )
+    assert expected in count_query
+    assert expected in page_query
+    assert "array['jpg'" not in count_query
+    # The existing positional parameters keep their meaning and order.
+    assert count_args == (owner, "mix")
+    assert page_args == (owner, "mix", 7, 14)
+    assert "limit $3 offset $4" in page_query
+
+
+def test_list_tracks_image_kind_filters_on_the_image_extensions():
+    owner, count_query, count_args, page_query, page_args = (
+        _track_kind_queries("image")
+    )
+
+    expected = (
+        "and (regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '') "
+        "= any(array['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp']))"
+    )
+    assert expected in count_query
+    assert expected in page_query
+    assert "array['mp3'" not in count_query
+    assert count_args == (owner, "")
+    assert page_args == (owner, "", 50, 0)
+
+
+def test_list_tracks_video_kind_is_the_complement_of_audio_and_image():
+    owner, count_query, count_args, page_query, page_args = (
+        _track_kind_queries("video")
+    )
+
+    expression = "regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '')"
+    audio = (
+        f"{expression} = any(array['mp3', 'm4a', 'aac', 'wav', "
+        "'flac', 'ogg', 'opus'])"
+    )
+    image = (
+        f"{expression} = any(array['jpg', 'jpeg', 'png', 'webp', "
+        "'gif', 'avif', 'bmp'])"
+    )
+    expected = f"and (not ({audio} or {image}))"
+    assert expected in count_query
+    assert expected in page_query
+    # NULL/unknown extensions fall through COALESCE to '' and therefore match
+    # the video complement instead of disappearing from every view.
+    assert "coalesce(a.output_ext, '')" in page_query
+    assert count_args == (owner, "")
+    assert page_args == (owner, "", 50, 0)
+
+
+def test_list_tracks_rejects_an_unknown_kind_before_querying():
+    db = FakeDatabase()
+
+    with pytest.raises(ValueError, match="Invalid track kind"):
+        run(tracks.list_tracks(db, uuid4(), kind="music"))
+
+    assert db.calls == []
+
+
+def test_list_tracks_without_a_kind_keeps_every_media_type():
+    db = FakeDatabase()
+    db.queue_fetchrow({"total": 0})
+    db.queue_fetch([])
+
+    run(tracks.list_tracks(db, uuid4()))
+
+    count_query = db.calls[0][1]
+    assert "output_ext" not in count_query
+    assert "not (" not in count_query

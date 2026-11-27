@@ -54,6 +54,10 @@ def _invalid_metadata() -> ApiError:
     return ApiError(400, "invalid_request", "Invalid track metadata.")
 
 
+def _invalid_query() -> ApiError:
+    return ApiError(400, "invalid_request", "Invalid request parameters.")
+
+
 def _public_url(settings: Settings, path: str) -> str:
     """Prefix an API path with ``PUBLIC_API_URL`` when one is configured."""
     return f"{settings.public_api_url}{path}" if settings.public_api_url else path
@@ -114,6 +118,7 @@ async def list_tracks(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200),
     sort: Literal["downloaded", "title"] = Query(default="downloaded"),
+    kind: Literal["audio", "video", "image"] | None = Query(default=None),
     profile: ProfileOut = Depends(require_approved),
     settings: Settings = Depends(get_settings),
     db: Database | None = Depends(get_db),
@@ -121,14 +126,24 @@ async def list_tracks(
     """List the caller's visible tracks.
 
     ``sort=downloaded`` (default) is newest download first; ``sort=title`` is
-    alphabetical by the resolved title the client displays.
+    alphabetical by the resolved title the client displays. ``kind`` keeps only
+    audio, video, or image tracks (by output extension) so the Songs and Videos
+    views page over their own media kind instead of filtering a mixed page.
     """
     if db is None:
         raise _unavailable()
     try:
         rows, total = await tracks.list_tracks(
-            db, profile.id, limit=limit, offset=offset, q=q, sort=sort
+            db,
+            profile.id,
+            limit=limit,
+            offset=offset,
+            q=q,
+            sort=sort,
+            kind=kind,
         )
+    except ValueError as exc:
+        raise _invalid_query() from exc
     except DB_UNAVAILABLE as exc:
         raise _unavailable() from exc
     return TrackList(
