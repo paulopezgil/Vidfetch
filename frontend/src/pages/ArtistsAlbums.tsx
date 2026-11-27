@@ -72,9 +72,17 @@ function groupTracks(
 }
 
 /** Artists and albums derived from the caller's tracks, with drill-down. */
-export default function ArtistsAlbums() {
+export default function ArtistsAlbums({
+  initialTab = "artists",
+  embedded = false,
+}: {
+  /** Section requested by the route, also used to resync on navigation. */
+  initialTab?: GroupTab;
+  /** Renders inside the Biblioteca hub, which owns the section switch. */
+  embedded?: boolean;
+}) {
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [tab, setTab] = useState<GroupTab>("artists");
+  const [tab, setTab] = useState<GroupTab>(initialTab);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +112,13 @@ export default function ArtistsAlbums() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The hub switch navigates between `/library/albums` and
+  // `/library/artists`; follow the new route and close any drill-down.
+  useEffect(() => {
+    setTab(initialTab);
+    setSelected(null);
+  }, [initialTab]);
 
   const artists = useMemo(
     () => groupTracks(tracks, (track) => track.artist, UNKNOWN_ARTIST),
@@ -155,8 +170,12 @@ export default function ArtistsAlbums() {
     );
   }
 
+  const containerClass = embedded
+    ? "w-full space-y-6"
+    : "mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8";
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className={containerClass}>
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
       {!error && tracks.length === 0 ? (
@@ -169,14 +188,16 @@ export default function ArtistsAlbums() {
 
       {tracks.length > 0 ? (
         <>
-          <div className="px-1">
-            <SegmentedButton
-              options={tabOptions}
-              value={tab}
-              onChange={changeTab}
-              label="Agrupa la música per"
-            />
-          </div>
+          {!embedded ? (
+            <div className="px-1">
+              <SegmentedButton
+                options={tabOptions}
+                value={tab}
+                onChange={changeTab}
+                label="Agrupa la música per"
+              />
+            </div>
+          ) : null}
 
           {selectedGroup ? (
             <section

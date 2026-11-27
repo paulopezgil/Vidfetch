@@ -34,7 +34,8 @@ const PlaylistDetail = lazy(() => import("./pages/PlaylistDetail"));
 const UserPlaylistDetail = lazy(() => import("./pages/UserPlaylistDetail"));
 const PlaylistAddTracks = lazy(() => import("./pages/PlaylistAddTracks"));
 const ArtistsAlbums = lazy(() => import("./pages/ArtistsAlbums"));
-const InstallGuide = lazy(() => import("./pages/InstallGuide"));
+const LibraryHub = lazy(() => import("./pages/LibraryHub"));
+const HelpPage = lazy(() => import("./pages/HelpPage"));
 const Settings = lazy(() => import("./pages/Settings"));
 
 /** Shared loading state for every lazily loaded route. */
@@ -113,12 +114,59 @@ export default function App() {
                 <Route element={<RequireApproved />}>
                   <Route element={<AppShell />}>
                     <Route path="/" element={<Dashboard />} />
-                    <Route path="/songs" element={<Library kind="audio" />} />
-                    <Route path="/videos" element={<Library kind="video" />} />
+
+                    {/* One Biblioteca destination with four sections. The
+                        hub owns the section switch and the page padding; each
+                        section renders embedded below it. */}
+                    <Route path="/library" element={<LibraryHub />}>
+                      <Route
+                        index
+                        element={<Navigate to="/library/songs" replace />}
+                      />
+                      <Route
+                        path="songs"
+                        element={<Library kind="audio" embedded />}
+                      />
+                      <Route
+                        path="videos"
+                        element={<Library kind="video" embedded />}
+                      />
+                      <Route
+                        path="albums"
+                        element={
+                          <ArtistsAlbums initialTab="albums" embedded />
+                        }
+                      />
+                      <Route
+                        path="artists"
+                        element={
+                          <ArtistsAlbums initialTab="artists" embedded />
+                        }
+                      />
+                    </Route>
+                    <Route
+                      path="/library/playlist/:id"
+                      element={<LegacyPlaylistRedirect />}
+                    />
+
+                    {/* Old library paths stay usable for bookmarks and links. */}
+                    <Route
+                      path="/songs"
+                      element={<Navigate to="/library/songs" replace />}
+                    />
+                    <Route
+                      path="/videos"
+                      element={<Navigate to="/library/videos" replace />}
+                    />
+                    <Route
+                      path="/artists"
+                      element={<Navigate to="/library/artists" replace />}
+                    />
                     <Route
                       path="/tracks"
-                      element={<Navigate to="/songs" replace />}
+                      element={<Navigate to="/library/songs" replace />}
                     />
+
                     <Route path="/playlists" element={<Playlists />} />
                     <Route
                       path="/playlists/:id/add"
@@ -129,17 +177,12 @@ export default function App() {
                       element={<UserPlaylistDetail />}
                     />
                     <Route path="/imported/:id" element={<PlaylistDetail />} />
-                    <Route path="/artists" element={<ArtistsAlbums />} />
-                    <Route path="/install" element={<InstallGuide />} />
+                    <Route path="/help" element={<HelpPage />} />
+                    <Route
+                      path="/install"
+                      element={<Navigate to="/help" replace />}
+                    />
                     <Route path="/settings" element={<Settings />} />
-                    <Route
-                      path="/library"
-                      element={<Navigate to="/songs" replace />}
-                    />
-                    <Route
-                      path="/library/playlist/:id"
-                      element={<LegacyPlaylistRedirect />}
-                    />
 
                     <Route element={<RequireAdmin />}>
                       <Route path="/admin" element={<AdminPage />} />
