@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthProvider";
 import type { AdminUser, AdminUserList } from "../types/auth";
 import { approveUser, listAdminUsers, revokeUser } from "../lib/api";
 import { formatDate } from "../lib";
+import AdminPasswordResetDialog from "../components/AdminPasswordResetDialog";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -56,6 +57,7 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [resetUser, setResetUser] = useState<AdminUser | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -197,7 +199,21 @@ export default function AdminPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button
+                      variant="outlined"
+                      size="sm"
+                      onClick={() => setResetUser(user)}
+                      disabled={isSelf || busyId !== null}
+                      title={
+                        isSelf
+                          ? "Utilitza Configuració per canviar la teva contrasenya"
+                          : undefined
+                      }
+                    >
+                      <Icon name="key" className="text-[18px]" />
+                      Restableix la contrasenya
+                    </Button>
                     {user.is_approved ? (
                       <Button
                         variant="outlined"
@@ -238,6 +254,15 @@ export default function AdminPage() {
           </Card>
         </>
       )}
+
+      <AdminPasswordResetDialog
+        open={resetUser !== null}
+        user={resetUser}
+        onClose={() => setResetUser(null)}
+        onReset={(user) =>
+          toast(`Contrasenya restablerta per a ${user.email}`, "success")
+        }
+      />
     </div>
   );
 }

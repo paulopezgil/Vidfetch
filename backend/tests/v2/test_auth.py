@@ -8,6 +8,7 @@ network or Postgres. SQL-shape assertions pin the security-critical clauses
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -471,6 +472,16 @@ def test_admin_can_reset_a_password_and_revoke_every_session(tmp_path):
     assert "token_hash <>" not in delete_query
     assert delete_args == (target_id,)
 
+    audit_query, audit_args = _calls_containing(db, "admin_audit_log")[-1][1:3]
+    assert "insert into" in audit_query
+    assert audit_args[0] == admin["id"]
+    assert audit_args[1] == "reset_password"
+    assert audit_args[2] == target_id
+    assert json.loads(audit_args[3]) == {"source": "admin_panel"}
+    # Neither the new password nor its Argon2id hash is written to the audit row.
+    assert "reset-by-admin" not in audit_args[3]
+    assert update_args[1] not in audit_args[3]
+
 
 def test_admin_reset_of_an_unknown_user_is_404(tmp_path):
     settings = make_settings(tmp_path)
@@ -539,6 +550,8 @@ def test_set_password_optionally_revokes_all_sessions():
     update_query, update_args = _calls_containing(db, "set password_hash")[-1][1:3]
     assert verify_password(update_args[1], "another-password")
     assert _calls_containing(db, "delete from")[-1][2] == (user_id,)
+    # Non-admin callers (no actor) never write an audit entry.
+    assert not _calls_containing(db, "admin_audit_log")
 
 
 # ---------------------------------------------------------------------------

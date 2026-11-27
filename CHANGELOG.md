@@ -4,9 +4,21 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.4.3`.
+
+### Added
+
+- **Administrator password reset.** The admin user list now has a per-account
+  **Restableix la contrasenya** action. An admin can enter or generate a strong
+  temporary password, which is shown exactly once; the reset revokes every
+  session for that account and writes a secret-free `reset_password` row to the
+  admin audit log.
+
 ## [v2.4.3] — 2026-11-27
 
-Patch release for the airplane-mode offline recovery and safe PWA updates.
+Patch release for airplane-mode offline recovery and safe PWA updates.
 
 ### Fixed
 

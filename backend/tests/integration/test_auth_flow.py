@@ -5,6 +5,8 @@ the HTTP surface with the real pool (which the fake-database tests cannot).
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,7 +14,12 @@ from backend.app.core.config import Settings
 from backend.app.core.security import hash_session_token, verify_password
 from backend.app.main import create_app
 from backend.app.services import auth
-from backend.tests.integration.conftest import delete_profiles, unique_email
+from backend.tests.integration.conftest import (
+    cleanup_test_data,
+    create_profile,
+    delete_profiles,
+    unique_email,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -189,6 +196,50 @@ def test_admin_password_reset_revokes_every_session(db_run):
             ).profile["id"] == registered.profile["id"]
         finally:
             await delete_profiles(db, email)
+
+    db_run(scenario)
+
+
+def test_admin_password_reset_writes_a_secret_free_audit_row(db_run):
+    async def scenario(db):
+        admin = await create_profile(
+            db, email=unique_email("itest-reset-admin"), app_role="admin"
+        )
+        target = await create_profile(db, email=unique_email("itest-reset-target"))
+        profiles = [admin, target]
+        try:
+            assert await auth.set_password(
+                db,
+                target["id"],
+                "audited-reset-2",
+                revoke_sessions=True,
+                actor_id=admin["id"],
+            )
+
+            audit = await db.fetchrow(
+                f"select actor_id, action, target_user_id, metadata "
+                f"from {db.schema_sql}.admin_audit_log "
+                "where action = 'reset_password' and target_user_id = $1",
+                target["id"],
+            )
+            assert audit is not None
+            assert audit["actor_id"] == admin["id"]
+            assert audit["action"] == "reset_password"
+            assert audit["target_user_id"] == target["id"]
+            assert audit["metadata"] == {"source": "admin_panel"}
+
+            # The reset really happened and the audit row carries no secret.
+            stored = await db.fetchrow(
+                f"select password_hash from {db.schema_sql}.profiles "
+                "where id = $1",
+                target["id"],
+            )
+            assert verify_password(stored["password_hash"], "audited-reset-2")
+            serialized = json.dumps(audit["metadata"])
+            assert "audited-reset-2" not in serialized
+            assert stored["password_hash"] not in serialized
+        finally:
+            await cleanup_test_data(db, profiles=profiles)
 
     db_run(scenario)
 
