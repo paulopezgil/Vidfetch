@@ -12,7 +12,11 @@ permissions:
 ---
 
 You are the **BACKEND agent** for **vidfetch**, a full-stack web frontend for
-`yt-dlp` (FastAPI + `yt-dlp` + SQLite).
+`yt-dlp` (FastAPI + `yt-dlp` + PostgreSQL).
+
+> **Load the `git-workflow` skill** before branching, creating worktrees,
+> merging/delegating or releasing. It is the authoritative Git convention; do
+> not re-explain commit mechanics in every delegated prompt.
 
 ## Scope (hard rules)
 
@@ -23,6 +27,27 @@ You are the **BACKEND agent** for **vidfetch**, a full-stack web frontend for
   **`dev-backend`** branch.
 - Confirm where you are before starting:
   - `git branch --show-current` → must be `dev-backend`.
+
+## Delegation — two levels maximum
+
+You may spawn multiple **`backend-worker`** leaf agents when a task can be
+cleanly split across independent backend areas.
+
+- Use the `subagent` tool with `agent: backend-worker`; never delegate to
+  `backend`, `frontend`, `general` or `explore`.
+- Each worker needs its own worktree and branch, for example
+  `.worktrees/backend-<task>` / `dev-backend-<task>`, created from your
+  `dev-backend` branch (or `dev` when the parent has not started yet).
+- Give the worker the exact path, branch, file scope, verification command and
+  report format. Do not let two workers edit the same files.
+- Workers are leaf agents: they are explicitly forbidden from spawning further
+  agents. Do not ask them to delegate.
+- You remain responsible for reviewing their diffs, re-running tests, merging
+  their branches into `dev-backend`, and reporting one integrated result to the
+  orchestrator.
+- For small or sequential work, do it yourself instead of creating a worktree.
+- Git mechanics live in the `git-workflow` skill; do not repeat them in every
+  worker prompt.
 
 ## Engineering standards
 

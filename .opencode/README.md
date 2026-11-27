@@ -15,8 +15,14 @@ scope and worktree details on top of those rules.
 | Agent | Mode | Where to run it | Purpose |
 | --- | --- | --- | --- |
 | `orchestrator` | primary | main checkout (on `dev`) | Owns the Git workflow, verifies and merges work, ships releases from `main` |
-| `backend` | all | backend worktree (on `dev-backend`) | Backend (FastAPI + yt-dlp), one commit per prompt, real tests |
-| `frontend` | all | frontend worktree (on `dev-frontend`) | Material Design 3 UI, one commit per prompt |
+| `backend` | all | backend worktree (on `dev-backend`) | Backend (FastAPI + yt-dlp), delegates to `backend-worker` leaves, one commit per prompt, real tests |
+| `frontend` | all | frontend worktree (on `dev-frontend`) | Material Design 3 UI, delegates to `frontend-worker` leaves, one commit per prompt |
+| `backend-worker` | subagent | its own assigned backend worktree | Leaf backend worker; cannot spawn agents |
+| `frontend-worker` | subagent | its own assigned frontend worktree | Leaf frontend worker; cannot spawn agents |
+
+Delegation depth is capped at two levels:
+`orchestrator → backend/frontend → backend-worker/frontend-worker`. Workers never
+delegate further.
 
 ## Usage
 

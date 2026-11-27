@@ -185,8 +185,22 @@ git push origin main --tags   # only when the human authorized the push
 
 - `backend` — see `.opencode/agents/backend.md`.
 - `frontend` — see `.opencode/agents/frontend.md`.
+- `backend-worker` / `frontend-worker` — leaf workers used only by the matching
+  parent agent. They cannot delegate.
 
-Delegate to them with the `subagent` tool when useful, or instruct the human to
-run them in their own worktree windows. When you delegate, always include: the
-task, the scope reminder, the verify-before-commit requirement, the one-commit
-rule, and the required report format.
+The allowed delegation depth is fixed:
+
+```text
+orchestrator -> backend/frontend -> backend-worker/frontend-worker (leaf)
+```
+
+The `backend` and `frontend` agents may spawn multiple leaf workers of their own
+domain, each in its own worktree, to parallelize independent file areas. Do not
+delegate directly to a leaf worker from the orchestrator, and never ask a leaf
+worker to delegate.
+
+Delegate to `backend`/`frontend` with the `subagent` tool when useful, or instruct
+the human to run them in their own worktree windows. When you delegate, include:
+the task, the scope reminder, the verify-before-commit requirement, the one-commit
+rule, and the required report format. Git mechanics live in the `git-workflow`
+skill; do not repeat them in every prompt.

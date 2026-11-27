@@ -20,6 +20,7 @@ Read only the references needed for the task:
 | Branch model, release sequence, hotfixes | `references/branches-and-releases.md` |
 | `MAJOR.MINOR.PATCH` meaning and version files | `references/versioning.md` |
 | Creating, syncing and removing worktrees | `references/worktrees.md` |
+| Allowed agent depth and leaf workers | `references/agent-delegation.md` |
 | Verifying and merging subagent branches | `references/subagent-merges.md` |
 | Permission and setup for the GitHub CLI | `references/gh.md` |
 
