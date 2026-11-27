@@ -460,13 +460,6 @@ function FileRow({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <IconButton
-            variant="danger"
-            label="Treu de la biblioteca"
-            onClick={onDelete}
-          >
-            <Icon name="delete" className="text-[20px]" />
-          </IconButton>
           <Menu
             label="Més accions"
             actions={[
@@ -487,6 +480,13 @@ function FileRow({
                 label: "Edita els detalls",
                 icon: "edit",
                 onSelect: onEdit,
+              },
+              {
+                id: "delete",
+                label: "Treu de la biblioteca",
+                icon: "delete",
+                danger: true,
+                onSelect: onDelete,
               },
             ]}
           />

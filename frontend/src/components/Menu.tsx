@@ -20,6 +20,8 @@ export interface MenuAction {
   icon?: string;
   /** Checkmark state for radio-style menus such as sorting. */
   selected?: boolean;
+  /** Destructive actions use the error role for text and hover states. */
+  danger?: boolean;
   onSelect: () => void;
 }
 
@@ -273,7 +275,11 @@ export default function Menu({
                     close(true);
                     action.onSelect();
                   }}
-                  className="flex h-12 w-full items-center gap-3 px-3 text-left text-label-large text-on-surface transition-colors hover:bg-on-surface/8 focus-visible:bg-on-surface/12 focus-visible:outline-none active:bg-on-surface/12"
+                  className={`flex h-12 w-full items-center gap-3 px-3 text-left text-label-large transition-colors focus-visible:outline-none ${
+                    action.danger
+                      ? "text-error hover:bg-error/8 focus-visible:bg-error/12 active:bg-error/12"
+                      : "text-on-surface hover:bg-on-surface/8 focus-visible:bg-on-surface/12 active:bg-on-surface/12"
+                  }`}
                 >
                   {action.icon ? (
                     <Icon name={action.icon} className="text-[20px]" />

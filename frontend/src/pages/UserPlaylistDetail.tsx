@@ -607,20 +607,6 @@ function PlaylistTrackRow({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!readOnly ? (
-            <IconButton
-              variant="danger"
-              label="Treu de la llista"
-              onClick={onRemove}
-              disabled={removing}
-            >
-              {removing ? (
-                <Spinner className="text-[20px]" />
-              ) : (
-                <Icon name="playlist_remove" className="text-[20px]" />
-              )}
-            </IconButton>
-          ) : null}
           <Menu
             label="Més accions"
             actions={[
@@ -641,6 +627,13 @@ function PlaylistTrackRow({
                       label: "Edita els detalls",
                       icon: "edit",
                       onSelect: onEdit,
+                    },
+                    {
+                      id: "remove",
+                      label: "Treu de la llista",
+                      icon: "playlist_remove",
+                      danger: true,
+                      onSelect: onRemove,
                     },
                   ]
                 : []),
