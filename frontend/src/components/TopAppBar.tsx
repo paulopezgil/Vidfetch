@@ -18,7 +18,7 @@ export default function TopAppBar() {
   );
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-3 bg-surface px-4 sm:px-6">
+    <header className="flex min-h-16 shrink-0 items-center gap-3 bg-surface px-4 pt-[env(safe-area-inset-top)] sm:px-6">
       <Logo className="h-9 w-9 lg:hidden" />
       <h1 className="min-w-0 flex-1 truncate text-title-large text-on-surface">
         {titleForPath(pathname, playlistTitle)}
