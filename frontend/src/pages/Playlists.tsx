@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { PlaylistV2, Track, UserPlaylist } from "../types/v2";
 import {
+  getPlaylist,
   getUserPlaylist,
   listPlaylists,
   listSharedUserPlaylists,
   listUserPlaylists,
 } from "../lib/api";
+import { isOffline } from "../offline/status";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -50,7 +58,11 @@ export default function Playlists() {
       const failures: string[] = [];
 
       if (curatedResult.status === "fulfilled") {
-        setCurated(curatedResult.value.items);
+        setCurated(
+          Array.isArray(curatedResult.value.items)
+            ? curatedResult.value.items
+            : [],
+        );
       } else {
         failures.push(
           curatedResult.reason instanceof Error
@@ -60,7 +72,11 @@ export default function Playlists() {
       }
 
       if (sharedResult.status === "fulfilled") {
-        setShared(sharedResult.value.items);
+        setShared(
+          Array.isArray(sharedResult.value.items)
+            ? sharedResult.value.items
+            : [],
+        );
       } else {
         failures.push(
           sharedResult.reason instanceof Error
@@ -70,7 +86,11 @@ export default function Playlists() {
       }
 
       if (importedResult.status === "fulfilled") {
-        setImported(importedResult.value.items);
+        setImported(
+          Array.isArray(importedResult.value.items)
+            ? importedResult.value.items
+            : [],
+        );
       } else {
         failures.push(
           importedResult.reason instanceof Error
@@ -125,7 +145,9 @@ export default function Playlists() {
         const next: Record<string, Track[]> = {};
         results.forEach((result, index) => {
           if (result.status === "fulfilled") {
-            next[ids[index]] = result.value.items.slice(0, COLLAGE_TRACKS);
+            next[ids[index]] = Array.isArray(result.value.items)
+              ? result.value.items.slice(0, COLLAGE_TRACKS)
+              : [];
           }
         });
         setCovers(next);
@@ -135,6 +157,55 @@ export default function Playlists() {
       cancelled = true;
     };
   }, [collagePlaylists]);
+
+  // The list response carries only summaries. Warm each imported playlist's
+  // detail into the existing GET response cache so its card can open offline.
+  // The signature keeps ordinary re-renders from starting the work again.
+  const importedSignature = useMemo(
+    () =>
+      [...new Set(imported.map((playlist) => playlist.id))]
+        .filter(Boolean)
+        .sort()
+        .join("|"),
+    [imported],
+  );
+  const warmedImportedRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!importedSignature || isOffline()) return;
+
+    const pending = importedSignature
+      .split("|")
+      .filter(
+        (id) => id.length > 0 && !warmedImportedRef.current.has(id),
+      );
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    const queue = [...pending];
+
+    async function warm() {
+      while (!cancelled) {
+        const id = queue.shift();
+        if (!id) return;
+        if (warmedImportedRef.current.has(id)) continue;
+        warmedImportedRef.current.add(id);
+        try {
+          await getPlaylist(id);
+        } catch {
+          // Best effort: the detail page explains when it is not cached offline.
+        }
+      }
+    }
+
+    void Promise.allSettled(
+      Array.from({ length: Math.min(3, pending.length) }, () => warm()),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importedSignature]);
 
   const handleCreated = useCallback(
     (playlist: UserPlaylist) => {

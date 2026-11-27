@@ -35,7 +35,7 @@ import { useMediaToken } from "../lib/useMediaToken";
 import { mediaTypeFor } from "../lib/trackDisplay";
 import { usePlayer } from "../player/PlayerProvider";
 import { setActivePlaylistTitle } from "../navigation";
-import { QUEUED_MUTATION_MESSAGE } from "../offline/status";
+import { QUEUED_MUTATION_MESSAGE, isOffline } from "../offline/status";
 
 function trackIcon(track: Track): string {
   const mediaType = mediaTypeFor(track);
@@ -49,6 +49,16 @@ function trackCredit(track: Track): string {
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
     .join(" · ");
+}
+
+/** An older cached payload may not carry an `items` array at all. */
+function normalizeDetail(
+  detail: UserPlaylistDetailData,
+): UserPlaylistDetailData {
+  return {
+    ...detail,
+    items: Array.isArray(detail.items) ? detail.items : [],
+  };
 }
 
 /** Curated playlist detail with ordering, playback and membership actions. */
@@ -71,7 +81,8 @@ export default function UserPlaylistDetail() {
 
   const refresh = useCallback(async () => {
     try {
-      setDetail(await getUserPlaylist(id));
+      const next = await getUserPlaylist(id);
+      setDetail(normalizeDetail(next));
       setError(null);
     } catch (e) {
       setError(
@@ -215,7 +226,7 @@ export default function UserPlaylistDetail() {
         if (result.queued) {
           toast(result.message, "info");
         } else {
-          setDetail(result.data);
+          setDetail(normalizeDetail(result.data));
         }
       } catch (e) {
         setDetail(previous);
@@ -241,6 +252,7 @@ export default function UserPlaylistDetail() {
   }
 
   if (error || !detail) {
+    const offline = Boolean(error) && isOffline();
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
         <Link
@@ -250,9 +262,17 @@ export default function UserPlaylistDetail() {
           <Icon name="arrow_back" className="text-[20px]" /> Llistes
         </Link>
         <EmptyState
-          icon="playlist_remove"
-          title="No s’ha trobat la llista de reproducció"
-          description={error ?? "Aquesta llista de reproducció no existeix."}
+          icon={offline ? "cloud_off" : "playlist_remove"}
+          title={
+            offline
+              ? "Aquesta llista no està disponible sense connexió"
+              : "No s’ha trobat la llista de reproducció"
+          }
+          description={
+            offline
+              ? "Obre aquesta llista una vegada amb connexió perquè les seves dades es desin al dispositiu."
+              : error ?? "Aquesta llista de reproducció no existeix."
+          }
           action={
             <Button
               variant="outlined"
@@ -270,7 +290,7 @@ export default function UserPlaylistDetail() {
     );
   }
 
-  const items = detail.items;
+  const items = Array.isArray(detail.items) ? detail.items : [];
   // Older payloads have no flag; treat those playlists as the caller's own.
   const isOwner = detail.is_owner ?? true;
   const ownerLabel = detail.owner_email || "un altre usuari";
