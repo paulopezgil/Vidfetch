@@ -1,20 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { PlaylistV2, Track, UserPlaylist } from "../types/v2";
+import type { Track, UserPlaylist } from "../types/v2";
 import {
-  getPlaylist,
   getUserPlaylist,
-  listPlaylists,
   listSharedUserPlaylists,
   listUserPlaylists,
 } from "../lib/api";
-import { isOffline } from "../offline/status";
 import Button from "../components/Button";
 import Card from "../components/Card";
 import EmptyState from "../components/EmptyState";
@@ -23,7 +14,6 @@ import Icon from "../components/Icon";
 import PlaylistCollage from "../components/PlaylistCollage";
 import PlaylistDialog from "../components/PlaylistDialog";
 import Spinner from "../components/Spinner";
-import Thumbnail from "../components/Thumbnail";
 import { useToast } from "../components/Toast";
 
 const PLAYLIST_LIMIT = 100;
@@ -31,30 +21,31 @@ const PLAYLIST_LIMIT = 100;
 const COLLAGE_TRACKS = 4;
 
 /**
- * Curated playlists first (the user's own ordered selections), then the
- * playlists imported from source sites under a separate heading.
+ * The user's own curated playlists and the ones shared with them.
+ *
+ * Downloaded YouTube/source playlists are not listed here: their tracks are
+ * grouped by artist and playlist title under Artists/Albums and appear in the
+ * Songs/Videos library. The `/imported/:id` route stays available for old
+ * bookmarks and direct links.
  */
 export default function Playlists() {
   const toast = useToast();
   const navigate = useNavigate();
   const [curated, setCurated] = useState<UserPlaylist[]>([]);
   const [shared, setShared] = useState<UserPlaylist[]>([]);
-  const [imported, setImported] = useState<PlaylistV2[]>([]);
   const [covers, setCovers] = useState<Record<string, Track[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [failed, setFailed] = useState({ curated: false, imported: false });
+  const [curatedFailed, setCuratedFailed] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [curatedResult, sharedResult, importedResult] =
-        await Promise.allSettled([
-          listUserPlaylists({ limit: PLAYLIST_LIMIT }),
-          listSharedUserPlaylists({ limit: PLAYLIST_LIMIT }),
-          listPlaylists({ limit: PLAYLIST_LIMIT }),
-        ]);
+      const [curatedResult, sharedResult] = await Promise.allSettled([
+        listUserPlaylists({ limit: PLAYLIST_LIMIT }),
+        listSharedUserPlaylists({ limit: PLAYLIST_LIMIT }),
+      ]);
       const failures: string[] = [];
 
       if (curatedResult.status === "fulfilled") {
@@ -85,25 +76,8 @@ export default function Playlists() {
         );
       }
 
-      if (importedResult.status === "fulfilled") {
-        setImported(
-          Array.isArray(importedResult.value.items)
-            ? importedResult.value.items
-            : [],
-        );
-      } else {
-        failures.push(
-          importedResult.reason instanceof Error
-            ? importedResult.reason.message
-            : "No s’han pogut carregar les llistes importades.",
-        );
-      }
-
       setError(failures[0] ?? null);
-      setFailed({
-        curated: curatedResult.status === "rejected",
-        imported: importedResult.status === "rejected",
-      });
+      setCuratedFailed(curatedResult.status === "rejected");
     } finally {
       setLoading(false);
     }
@@ -158,55 +132,6 @@ export default function Playlists() {
     };
   }, [collagePlaylists]);
 
-  // The list response carries only summaries. Warm each imported playlist's
-  // detail into the existing GET response cache so its card can open offline.
-  // The signature keeps ordinary re-renders from starting the work again.
-  const importedSignature = useMemo(
-    () =>
-      [...new Set(imported.map((playlist) => playlist.id))]
-        .filter(Boolean)
-        .sort()
-        .join("|"),
-    [imported],
-  );
-  const warmedImportedRef = useRef(new Set<string>());
-
-  useEffect(() => {
-    if (!importedSignature || isOffline()) return;
-
-    const pending = importedSignature
-      .split("|")
-      .filter(
-        (id) => id.length > 0 && !warmedImportedRef.current.has(id),
-      );
-    if (pending.length === 0) return;
-
-    let cancelled = false;
-    const queue = [...pending];
-
-    async function warm() {
-      while (!cancelled) {
-        const id = queue.shift();
-        if (!id) return;
-        if (warmedImportedRef.current.has(id)) continue;
-        warmedImportedRef.current.add(id);
-        try {
-          await getPlaylist(id);
-        } catch {
-          // Best effort: the detail page explains when it is not cached offline.
-        }
-      }
-    }
-
-    void Promise.allSettled(
-      Array.from({ length: Math.min(3, pending.length) }, () => warm()),
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [importedSignature]);
-
   const handleCreated = useCallback(
     (playlist: UserPlaylist) => {
       toast(`«${playlist.name}» creada`, "success");
@@ -215,14 +140,17 @@ export default function Playlists() {
     [navigate, toast],
   );
 
-  // An import that failed entirely produced nothing usable, so it must not be
-  // shown as a successful playlist. Partially successful imports stay visible.
-  const visibleImported = imported.filter(
-    (playlist) => playlist.status !== "failed",
-  );
-
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
+      <div>
+        <h2 className="text-title-large text-on-surface">Llistes</h2>
+        <p className="mt-1 text-body-medium text-on-surface-variant">
+          Les llistes que has creat i les que altres usuaris han compartit amb
+          tu. Les llistes descarregades de YouTube es mostren a Artistes i
+          àlbums i a les seccions de cançons i vídeos.
+        </p>
+      </div>
+
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
       <section aria-labelledby="curated-heading" className="space-y-3">
@@ -257,7 +185,7 @@ export default function Playlists() {
               </li>
             ))}
           </ul>
-        ) : !loading && !failed.curated ? (
+        ) : !loading && !curatedFailed ? (
           <EmptyState
             icon="queue_music"
             title="Encara no hi ha llistes"
@@ -298,43 +226,6 @@ export default function Playlists() {
           </ul>
         </section>
       ) : null}
-
-      <section aria-labelledby="imported-heading" className="space-y-3">
-        <div className="flex items-baseline justify-between gap-3 px-1">
-          <div className="min-w-0">
-            <h2
-              id="imported-heading"
-              className="text-title-medium text-on-surface"
-            >
-              Importades
-            </h2>
-            <p className="text-body-small text-on-surface-variant">
-              Llistes descarregades d’un lloc d’origen.
-            </p>
-          </div>
-          <span className="text-label-medium text-on-surface-variant">
-            {visibleImported.length}
-          </span>
-        </div>
-
-        {loading && visibleImported.length === 0 ? (
-          <SectionLoading label="S’estan carregant les llistes importades…" />
-        ) : visibleImported.length > 0 ? (
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {visibleImported.map((playlist) => (
-              <li key={playlist.id} className="min-w-0">
-                <ImportedPlaylistCard playlist={playlist} />
-              </li>
-            ))}
-          </ul>
-        ) : !loading && !failed.imported ? (
-          <EmptyState
-            icon="playlist_play"
-            title="No hi ha llistes importades"
-            description="Les llistes que importis des de l’Inici apareixeran aquí."
-          />
-        ) : null}
-      </section>
 
       <PlaylistDialog
         open={createOpen}
@@ -432,45 +323,6 @@ function SharedPlaylistCard({
           <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
             <Icon name="music_note" className="text-[16px]" />
             {count} {count === 1 ? "cançó" : "cançons"}
-          </p>
-        </div>
-      </Link>
-    </Card>
-  );
-}
-
-function ImportedPlaylistCard({ playlist }: { playlist: PlaylistV2 }) {
-  const count = playlist.item_count;
-  const subtitle = `${count} ${count === 1 ? "vídeo" : "vídeos"}`;
-
-  return (
-    <Card
-      variant="elevated"
-      className="group h-full overflow-hidden rounded-lg transition-shadow duration-200 hover:shadow-elevation-2 focus-within:shadow-elevation-2"
-    >
-      <Link
-        to={`/imported/${encodeURIComponent(playlist.id)}`}
-        className="flex h-full flex-col rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-      >
-        <div className="p-2 pb-0">
-          <Thumbnail
-            src={playlist.thumbnail_url ?? null}
-            icon="queue_music"
-            className="aspect-video w-full rounded-md"
-          />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 p-3">
-          <p className="truncate text-title-small text-on-surface">
-            {playlist.title || "Llista"}
-          </p>
-          {playlist.channel ? (
-            <p className="truncate text-body-small text-on-surface-variant">
-              {playlist.channel}
-            </p>
-          ) : null}
-          <p className="mt-auto flex items-center gap-1 pt-1 text-label-medium text-on-surface-variant">
-            <Icon name="playlist_play" className="text-[16px]" />
-            {subtitle}
           </p>
         </div>
       </Link>
