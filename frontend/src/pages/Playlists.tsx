@@ -144,11 +144,6 @@ export default function Playlists() {
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
       <div>
         <h2 className="text-title-large text-on-surface">Llistes</h2>
-        <p className="mt-1 text-body-medium text-on-surface-variant">
-          Les llistes que has creat i les que altres usuaris han compartit amb
-          tu. Les llistes descarregades de YouTube es mostren a Artistes i
-          àlbums i a les seccions de cançons i vídeos.
-        </p>
       </div>
 
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
