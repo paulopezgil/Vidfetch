@@ -6,6 +6,7 @@ the playlist items, the shared asset state, and the real files on disk.
 from __future__ import annotations
 
 import io
+import uuid
 import zipfile
 
 import pytest
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 from backend.app.core.config import Settings
 from backend.app.main import create_app
 from backend.app.services import assets, auth, playlists
+from backend.app.services.signing import verify_media_token
 from backend.tests.integration.conftest import (
     cleanup_test_data,
     create_profile,
@@ -433,5 +435,105 @@ def test_playlist_zip_includes_only_ready_items_with_real_files(
             await cleanup_test_data(
                 db, canonical_ids=state.get("canonical_ids", [])
             )
+
+        db_run(cleanup)
+
+
+def test_playlist_detail_signs_linked_asset_thumbnail(
+    database_url, db_run, media_storage
+):
+    email = unique_email("itest-thumb")
+    canonical = f"youtube:thumb-{uuid.uuid4().hex}"
+    secret = "itest-playlist-media-secret"
+    state: dict = {}
+    thumbnail_bytes = b"\xff\xd8\xffplaylist-thumb"
+
+    async def seed(db):
+        session = await auth.register(db, email, "thumb-password-1")
+        state.update(token=session.token, profile_id=session.profile["id"])
+        await db.execute(
+            f"update {db.schema_sql}.profiles "
+            "set is_approved = true where id = $1",
+            session.profile["id"],
+        )
+        playlist = await playlists.upsert_playlist(
+            db,
+            user_id=session.profile["id"],
+            canonical_id=f"youtube:PLTHUMB-{uuid.uuid4().hex}",
+            source_url="https://example.test/playlist",
+            title="Thumbnails",
+            channel="",
+            item_count=2,
+            options_hash="t" * 64,
+            format_selector="best",
+        )
+        await playlists.replace_items(
+            db,
+            playlist["id"],
+            [
+                {"canonical_id": canonical, "title": "With thumbnail"},
+                {"canonical_id": f"youtube:no-thumb-{uuid.uuid4().hex}", "title": "No thumbnail"},
+            ],
+        )
+        asset = await make_ready_asset(
+            db, media_storage, canonical_id=canonical, thumbnail=True
+        )
+        media_storage.validate_relative_path(asset["thumbnail_path"]).write_bytes(
+            thumbnail_bytes
+        )
+        await playlists.update_item(
+            db, playlist["id"], 1, status="ready", asset_id=asset["id"]
+        )
+
+        rows = await playlists.list_items_with_thumbnail_paths(db, playlist["id"])
+        assert [row["position"] for row in rows] == [1, 2]
+        assert rows[0]["asset_thumbnail_path"] == asset["thumbnail_path"]
+        assert rows[1]["asset_thumbnail_path"] is None
+
+        state.update(
+            playlist_id=playlist["id"],
+            asset_id=asset["id"],
+            thumbnail_path=asset["thumbnail_path"],
+        )
+
+    try:
+        db_run(seed)
+        settings = Settings.from_env(
+            {
+                "ENVIRONMENT": "test",
+                "DATABASE_URL": database_url,
+                "MEDIA_TOKEN_SECRET": secret,
+                "DOWNLOAD_DIR": str(media_storage.root),
+            }
+        )
+        headers = {"Authorization": f"Bearer {state['token']}"}
+        with TestClient(create_app(settings)) as client:
+            response = client.get(
+                f"/api/playlists/{state['playlist_id']}", headers=headers
+            )
+            assert response.status_code == 200, response.text
+            items = response.json()["items"]
+            signed = items[0]["thumbnail_url"]
+            assert signed.startswith(
+                f"/api/thumbnails/{state['asset_id']}?token="
+            )
+            claims = verify_media_token(signed.split("token=", 1)[1], secret)
+            assert claims.asset_id == str(state["asset_id"])
+            assert claims.user_id == str(state["profile_id"])
+            assert items[1]["thumbnail_url"] is None
+            assert all("asset_thumbnail_path" not in item for item in items)
+
+            # The signed URL resolves to the cached thumbnail for this asset.
+            thumbnail = client.get(signed)
+            assert thumbnail.status_code == 200, thumbnail.text
+            assert thumbnail.content == thumbnail_bytes
+    finally:
+        async def cleanup(db):
+            if state.get("profile_id") is not None:
+                await db.execute(
+                    f"delete from {db.schema_sql}.profiles where id = $1",
+                    state["profile_id"],
+                )
+            await cleanup_test_data(db, canonical_ids=[canonical])
 
         db_run(cleanup)
