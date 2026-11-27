@@ -4,6 +4,32 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [v2.6.3] — 2026-11-27
+
+Patch release adding capped video qualities, native best audio, and cleaner
+track-row actions.
+
+### Added
+
+- **Quality menu.** Home and imported playlist detail now use a tune menu with
+  **Millor disponible**, capped video qualities from 4K to 144p, **Àudio
+  (millor)** and **MP3 320**. Single videos list only the heights actually
+  offered by the source; playlists use “Fins a …p” caps and each item falls back
+  to its best available height.
+- **Native best audio** keeps the source audio stream without MP3 re-encoding.
+  **MP3 320** is available for compatibility.
+- The Help download guide now explains the new quality menu.
+
+### Changed
+
+- Track rows keep **play** and **offline/available** on the left, and a single
+  **•••** menu on the right. Both the file download and the destructive
+  remove-from-library/playlist actions moved inside that menu on Library,
+  artist/album, curated-playlist and imported-playlist rows, so no standalone
+  download or trash icon remains in the lists.
+- Row actions use a full-width `justify-between` layout on mobile and a compact
+  right-aligned group on larger screens.
+
 ## [v2.6.2] — 2026-11-27
 
 Patch release polishing Biblioteca search, Llistes, and the mobile top bar.

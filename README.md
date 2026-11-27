@@ -306,9 +306,14 @@ DOWNLOAD_DIR volume
    completes immediately; a miss downloads once.
 3. Ready jobs create/update the user's `user_tracks` entry. The library, artist,
    and album views read those per-user rows.
-4. Media is served through short-lived HMAC-signed URLs. The player uses the
+4. **Quality choice.** The download menu offers **Millor disponible**, capped
+   video qualities from 4K to 144p, native **Àudio (millor)** and **MP3 320**.
+   Single videos list only their available heights; playlists use “Fins a …p”
+   caps and fall back per item. Capped selectors never fail when the exact
+   height is missing.
+5. Media is served through short-lived HMAC-signed URLs. The player uses the
    local copy first when a song is saved for offline use.
-5. Completed audio jobs are copied to the browser's media cache automatically;
+6. Completed audio jobs are copied to the browser's media cache automatically;
    saved songs are permanent and play without the backend.
 
 ### Player and media actions
