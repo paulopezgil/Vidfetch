@@ -614,6 +614,25 @@ export function revokeUser(userId: string): Promise<AdminUser> {
   );
 }
 
+/**
+ * `POST /api/admin/users/{id}/password` — reset another account's password.
+ *
+ * The backend revokes every session for the target user. Admin actions are
+ * online-only, matching approve/revoke.
+ */
+export function resetUserPassword(
+  userId: string,
+  password: string,
+): Promise<void> {
+  return apiFetch<void>(
+    `/admin/users/${encodeURIComponent(userId)}/password`,
+    {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    },
+  );
+}
+
 export interface DownloadQuery {
   status?: string;
   limit?: number;
