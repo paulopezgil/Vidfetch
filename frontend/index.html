@@ -30,6 +30,136 @@
         }
       })();
     </script>
+    <style>
+      /*
+       * Static boot fallback. It must render without the app bundle or app CSS
+       * so a slow, blocked or stale asset never leaves a black screen.
+       */
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f9f9f9;
+      }
+
+      #boot-fallback {
+        display: flex;
+        min-height: 100vh;
+        box-sizing: border-box;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #f9f9f9;
+        color: #1b1b1b;
+        color-scheme: light;
+        font-family: Roboto, system-ui, -apple-system, "Segoe UI",
+          "Helvetica Neue", Arial, sans-serif;
+        text-align: center;
+      }
+
+      #boot-fallback .boot-card {
+        width: 100%;
+        max-width: 360px;
+      }
+
+      #boot-fallback .boot-brand {
+        font-size: 24px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      #boot-fallback .boot-spinner {
+        width: 32px;
+        height: 32px;
+        margin: 28px auto 16px;
+        border: 3px solid #c6c6c6;
+        border-top-color: #c00100;
+        border-radius: 50%;
+        animation: boot-spin 1s linear infinite;
+      }
+
+      #boot-fallback .boot-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+
+      #boot-fallback .boot-status {
+        margin: 6px 0 0;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #474747;
+      }
+
+      #boot-fallback .boot-reload {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        margin: 20px auto 0;
+        padding: 10px 22px;
+        border: 0;
+        border-radius: 999px;
+        background: #c00100;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      #boot-fallback .boot-reload:focus-visible {
+        outline: 3px solid #c00100;
+        outline-offset: 3px;
+      }
+
+      #boot-fallback.is-error .boot-spinner {
+        display: none;
+      }
+
+      #boot-fallback.is-error .boot-reload {
+        display: inline-flex;
+      }
+
+      :root[data-theme="dark"],
+      :root[data-theme="dark"] body {
+        background: #0f0f0f;
+      }
+
+      :root[data-theme="dark"] #boot-fallback {
+        background: #0f0f0f;
+        color: #e3e3e3;
+        color-scheme: dark;
+      }
+
+      :root[data-theme="dark"] #boot-fallback .boot-spinner {
+        border-color: #444746;
+        border-top-color: #dc362e;
+      }
+
+      :root[data-theme="dark"] #boot-fallback .boot-status {
+        color: #c6c6c6;
+      }
+
+      :root[data-theme="dark"] #boot-fallback .boot-reload {
+        background: #dc362e;
+      }
+
+      :root[data-theme="dark"] #boot-fallback .boot-reload:focus-visible {
+        outline-color: #ffdad4;
+      }
+
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-fallback .boot-spinner {
+          animation: none;
+        }
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -54,7 +184,45 @@
     <title>Vidfetch</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-fallback" role="status" aria-live="polite">
+        <div class="boot-card">
+          <div class="boot-brand">Vidfetch</div>
+          <div class="boot-spinner" aria-hidden="true"></div>
+          <p class="boot-title">S’està carregant…</p>
+          <p class="boot-status">Preparant l’aplicació…</p>
+          <button class="boot-reload" type="button">Recarrega</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var fallback = document.getElementById("boot-fallback");
+        if (!fallback) return;
+
+        var reload = fallback.querySelector(".boot-reload");
+        if (reload) {
+          reload.addEventListener("click", function () {
+            location.reload();
+          });
+        }
+
+        window.setTimeout(function () {
+          // React replaces the fallback on its first render.
+          if (!document.getElementById("boot-fallback")) return;
+          fallback.classList.add("is-error");
+          var title = fallback.querySelector(".boot-title");
+          if (title) {
+            title.textContent = "No s’ha pogut carregar l’aplicació.";
+          }
+          var status = fallback.querySelector(".boot-status");
+          if (status) {
+            status.textContent =
+              "Comprova la connexió i torna-ho a provar.";
+          }
+        }, 9000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

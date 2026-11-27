@@ -53,7 +53,7 @@ export function cacheImageUrl(src: string | null | undefined): Promise<void> {
     try {
       if (typeof caches === "undefined") return;
       const cache = await caches.open(IMAGE_CACHE_NAME);
-      if (await cache.match(key)) {
+      if (await cache.match(key, { ignoreVary: true })) {
         known.add(key);
         return;
       }
