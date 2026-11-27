@@ -11,6 +11,7 @@ anything the client sends. An unapproved account can still sign in and read
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -318,12 +319,18 @@ async def set_password(
     password: Any,
     *,
     revoke_sessions: bool = False,
+    actor_id: str | UUID | None = None,
 ) -> bool:
     """Set a password without knowing the current one (admin reset).
 
     Returns ``False`` when no such profile exists. With ``revoke_sessions`` the
     hash change and the session cleanup commit together, so a reset can never
     leave old sessions alive against a new password.
+
+    An administrator reset passes ``actor_id`` too: one ``admin_audit_log`` row
+    (actor, ``reset_password`` action, target, non-secret metadata) is then
+    written inside the same transaction. The password and its hash never reach
+    the audit row, so the log stays safe to read.
     """
     validate_password(password)
     password_hash = await asyncio.to_thread(hash_password, password)
@@ -344,6 +351,16 @@ async def set_password(
                 f"delete from {db.schema_sql}.auth_sessions where user_id = $1",
                 owner,
             )
+            if actor_id is not None:
+                await connection.execute(
+                    f"insert into {db.schema_sql}.admin_audit_log "
+                    "(actor_id, action, target_user_id, metadata) "
+                    "values ($1, $2, $3, $4::jsonb)",
+                    _as_uuid(actor_id),
+                    "reset_password",
+                    owner,
+                    json.dumps({"source": "admin_panel"}, sort_keys=True),
+                )
         return True
 
     record = await db.fetchrow(
