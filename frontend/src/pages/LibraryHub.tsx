@@ -80,7 +80,7 @@ export default function LibraryHub() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <div className="relative">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
           <SegmentedButton
             label="Secció de la biblioteca"
             value={section}
@@ -99,7 +99,7 @@ export default function LibraryHub() {
             variant={query ? "filled" : "tonal"}
             ariaExpanded={searchOpen}
             onClick={openSearch}
-            className="relative"
+            className="relative ml-auto"
           >
             <Icon name="search" className="text-[20px]" />
             {query ? (
