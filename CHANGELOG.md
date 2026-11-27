@@ -6,7 +6,28 @@ Semantic Versioning and are cut from `main`.
 
 ## [Unreleased]
 
-Changes accumulated on `dev` after `v2.5.0`.
+Changes accumulated on `dev` after `v2.5.1`.
+
+### Fixed
+
+- **Offline list artwork.** Songs, imported playlists and artist rows now prefer
+  the stored signed `thumbnail_url` instead of forcing a fresh media-token
+  request. The thumbnail component also retries when the source changes, so an
+  image that failed once offline can render when its cached URL arrives.
+- **Imported playlists did not open offline.** The Playlists page now warms each
+  imported playlist detail into the IndexedDB response cache while online.
+  Cached playlist payloads are normalized defensively, and an uncached playlist
+  shows a specific “not available offline” state instead of a render error.
+
+### Added
+
+- **Signed playlist-item thumbnails.** `GET /api/playlists/{id}` now returns a
+  signed `thumbnail_url` for each item whose asset has a cached thumbnail, so
+  imported playlist rows keep their artwork offline.
+
+## [v2.5.1] — 2026-11-27
+
+Patch release adding the self-service password change form.
 
 ### Added
 
