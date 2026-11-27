@@ -92,14 +92,35 @@ def _base_opts(settings: Settings) -> dict[str, Any]:
     }
 
 
+# Audio-only profiles keep the source stream/container; ``mp3`` additionally
+# runs the audio extractor. Video profiles cap the height of the video stream.
+AUDIO_FORMATS: tuple[str, ...] = ("audio", "mp3")
+VIDEO_HEIGHT_PROFILES: dict[str, int] = {
+    "2160p": 2160,
+    "1440p": 1440,
+    "1080p": 1080,
+    "720p": 720,
+    "540p": 540,
+    "480p": 480,
+    "360p": 360,
+    "240p": 240,
+    "144p": 144,
+}
+VALID_FORMATS: tuple[str, ...] = ("best", *VIDEO_HEIGHT_PROFILES, *AUDIO_FORMATS)
+
+
 def format_spec(fmt: str) -> str:
     """Map a user-facing format profile to a yt-dlp format selector."""
-    if fmt == "mp3":
+    if fmt in AUDIO_FORMATS:
         return "bestaudio/best"
-    if fmt == "720p":
-        return "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
     if fmt == "best":
         return "bestvideo+bestaudio/best"
+    height = VIDEO_HEIGHT_PROFILES.get(fmt)
+    if height is not None:
+        return (
+            f"bestvideo[height<={height}]+bestaudio/"
+            f"best[height<={height}]/best"
+        )
     raise DownloadError("Unsupported format.", code="invalid_format")
 
 
@@ -125,7 +146,7 @@ def parse_intent(selector: str) -> tuple[str, bool]:
     embed_subs = candidate.endswith("+subs")
     if embed_subs:
         candidate = candidate[: -len("+subs")]
-    if candidate not in ("best", "720p", "mp3"):
+    if candidate not in VALID_FORMATS:
         return "best", embed_subs
     return candidate, embed_subs
 
@@ -534,13 +555,14 @@ def download_video(
     )
 
     postprocessors: list[dict[str, Any]] = []
+    is_audio = fmt in AUDIO_FORMATS
 
     if fmt == "mp3":
         postprocessors.append(
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredquality": "320",
             }
         )
         if album:
@@ -549,10 +571,12 @@ def download_video(
             opts["postprocessor_args"] = {
                 "ffmpeg": ["-metadata", f"album={album}"],
             }
-    else:
+    elif not is_audio:
         opts["merge_output_format"] = "mp4"
 
-    if embed_subs:
+    # Audio-only profiles have no video track to attach subtitles to; ignore the
+    # subtitle intent instead of building an invalid postprocessor chain.
+    if embed_subs and not is_audio:
         opts.update(
             {
                 "writesubtitles": True,

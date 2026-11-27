@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from backend.app.api.routes import downloads as downloads_module
 from backend.app.services import ytdlp as ytdlp_service
 from backend.app.services.options import options_hash
@@ -185,6 +187,63 @@ def test_create_download_queues_job_with_hashed_options(tmp_path):
     assert insert_args[1] == "video"
     assert insert_args[4] == options_hash("720p", False, {"kind": "video"})
     assert insert_args[5] == "720p"
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "best",
+        "2160p",
+        "1440p",
+        "1080p",
+        "720p",
+        "540p",
+        "480p",
+        "360p",
+        "240p",
+        "144p",
+        "audio",
+        "mp3",
+    ],
+)
+def test_create_download_accepts_every_format_profile(tmp_path, fmt):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    inserted = job_row(user_id=profile["id"], status="queued")
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, inserted)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            "/api/downloads",
+            json={"url": "https://example.test/v", "format": fmt},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(inserted["id"])
+    insert_args = db.calls[1][2]
+    assert insert_args[4] == options_hash(fmt, False, {"kind": "video"})
+    assert insert_args[5] == fmt
+
+
+def test_create_download_rejects_unknown_format(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.post(
+            "/api/downloads",
+            json={"url": "https://example.test/v", "format": "4k"},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    # Only the profile lookup ran; nothing was queued.
+    assert len(db.calls) == 1
 
 
 def test_create_download_is_idempotent_on_header_key(tmp_path):
