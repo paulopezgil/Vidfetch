@@ -4,6 +4,24 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.4.2`.
+
+### Fixed
+
+- **Airplane-mode black screen after a service-worker update.** The shell now
+  ships a build-time `precache-manifest.json` with every emitted chunk, and the
+  service worker precaches all of them during install. Lazy route chunks are
+  therefore available offline, not just the entry bundle.
+- **Unsafe service-worker takeover.** Automatic `skipWaiting()`/`clients.claim()`
+  removed: the old worker keeps the old shell and hashed assets until every old
+  client closes, so an update can no longer delete the cache under a running
+  page.
+- **Blank-screen recovery.** `index.html` now carries an inline boot fallback
+  with a spinner and a delayed “Recarrega” action, and the React tree is wrapped
+  in an inline-styled error boundary.
+
 ## [v2.4.2] — 2026-11-27
 
 Patch release for offline icon/artwork caching and the player-bar title action.

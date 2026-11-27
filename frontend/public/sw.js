@@ -10,15 +10,18 @@
  *  - `/api/` and every non-GET request pass straight through unless the request
  *    is an image, so media tokens, auth and the download queue are untouched.
  *
- * Bump SHELL_CACHE when the shell strategy changes; only old shell caches are
- * dropped on activate. The media (`vidfetch-media-v1`), font and image caches
- * are managed through Cache Storage and survive shell upgrades.
+ * Updates deliberately wait: the old page keeps its controlling worker and its
+ * matching cached hashed assets until every old client closes. Only then does
+ * the new worker activate, delete the old shell cache and serve the next launch.
+ * Bump SHELL_CACHE when the shell strategy changes; the media
+ * (`vidfetch-media-v1`), font and image caches survive shell upgrades.
  */
 
-const SHELL_CACHE = "vidfetch-shell-v3";
+const SHELL_CACHE = "vidfetch-shell-v4";
 const FONT_CACHE = "vidfetch-fonts-v1";
 const IMAGE_CACHE = "vidfetch-images-v1";
 const INDEX_KEY = "/index.html";
+const MANIFEST_URL = "/precache-manifest.json";
 
 /**
  * Public static shell files served at the origin root. They are precached and
@@ -41,11 +44,52 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(SHELL_CACHE);
-      // Cache entries individually: one missing icon must not abort install.
+      const entries = new Set(PRECACHE);
+
+      // The build writes every emitted file here, including lazy route chunks.
+      // Cache the manifest itself so a future cleanup or debug pass can see the
+      // exact set this shell was built from.
+      try {
+        const response = await fetch(MANIFEST_URL, { cache: "reload" });
+        if (response.ok) {
+          try {
+            await cache.put(MANIFEST_URL, response.clone());
+          } catch {
+            // The manifest is useful but not required for the base shell.
+          }
+
+          try {
+            const listed = await response.json();
+            if (Array.isArray(listed)) {
+              for (const file of listed) {
+                if (typeof file !== "string") continue;
+                try {
+                  const url = new URL(file, self.location.origin);
+                  if (url.origin === self.location.origin) {
+                    entries.add(`${url.pathname}${url.search}`);
+                  }
+                } catch {
+                  // Ignore malformed manifest entries.
+                }
+              }
+            }
+          } catch {
+            // Invalid manifest: keep the base shell available.
+          }
+        }
+      } catch {
+        // No manifest: keep the base shell available.
+      }
+
+      // Cache entries individually: one missing file must not abort install.
       await Promise.allSettled(
-        PRECACHE.map((url) => cache.add(new Request(url, { cache: "reload" }))),
+        [...entries].map((url) =>
+          cache.add(new Request(url, { cache: "reload" })),
+        ),
       );
-      await self.skipWaiting();
+      // Do not force the waiting worker to take over. The old page must keep
+      // its active worker (and the hashed assets that match its index.html)
+      // until every old client closes; the next launch activates this one.
     })(),
   );
 });
@@ -61,7 +105,9 @@ self.addEventListener("activate", (event) => {
           )
           .map((key) => caches.delete(key)),
       );
-      await self.clients.claim();
+      // Do not adopt existing clients. Old pages stay on the previous worker
+      // until they close, so their index.html and hashed assets remain a
+      // matched set. Fresh navigations are controlled after activation.
     })(),
   );
 });
@@ -82,7 +128,8 @@ async function handleNavigation(request) {
     return response;
   } catch {
     const cached =
-      (await cache.match(INDEX_KEY)) || (await cache.match("/"));
+      (await cache.match(INDEX_KEY, { ignoreVary: true })) ||
+      (await cache.match("/", { ignoreVary: true }));
     if (cached) return cached;
     return new Response(
       "<!doctype html><meta charset=\"utf-8\"><title>Vidfetch</title><body style=\"font-family:Roboto,sans-serif;padding:2rem\"><h1>Sense connexió</h1><p>Torna-ho a provar quan recuperis la xarxa.</p></body>",
@@ -98,7 +145,10 @@ async function handleNavigation(request) {
 /** Cache-first built asset with a background revalidation. */
 async function handleAsset(request) {
   const cache = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(request);
+  // Module requests can carry an `Origin` header while the precache request
+  // does not; Vite/static servers often answer with `Vary: Origin`. Ignoring
+  // Vary keeps a precached hashed chunk usable for a dynamic import offline.
+  const cached = await cache.match(request, { ignoreVary: true });
 
   const network = fetch(request)
     .then((response) => {
@@ -117,7 +167,10 @@ async function handleAsset(request) {
 /** Cache-first public shell file, so the brand assets survive offline. */
 async function handleStaticShell(request) {
   const cache = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(request, { ignoreSearch: true });
+  const cached = await cache.match(request, {
+    ignoreSearch: true,
+    ignoreVary: true,
+  });
   if (cached) return cached;
 
   try {
@@ -169,7 +222,9 @@ async function serveImage(request, network) {
   try {
     const url = new URL(request.url);
     const cache = await caches.open(IMAGE_CACHE);
-    const cached = await cache.match(imageCacheKey(url));
+    const cached = await cache.match(imageCacheKey(url), {
+      ignoreVary: true,
+    });
     if (cached) return cached;
   } catch {
     // Fall through to the network.
@@ -180,7 +235,10 @@ async function serveImage(request, network) {
 
   try {
     const shell = await caches.open(SHELL_CACHE);
-    const fallback = await shell.match(request, { ignoreSearch: true });
+    const fallback = await shell.match(request, {
+      ignoreSearch: true,
+      ignoreVary: true,
+    });
     if (fallback) return fallback;
   } catch {
     // No shell fallback available.
@@ -195,7 +253,7 @@ async function handleFont(request) {
 
   try {
     cache = await caches.open(FONT_CACHE);
-    cached = await cache.match(request);
+    cached = await cache.match(request, { ignoreVary: true });
     // A CORS caller needs the readable CSS; an old opaque entry cannot be
     // parsed by the font prefetch, so refresh it instead of returning it.
     if (cached && !(cached.type === "opaque" && request.mode === "cors")) {
