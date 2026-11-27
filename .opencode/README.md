@@ -1,7 +1,12 @@
-# Project agents
+# Project agents and skills
 
 These are repo-local OpenCode agents for the Vidfetch project, discovered from
 `.opencode/agents/`. Each Markdown file is one agent (frontmatter + system prompt).
+
+Repo-local skills live in `.opencode/skills/`. The orchestrator loads
+[`git-workflow`](skills/git-workflow/SKILL.md) for branch, worktree, merge,
+versioning, release and `gh` conventions. It supersedes older Git examples in the
+agent prompts.
 
 The canonical repo-wide rules (branches, versioning, v2 architecture guardrails,
 and verification) live in the root [`AGENTS.md`](../AGENTS.md). Agent prompts add

@@ -5,7 +5,7 @@ scope and worktree details live in `.opencode/agents/*.md`.
 
 ## Current state
 
-- `main` — stable production releases only. Current release: `v2.6.2`.
+- `main` — stable production releases only. Current release: `v2.6.3`.
 - `dev` — active development and integration for the next release.
 - The v2 rewrite is released; there is no long-lived `v2` branch anymore.
 - v2 stack: React + FastAPI + **PostgreSQL** + **local email/password sessions**
@@ -40,12 +40,19 @@ Worktrees live inside the main checkout under `.worktrees/` (gitignored).
 - `MAJOR.MINOR.PATCH`, chosen only at release time from `main`.
 - Tags keep the `v` prefix (`v2.0.0`).
 - `backend/version.py:APP_VERSION` is the single version source; bump it only in
-  the `release:` commit on `main`.
-- Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`,
-  `test:`, `build:`, `ci:`. `release: vX.Y.Z` is only for `main`.
-- Never put version numbers in development or merge commit messages.
+  the release commit on `main`.
+- **Every commit created on `main` starts with the version tag**, including
+  release, merge and direct-main maintenance commits:
+  `v2.6.3: release`, `v2.6.3: merge dev into main`,
+  `v2.6.4: fix(frontend): ...`.
+- Conventional Commits on `dev` and feature branches:
+  `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:`, `ci:`.
+  Never put version numbers on development or feature commits.
 - One commit per bounded agent prompt; leave the tree clean.
 - Merge feature branches into `dev` with `--no-ff` and a conventional message.
+- The operational branch/worktree/release rules are recorded in the
+  **`git-workflow` skill** (`.opencode/skills/git-workflow/`). Load it before
+  branching, merging, releasing, tagging, pushing or opening GitHub issues/PRs.
 
 ## v2 architecture guardrails
 
