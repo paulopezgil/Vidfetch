@@ -8,10 +8,10 @@ export interface Destination {
 /** Top-level destinations. Order is stable across every navigation form. */
 export const destinations: Destination[] = [
   { to: "/", label: "Inici", icon: "home", end: true },
-  { to: "/songs", label: "Cançons", icon: "music_note" },
-  { to: "/videos", label: "Vídeos", icon: "movie" },
+  { to: "/library", label: "Biblioteca", icon: "video_library" },
   { to: "/playlists", label: "Llistes", icon: "queue_music" },
-  { to: "/artists", label: "Artistes i àlbums", icon: "album" },
+  { to: "/settings", label: "Configuració", icon: "settings" },
+  { to: "/help", label: "Ajuda", icon: "help" },
 ];
 
 /** Admin-only destination, appended for accounts with `app_role = 'admin'`. */
@@ -58,10 +58,20 @@ export function titleForPath(
   playlistTitle: string | null = activePlaylistTitle,
 ): string {
   if (pathname === "/") return "Inici";
-  if (pathname === "/songs") return "Cançons";
-  if (pathname === "/videos") return "Vídeos";
-  // Compatibility for bookmarks and redirects that still use the old path.
-  if (pathname === "/tracks" || pathname === "/library") return "Cançons";
+  // One library with four sections behind a single destination.
+  if (pathname === "/library" || pathname.startsWith("/library/")) {
+    return "Biblioteca";
+  }
+  // Compatibility for bookmarks and redirects that still use the old paths;
+  // the router replaces them with the matching `/library/<section>` route.
+  if (
+    pathname === "/songs" ||
+    pathname === "/videos" ||
+    pathname === "/artists" ||
+    pathname === "/tracks"
+  ) {
+    return "Biblioteca";
+  }
   if (pathname === "/playlists") return "Llistes";
   if (pathname.startsWith("/playlists/") && /\/add\/?$/.test(pathname)) {
     return "Afegeix cançons";
@@ -72,8 +82,8 @@ export function titleForPath(
   if (pathname.startsWith("/imported/")) {
     return playlistTitle?.trim() || "Llista importada";
   }
-  if (pathname === "/artists") return "Artistes i àlbums";
-  if (pathname === "/install") return "Informació";
+  // `/install` is kept as a redirect for old bookmarks and links.
+  if (pathname === "/help" || pathname === "/install") return "Ajuda";
   if (pathname === "/settings") return "Configuració";
   if (pathname.startsWith("/admin")) return "Administració";
   return "Vidfetch";
