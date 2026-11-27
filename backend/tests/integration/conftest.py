@@ -187,6 +187,7 @@ async def create_ready_job(
     completed_at: datetime | None = None,
     options_hash: str | None = None,
     source_url: str = "https://example.test/video",
+    format_selector: str = "",
 ) -> dict[str, Any]:
     """Create a job and finish it as ready in one service-level update.
 
@@ -199,6 +200,7 @@ async def create_ready_job(
         source_url=source_url,
         title=title,
         options_hash=options_hash or uuid.uuid4().hex,
+        format_selector=format_selector,
     )
     ready = await jobs_service.update_job(
         db,

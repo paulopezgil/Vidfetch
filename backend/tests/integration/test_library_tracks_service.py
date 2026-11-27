@@ -215,6 +215,106 @@ def test_tracks_project_metadata_and_order_by_download_date(db_run, media_storag
     db_run(scenario)
 
 
+def test_tracks_classify_native_audio_by_job_intent(db_run, media_storage):
+    async def scenario(db):
+        owner = await create_profile(db)
+        canonical_ids = [
+            "youtube:trk-webm-audio",
+            "youtube:trk-webm-audio-subs",
+            "youtube:trk-webm-legacy",
+            "youtube:trk-webm-video",
+        ]
+        try:
+            # Native audio keeps the source container (.webm), so the extension
+            # alone would classify it as video.
+            native = await make_ready_asset(
+                db,
+                media_storage,
+                canonical_id="youtube:trk-webm-audio",
+                title="Native audio",
+                output_ext="webm",
+            )
+            await create_ready_job(
+                db,
+                user_id=owner["id"],
+                asset_id=native["id"],
+                title="Native audio",
+                format_selector="audio",
+            )
+
+            with_subs = await make_ready_asset(
+                db,
+                media_storage,
+                canonical_id="youtube:trk-webm-audio-subs",
+                title="Audio with subs intent",
+                output_ext="webm",
+            )
+            await create_ready_job(
+                db,
+                user_id=owner["id"],
+                asset_id=with_subs["id"],
+                title="Audio with subs intent",
+                format_selector="audio+subs",
+            )
+
+            # Legacy jobs stored the raw yt-dlp selector.
+            legacy = await make_ready_asset(
+                db,
+                media_storage,
+                canonical_id="youtube:trk-webm-legacy",
+                title="Legacy audio",
+                output_ext="webm",
+            )
+            await create_ready_job(
+                db,
+                user_id=owner["id"],
+                asset_id=legacy["id"],
+                title="Legacy audio",
+                format_selector="bestaudio/best",
+            )
+
+            video = await make_ready_asset(
+                db,
+                media_storage,
+                canonical_id="youtube:trk-webm-video",
+                title="Real video",
+                output_ext="webm",
+            )
+            await create_ready_job(
+                db,
+                user_id=owner["id"],
+                asset_id=video["id"],
+                title="Real video",
+                format_selector="best",
+            )
+
+            audio_rows, audio_total = await tracks.list_tracks(
+                db, owner["id"], kind="audio"
+            )
+            assert audio_total == 3
+            assert {row["format_selector"] for row in audio_rows} == {
+                "audio",
+                "audio+subs",
+                "bestaudio/best",
+            }
+
+            video_rows, video_total = await tracks.list_tracks(
+                db, owner["id"], kind="video"
+            )
+            assert video_total == 1
+            assert [row["title"] for row in video_rows] == ["Real video"]
+
+            assert (
+                await tracks.list_tracks(db, owner["id"], kind="image")
+            )[1] == 0
+        finally:
+            await cleanup_test_data(
+                db, profiles=[owner], canonical_ids=canonical_ids
+            )
+
+    db_run(scenario)
+
+
 def test_track_visibility_follows_the_library_and_asset_state(
     db_run, media_storage
 ):

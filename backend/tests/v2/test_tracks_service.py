@@ -659,15 +659,27 @@ def _track_kind_queries(kind: str, **kwargs):
     return owner, count_query, count_args, page_query, page_args
 
 
-def test_list_tracks_audio_kind_filters_on_the_audio_extensions():
+def _audio_extension_sql() -> str:
+    return (
+        "regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '') "
+        "= any(array['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus'])"
+    )
+
+
+def _audio_intent_sql() -> str:
+    return (
+        "regexp_replace(lower(coalesce(j.format_selector, '')), '\\+subs$', '') "
+        "= any(array['audio', 'mp3']) "
+        "or lower(coalesce(j.format_selector, '')) like '%bestaudio%'"
+    )
+
+
+def test_list_tracks_audio_kind_filters_on_extension_or_job_intent():
     owner, count_query, count_args, page_query, page_args = (
         _track_kind_queries("audio", q="mix", limit=7, offset=14)
     )
 
-    expected = (
-        "and (regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '') "
-        "= any(array['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus']))"
-    )
+    expected = f"and (({_audio_extension_sql()} or ({_audio_intent_sql()})))"
     assert expected in count_query
     assert expected in page_query
     assert "array['jpg'" not in count_query
@@ -699,10 +711,7 @@ def test_list_tracks_video_kind_is_the_complement_of_audio_and_image():
     )
 
     expression = "regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '')"
-    audio = (
-        f"{expression} = any(array['mp3', 'm4a', 'aac', 'wav', "
-        "'flac', 'ogg', 'opus'])"
-    )
+    audio = f"({_audio_extension_sql()} or ({_audio_intent_sql()}))"
     image = (
         f"{expression} = any(array['jpg', 'jpeg', 'png', 'webp', "
         "'gif', 'avif', 'bmp'])"
