@@ -21,19 +21,22 @@ calls.
 ## The project
 
 - **Stack**: React + Vite + TypeScript + Tailwind + Material Symbols (frontend);
-  FastAPI + `yt-dlp` + SQLite (backend); single multi-stage **Docker** image;
-  `docker-compose` exposes port 8000.
-- **Current release**: `v2.0.2` (tagged on `main`). Active work continues on
+  FastAPI + `yt-dlp` + **PostgreSQL** with local email/password sessions
+  (backend); single multi-stage **Docker** image; `docker-compose` exposes port
+  8000.
+- **Current release**: `v2.6.3` (tagged on `main`). Active work continues on
   `dev`; the next semantic version is chosen only at release time.
 
 ## Repo layout (discover it, don't trust stale paths)
 
-There are three checkouts of this one repository, all inside the main
-checkout:
+The **main checkout** (this one) holds `main` or `dev`. Agents work in
+worktrees under `.worktrees/`, one branch per worktree:
 
-- the **main checkout** (this one) — holds `main` or `dev`;
-- a **backend worktree** — `.worktrees/backend` — holds `dev-backend`;
-- a **frontend worktree** — `.worktrees/frontend` — holds `dev-frontend`.
+- `.worktrees/backend` — `dev-backend`;
+- `.worktrees/frontend` — `dev-frontend`;
+- optional per-task worktrees such as `.worktrees/frontend-<task>` —
+  `dev-frontend-<task>`, created by the `frontend`/`backend` agents for their
+  leaf workers.
 
 Always confirm the current reality with:
 
@@ -53,6 +56,7 @@ This project has **no separate `prod` branch: `main` is production.**
 | `dev` | Active development and integration. Everything lands here first. **Never** put official release version numbers on commits here. | main checkout |
 | `dev-backend` | Backend agent's feature branch, merged into `dev`. | `.worktrees/backend` |
 | `dev-frontend` | Frontend agent's feature branch, merged into `dev`. | `.worktrees/frontend` |
+| `dev-<area>-<task>` | Optional leaf-worker branches, merged into the matching agent branch. | `.worktrees/<area>-<task>` |
 
 - Git allows **one branch per worktree**.
 - **Merge INTO a branch from the worktree that has it checked out.** To merge a
