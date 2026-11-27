@@ -23,6 +23,7 @@ import StatusChip from "../components/StatusChip";
 import IconButton from "../components/IconButton";
 import Icon from "../components/Icon";
 import Card from "../components/Card";
+import Menu from "../components/Menu";
 import FormatMenu from "../components/FormatMenu";
 import Switch from "../components/Switch";
 import Spinner from "../components/Spinner";
@@ -564,56 +565,59 @@ function ItemRow({
           <span>{mediaType === "audio" ? "Àudio" : "Vídeo"}</span>
         </div>
       </div>
-      <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
-        <StatusChip status={item.status} />
-        {ready ? (
-          <>
-            <IconButton
-              variant={playerActive ? "filled" : "tonal"}
-              label={playerPlaying ? "Pausa" : "Reprodueix"}
-              onClick={() =>
-                playerActive ? togglePlay() : playTrack(track, queue)
-              }
-            >
-              <Icon
-                name={playerPlaying ? "pause" : "play_arrow"}
-                className="text-[20px]"
+      <div className="flex w-full shrink-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
+        <div className="flex min-w-0 items-center gap-2">
+          <StatusChip status={item.status} />
+          {ready ? (
+            <>
+              <IconButton
+                variant={playerActive ? "filled" : "tonal"}
+                label={playerPlaying ? "Pausa" : "Reprodueix"}
+                onClick={() =>
+                  playerActive ? togglePlay() : playTrack(track, queue)
+                }
+              >
+                <Icon
+                  name={playerPlaying ? "pause" : "play_arrow"}
+                  className="text-[20px]"
+                />
+              </IconButton>
+              <OfflineButton
+                assetId={item.asset_id}
+                title={item.title}
+                kind={mediaType}
               />
-            </IconButton>
-            <OfflineButton
-              assetId={item.asset_id}
-              title={item.title}
-              kind={mediaType}
-            />
-            <IconButton
-              variant="tonal"
-              label="Descarrega el fitxer"
-              onClick={() => void handleFileDownload()}
-              disabled={downloadingFile}
-            >
-              {downloadingFile ? (
-                <Spinner className="text-[20px]" />
-              ) : (
-                <Icon name="download" className="text-[20px]" />
-              )}
-            </IconButton>
-          </>
-        ) : item.status === "downloading" || busy ? (
-          <span className="px-2">
-            <Spinner />
-          </span>
-        ) : item.source_url ? (
-          <Button variant="outlined" size="sm" onClick={onDownload}>
-            <Icon
-              name={item.status === "failed" ? "refresh" : "download"}
-              className="text-[18px]"
-            />
-            {item.status === "failed"
-              ? "Torna-ho a provar"
-              : item.status === "cancelled"
-                ? "Torna a descarregar"
-                : "Descarrega"}
-          </Button>
+            </>
+          ) : item.status === "downloading" || busy ? (
+            <span className="px-2">
+              <Spinner />
+            </span>
+          ) : item.source_url ? (
+            <Button variant="outlined" size="sm" onClick={onDownload}>
+              <Icon
+                name={item.status === "failed" ? "refresh" : "download"}
+                className="text-[18px]"
+              />
+              {item.status === "failed"
+                ? "Torna-ho a provar"
+                : item.status === "cancelled"
+                  ? "Torna a descarregar"
+                  : "Descarrega"}
+            </Button>
+          ) : null}
+        </div>
+        {ready ? (
+          <Menu
+            label="Més accions"
+            actions={[
+              {
+                id: "download",
+                label: "Descarrega el fitxer",
+                icon: "download",
+                onSelect: () => void handleFileDownload(),
+              },
+            ]}
+          />
         ) : null}
       </div>
     </div>

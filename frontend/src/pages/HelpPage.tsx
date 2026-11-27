@@ -125,9 +125,9 @@ const DOWNLOAD_STEPS: GuideStep[] = [
       "Copia l’adreça d’un vídeo o d’una llista de YouTube i enganxa-la al camp d’Inici. Prem el botó de consulta per veure què es pot descarregar.",
   },
   {
-    title: "Tria el format",
+    title: "Tria la qualitat",
     detail:
-      "Tria «Millor qualitat», «720p» o «MP3». Si el vídeo admet subtítols i els vols, activa «Incrusta els subtítols si estan disponibles» abans de descarregar.",
+      "Al menú de qualitat tria «Millor disponible», un topall «Fins a …p» (a les llistes), «Àudio (millor)» o «MP3 320». Als vídeos individuals només s’ofereixen les altures disponibles. Si el vídeo admet subtítols i els vols, activa «Incrusta els subtítols si estan disponibles» abans de descarregar.",
   },
   {
     title: "Inicia la descàrrega",

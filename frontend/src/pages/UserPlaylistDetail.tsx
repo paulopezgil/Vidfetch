@@ -566,60 +566,48 @@ function PlaylistTrackRow({
           {credit ? <span className="truncate">{credit}</span> : null}
         </p>
       </div>
-      <div className="flex w-full items-center justify-end gap-1 sm:w-auto">
-        {!readOnly ? (
-          <>
-            <IconButton
-              label="Mou amunt"
-              onClick={onMoveUp}
-              disabled={index === 0 || reordering || removing}
-            >
-              <Icon name="arrow_upward" className="text-[20px]" />
-            </IconButton>
-            <IconButton
-              label="Mou avall"
-              onClick={onMoveDown}
-              disabled={index === total - 1 || reordering || removing}
-            >
-              <Icon name="arrow_downward" className="text-[20px]" />
-            </IconButton>
-          </>
-        ) : null}
-        {!isImage ? (
-          <>
+      <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-end">
+        <div className="flex min-w-0 items-center gap-1">
+          {!readOnly ? (
+            <>
+              <IconButton
+                label="Mou amunt"
+                onClick={onMoveUp}
+                disabled={index === 0 || reordering || removing}
+              >
+                <Icon name="arrow_upward" className="text-[20px]" />
+              </IconButton>
+              <IconButton
+                label="Mou avall"
+                onClick={onMoveDown}
+                disabled={index === total - 1 || reordering || removing}
+              >
+                <Icon name="arrow_downward" className="text-[20px]" />
+              </IconButton>
+            </>
+          ) : null}
+          <IconButton
+            variant={playerActive ? "filled" : "tonal"}
+            label={playerPlaying ? "Pausa" : "Reprodueix"}
+            onClick={() =>
+              playerActive ? togglePlay() : playTrack(track, queue)
+            }
+          >
+            <Icon
+              name={playerPlaying ? "pause" : "play_arrow"}
+              className="text-[20px]"
+            />
+          </IconButton>
+          {!isImage ? (
             <OfflineButton
               assetId={track.asset_id}
               title={track.title}
               kind={mediaType === "audio" ? "audio" : "video"}
             />
-            <IconButton
-              variant="tonal"
-              label="Descarrega el fitxer"
-              onClick={() => void handleDownload()}
-              disabled={downloading}
-            >
-              {downloading ? (
-                <Spinner className="text-[20px]" />
-              ) : (
-                <Icon name="download" className="text-[20px]" />
-              )}
-            </IconButton>
-          </>
-        ) : null}
-        <IconButton
-          variant={playerActive ? "filled" : "tonal"}
-          label={playerPlaying ? "Pausa" : "Reprodueix"}
-          onClick={() =>
-            playerActive ? togglePlay() : playTrack(track, queue)
-          }
-        >
-          <Icon
-            name={playerPlaying ? "pause" : "play_arrow"}
-            className="text-[20px]"
-          />
-        </IconButton>
-        {!readOnly ? (
-          <>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {!readOnly ? (
             <IconButton
               variant="danger"
               label="Treu de la llista"
@@ -632,19 +620,33 @@ function PlaylistTrackRow({
                 <Icon name="playlist_remove" className="text-[20px]" />
               )}
             </IconButton>
-            <Menu
-              label="Més accions"
-              actions={[
-                {
-                  id: "edit",
-                  label: "Edita els detalls",
-                  icon: "edit",
-                  onSelect: onEdit,
-                },
-              ]}
-            />
-          </>
-        ) : null}
+          ) : null}
+          <Menu
+            label="Més accions"
+            actions={[
+              ...(!isImage
+                ? [
+                    {
+                      id: "download",
+                      label: "Descarrega el fitxer",
+                      icon: "download",
+                      onSelect: () => void handleDownload(),
+                    },
+                  ]
+                : []),
+              ...(!readOnly
+                ? [
+                    {
+                      id: "edit",
+                      label: "Edita els detalls",
+                      icon: "edit",
+                      onSelect: onEdit,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </div>
       </div>
     </li>
   );

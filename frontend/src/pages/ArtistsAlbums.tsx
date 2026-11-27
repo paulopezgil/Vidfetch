@@ -513,7 +513,7 @@ function TrackRow({
 
   return (
     <div
-      className={`flex items-center gap-3 p-3 ${
+      className={`flex flex-wrap items-center gap-3 p-3 ${
         active ? "bg-surface-container" : ""
       }`}
     >
@@ -534,48 +534,50 @@ function TrackRow({
           {duration ? ` · ${duration}` : ""}
         </p>
       </div>
-      {!isImage ? (
-        <>
-          <OfflineButton
-            assetId={track.asset_id}
-            title={track.title}
-            kind={mediaType === "audio" ? "audio" : "video"}
-          />
+      <div className="flex w-full min-w-0 items-center justify-between gap-1.5 sm:w-auto sm:justify-end">
+        <div className="flex min-w-0 items-center gap-1.5">
           <IconButton
-            variant="tonal"
-            label="Descarrega el fitxer"
-            onClick={() => void handleDownload()}
-            disabled={downloading}
+            variant={playing ? "filled" : "tonal"}
+            label={playing ? "Pausa" : "Reprodueix"}
+            onClick={() => (active ? togglePlay() : playTrack(track, queue))}
           >
-            {downloading ? (
-              <Spinner className="text-[20px]" />
-            ) : (
-              <Icon name="download" className="text-[20px]" />
-            )}
+            <Icon
+              name={playing ? "pause" : "play_arrow"}
+              className="text-[20px]"
+            />
           </IconButton>
-        </>
-      ) : null}
-      <IconButton
-        variant={playing ? "filled" : "tonal"}
-        label={playing ? "Pausa" : "Reprodueix"}
-        onClick={() => (active ? togglePlay() : playTrack(track, queue))}
-      >
-        <Icon
-          name={playing ? "pause" : "play_arrow"}
-          className="text-[20px]"
-        />
-      </IconButton>
-      <Menu
-        label="Més accions"
-        actions={[
-          {
-            id: "edit",
-            label: "Edita els detalls",
-            icon: "edit",
-            onSelect: onEdit,
-          },
-        ]}
-      />
+          {!isImage ? (
+            <OfflineButton
+              assetId={track.asset_id}
+              title={track.title}
+              kind={mediaType === "audio" ? "audio" : "video"}
+            />
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Menu
+            label="Més accions"
+            actions={[
+              ...(!isImage
+                ? [
+                    {
+                      id: "download",
+                      label: "Descarrega el fitxer",
+                      icon: "download",
+                      onSelect: () => void handleDownload(),
+                    },
+                  ]
+                : []),
+              {
+                id: "edit",
+                label: "Edita els detalls",
+                icon: "edit",
+                onSelect: onEdit,
+              },
+            ]}
+          />
+        </div>
+      </div>
     </div>
   );
 }
