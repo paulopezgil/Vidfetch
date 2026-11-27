@@ -84,7 +84,19 @@ export interface DownloadJobList {
   offset: number;
 }
 
-export type DownloadFormat = "best" | "720p" | "mp3";
+export type DownloadFormat =
+  | "best"
+  | "2160p"
+  | "1440p"
+  | "1080p"
+  | "720p"
+  | "540p"
+  | "480p"
+  | "360p"
+  | "240p"
+  | "144p"
+  | "audio"
+  | "mp3";
 
 /** Request body for `POST /api/downloads`. */
 export interface CreateDownloadPayload {

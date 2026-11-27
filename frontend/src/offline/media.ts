@@ -63,10 +63,14 @@ const AUDIO_EXTENSIONS = new Set([
   "opus",
 ]);
 
-/** True when a yt-dlp selector asks for a plain audio download. */
+/** True when a stored selector or intent asks for a plain audio download. */
 export function isAudioSelector(selector: string | null | undefined): boolean {
-  const value = (selector ?? "").toLowerCase();
-  return value.includes("mp3") || value.includes("bestaudio");
+  const value = (selector ?? "").trim().toLowerCase();
+  return (
+    value.split("+")[0] === "audio" ||
+    value.includes("mp3") ||
+    value.includes("bestaudio")
+  );
 }
 
 /** True when a track/asset is an audio song. */

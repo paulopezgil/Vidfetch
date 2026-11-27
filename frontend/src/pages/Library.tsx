@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Track } from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
+import { formatLabel } from "../lib/formats";
 import {
   listTracks,
   removeFromLibrary,
@@ -45,14 +46,6 @@ interface LibraryGroup {
   key: string;
   label: string | null;
   items: Track[];
-}
-
-/** Human label for the stored yt-dlp selector. */
-function formatLabel(selector: string): string {
-  const value = selector.toLowerCase();
-  if (value.includes("bestaudio") || value.includes("mp3")) return "Àudio";
-  if (value.includes("720")) return "720p";
-  return "Millor qualitat";
 }
 
 /** Restore the shared sort preference; a bad store falls back to newest first. */
