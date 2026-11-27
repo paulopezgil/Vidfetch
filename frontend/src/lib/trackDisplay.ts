@@ -1,6 +1,7 @@
 import type { Track } from "../types/v2";
+import { formatFromSelector, isAudioFormat } from "./formats";
 
-/** Media kind derived from the stored output extension. */
+/** Media kind derived from the stored format intent and output extension. */
 export type MediaType = "video" | "audio" | "image";
 
 const AUDIO_EXTENSIONS = new Set([
@@ -30,8 +31,12 @@ export function extensionOf(item: Track): string {
 
 export function mediaTypeFor(item: Track): MediaType {
   const ext = extensionOf(item);
-  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
+  // Images stay extension-led even if a selector looks like audio.
   if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  // Native best-audio downloads can be `.webm` (Opus), so the stored intent
+  // is authoritative; the extension alone would misclassify them as video.
+  if (isAudioFormat(formatFromSelector(item.format_selector))) return "audio";
+  if (AUDIO_EXTENSIONS.has(ext)) return "audio";
   return "video";
 }
 
