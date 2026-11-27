@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import Icon from "./Icon";
@@ -23,12 +24,19 @@ export interface MenuAction {
 }
 
 interface MenuProps {
-  /** Accessible name of the icon-button trigger. */
+  /** Accessible name of the trigger and the popup. */
   label: string;
   /** Material Symbols ligature for the trigger; defaults to the overflow icon. */
   icon?: string;
   actions: MenuAction[];
   disabled?: boolean;
+  /**
+   * Custom trigger content, e.g. a labelled quality pill. When omitted the
+   * trigger stays the default overflow icon button.
+   */
+  trigger?: ReactNode;
+  /** Classes for the trigger button; defaults to the icon-button styles. */
+  triggerClassName?: string;
 }
 
 interface MenuPosition {
@@ -46,7 +54,8 @@ const FALLBACK_WIDTH = 192;
 /**
  * Material 3 overflow menu.
  *
- * The trigger is an icon button with `aria-haspopup="menu"`; the popup renders
+ * The trigger defaults to an icon button and can be replaced with labelled
+ * content via `trigger`; both carry `aria-haspopup="menu"`. The popup renders
  * through a portal on `document.body` with fixed positioning anchored to the
  * trigger's bounding box. That keeps it above the surrounding list and stops a
  * card's `overflow-hidden` from clipping it — an in-flow popup used to push the
@@ -63,6 +72,8 @@ export default function Menu({
   icon = "more_vert",
   actions,
   disabled,
+  trigger,
+  triggerClassName,
 }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<MenuPosition | null>(null);
@@ -226,9 +237,12 @@ export default function Menu({
             setOpen(true);
           }
         }}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors duration-200 hover:bg-on-surface/8 active:bg-on-surface/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38]"
+        className={
+          triggerClassName ??
+          "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors duration-200 hover:bg-on-surface/8 active:bg-on-surface/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:pointer-events-none disabled:opacity-[0.38]"
+        }
       >
-        <Icon name={icon} className="text-[20px]" />
+        {trigger ?? <Icon name={icon} className="text-[20px]" />}
       </button>
 
       {open

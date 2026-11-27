@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Track } from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
+import { formatLabel } from "../lib/formats";
 import {
   listTracks,
   removeFromLibrary,
@@ -45,14 +46,6 @@ interface LibraryGroup {
   key: string;
   label: string | null;
   items: Track[];
-}
-
-/** Human label for the stored yt-dlp selector. */
-function formatLabel(selector: string): string {
-  const value = selector.toLowerCase();
-  if (value.includes("bestaudio") || value.includes("mp3")) return "Àudio";
-  if (value.includes("720")) return "720p";
-  return "Millor qualitat";
 }
 
 /** Restore the shared sort preference; a bad store falls back to newest first. */
@@ -446,58 +439,58 @@ function FileRow({
           {formatLabel(item.format_selector)} · {formatDate(item.downloaded_at)}
         </p>
       </div>
-      <div className="flex w-full items-center gap-1.5 sm:w-auto">
-        <IconButton
-          variant={playerActive ? "filled" : "tonal"}
-          label={playerPlaying ? "Pausa" : "Reprodueix"}
-          onClick={() => (playerActive ? togglePlay() : playTrack(item, queue))}
-        >
-          <Icon
-            name={playerPlaying ? "pause" : "play_arrow"}
-            className="text-[20px]"
+      <div className="flex w-full min-w-0 items-center justify-between gap-1.5 sm:w-auto sm:justify-end">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <IconButton
+            variant={playerActive ? "filled" : "tonal"}
+            label={playerPlaying ? "Pausa" : "Reprodueix"}
+            onClick={() =>
+              playerActive ? togglePlay() : playTrack(item, queue)
+            }
+          >
+            <Icon
+              name={playerPlaying ? "pause" : "play_arrow"}
+              className="text-[20px]"
+            />
+          </IconButton>
+          <OfflineButton
+            assetId={item.asset_id}
+            title={item.title}
+            kind={mediaType === "audio" ? "audio" : "video"}
           />
-        </IconButton>
-        <OfflineButton
-          assetId={item.asset_id}
-          title={item.title}
-          kind={mediaType === "audio" ? "audio" : "video"}
-        />
-        <IconButton
-          variant="tonal"
-          label="Descarrega el fitxer"
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-        >
-          {downloading ? (
-            <Spinner className="text-[20px]" />
-          ) : (
-            <Icon name="download" className="text-[20px]" />
-          )}
-        </IconButton>
-        <IconButton
-          variant="danger"
-          label="Treu de la biblioteca"
-          onClick={onDelete}
-        >
-          <Icon name="delete" className="text-[20px]" />
-        </IconButton>
-        <Menu
-          label="Més accions"
-          actions={[
-            {
-              id: "add-to-playlist",
-              label: "Afegeix a una llista",
-              icon: "playlist_add",
-              onSelect: onAddToPlaylist,
-            },
-            {
-              id: "edit",
-              label: "Edita els detalls",
-              icon: "edit",
-              onSelect: onEdit,
-            },
-          ]}
-        />
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <IconButton
+            variant="danger"
+            label="Treu de la biblioteca"
+            onClick={onDelete}
+          >
+            <Icon name="delete" className="text-[20px]" />
+          </IconButton>
+          <Menu
+            label="Més accions"
+            actions={[
+              {
+                id: "download",
+                label: "Descarrega el fitxer",
+                icon: "download",
+                onSelect: () => void handleDownload(),
+              },
+              {
+                id: "add-to-playlist",
+                label: "Afegeix a una llista",
+                icon: "playlist_add",
+                onSelect: onAddToPlaylist,
+              },
+              {
+                id: "edit",
+                label: "Edita els detalls",
+                icon: "edit",
+                onSelect: onEdit,
+              },
+            ]}
+          />
+        </div>
       </div>
     </div>
   );

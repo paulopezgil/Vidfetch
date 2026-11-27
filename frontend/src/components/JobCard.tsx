@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { DownloadJob } from "../types/v2";
 import { isActiveJob } from "../types/v2";
 import { formatBytes, formatEta, formatSpeed } from "../lib";
+import { formatLabel } from "../lib/formats";
 import Card from "./Card";
 import StatusChip from "./StatusChip";
 import ProgressBar from "./ProgressBar";
@@ -16,16 +17,6 @@ interface JobCardProps {
 }
 
 const indeterminateStatuses = new Set(["queued", "resolving"]);
-
-/** Human label for the job's stored yt-dlp selector. */
-function formatLabel(job: DownloadJob): string {
-  const selector = job.format_selector.toLowerCase();
-  if (selector.includes("bestaudio") || selector.endsWith("mp3")) {
-    return "Àudio";
-  }
-  if (selector.includes("720")) return "Vídeo · 720p";
-  return "Vídeo · Millor qualitat";
-}
 
 /** Material 3 card for one v2 download job. */
 export default function JobCard({ job, onCancel }: JobCardProps) {
@@ -64,12 +55,11 @@ export default function JobCard({ job, onCancel }: JobCardProps) {
           <p className="truncate text-title-small text-on-surface">{title}</p>
           <p className="mt-0.5 text-body-small text-on-surface-variant">
             {isPlaylist
-              ? "Llista de reproducció"
+              ? "Llista de reproducció · "
               : isPlaylistItem
-                ? "Vídeo de la llista"
-                : "Vídeo"}
-            {" · "}
-            {formatLabel(job)}
+                ? "De la llista · "
+                : ""}
+            {formatLabel(job.format_selector)}
             {isPlaylist && itemCount > 0 ? ` · ${itemCount} vídeos` : ""}
           </p>
         </div>

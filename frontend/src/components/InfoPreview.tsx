@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { FormatName, InfoResult, OperationType } from "../types";
 import { formatDuration } from "../lib";
+import { isAudioFormat } from "../lib/formats";
 import Thumbnail from "./Thumbnail";
 import Button from "./Button";
 import Card from "./Card";
 import Icon from "./Icon";
-import SegmentedButton from "./SegmentedButton";
+import FormatMenu from "./FormatMenu";
 import Switch from "./Switch";
 
 interface InfoPreviewProps {
@@ -18,12 +19,6 @@ interface InfoPreviewProps {
   }) => void;
 }
 
-const formats = [
-  { value: "best" as FormatName, label: "Millor qualitat", icon: "high_quality" },
-  { value: "720p" as FormatName, label: "720p", icon: "hd" },
-  { value: "mp3" as FormatName, label: "MP3", icon: "music_note" },
-];
-
 export default function InfoPreview({
   info,
   submitting,
@@ -34,13 +29,8 @@ export default function InfoPreview({
 
   const isPlaylist = info.type === "playlist";
   const operationType: OperationType = isPlaylist ? "playlist" : "video";
-  const no720 = !isPlaylist && info.formats && !info.formats.has_720p;
-  const mp3 = format === "mp3";
-
-  const formatOptions = formats.map((option) => ({
-    ...option,
-    disabled: option.value === "720p" && Boolean(no720),
-  }));
+  // Audio profiles never carry subtitles, so embedding is turned off.
+  const audioOnly = isAudioFormat(format);
 
   return (
     <Card variant="outlined" className="overflow-hidden">
@@ -87,25 +77,19 @@ export default function InfoPreview({
             <p className="mb-2 text-label-large text-on-surface-variant">
               Format
             </p>
-            <SegmentedButton
-              options={formatOptions}
+            <FormatMenu
               value={format}
-              onChange={(value) => setFormat(value as FormatName)}
-              label="Format de descàrrega"
+              onChange={setFormat}
+              isPlaylist={isPlaylist}
+              availableHeights={info.formats?.heights ?? []}
             />
-            {no720 ? (
-              <p className="mt-2 text-body-small text-on-surface-variant">
-                El 720p no està disponible per a aquest vídeo; s’utilitzarà
-                l’opció «Millor qualitat».
-              </p>
-            ) : null}
           </div>
 
           <div className="mt-5">
             <Switch
-              checked={embedSubs && !mp3}
+              checked={embedSubs && !audioOnly}
               onChange={setEmbedSubs}
-              disabled={mp3}
+              disabled={audioOnly}
               label="Incrusta els subtítols si estan disponibles"
             />
           </div>
@@ -116,7 +100,7 @@ export default function InfoPreview({
                 onDownload({
                   operation_type: operationType,
                   format,
-                  embed_subs: embedSubs && !mp3,
+                  embed_subs: embedSubs && !audioOnly,
                 })
               }
               disabled={submitting}
