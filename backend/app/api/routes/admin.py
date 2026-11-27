@@ -155,7 +155,11 @@ async def reset_user_password(
         raise _unavailable()
     try:
         updated = await auth_service.set_password(
-            db, user_id, payload.password, revoke_sessions=True
+            db,
+            user_id,
+            payload.password,
+            revoke_sessions=True,
+            actor_id=admin.id,
         )
     except (
         auth_service.WeakPasswordError,
