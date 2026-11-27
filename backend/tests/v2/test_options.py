@@ -63,13 +63,34 @@ def test_format_selector_whitespace_is_normalized():
         ("best", True, None),
         ("720p", False, None),
         ("best", False, {"embed_thumbnail": True}),
-        ("best", False, {"audio_bitrate": "192"}),
+        ("best", False, {"audio_bitrate": "320"}),
     ],
 )
 def test_changing_any_intent_changes_hash(format_selector, embed_subs, extra):
     baseline = options_hash("best", False, None)
 
     assert options_hash(format_selector, embed_subs, extra) != baseline
+
+
+def test_every_format_profile_gets_a_distinct_hash():
+    formats = [
+        "best",
+        "2160p",
+        "1440p",
+        "1080p",
+        "720p",
+        "540p",
+        "480p",
+        "360p",
+        "240p",
+        "144p",
+        "audio",
+        "mp3",
+    ]
+
+    hashes = {options_hash(fmt, False) for fmt in formats}
+
+    assert len(hashes) == len(formats)
 
 
 def test_canonical_options_rejects_invalid_input():

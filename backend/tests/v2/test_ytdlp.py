@@ -263,7 +263,16 @@ def test_get_info_maps_and_redacts_ytdlp_errors(settings, monkeypatch):
     "fmt,expected",
     [
         ("mp3", "bestaudio/best"),
+        ("audio", "bestaudio/best"),
+        ("2160p", "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best"),
+        ("1440p", "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"),
+        ("1080p", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"),
         ("720p", "bestvideo[height<=720]+bestaudio/best[height<=720]/best"),
+        ("540p", "bestvideo[height<=540]+bestaudio/best[height<=540]/best"),
+        ("480p", "bestvideo[height<=480]+bestaudio/best[height<=480]/best"),
+        ("360p", "bestvideo[height<=360]+bestaudio/best[height<=360]/best"),
+        ("240p", "bestvideo[height<=240]+bestaudio/best[height<=240]/best"),
+        ("144p", "bestvideo[height<=144]+bestaudio/best[height<=144]/best"),
         ("best", "bestvideo+bestaudio/best"),
     ],
 )
@@ -272,18 +281,49 @@ def test_format_spec_mapping(fmt, expected):
     assert ytdlp._format_spec(fmt) == expected
 
 
-def test_format_spec_rejects_unknown_format():
+@pytest.mark.parametrize("fmt", ["4k", "1080", "audio ", "video", ""])
+def test_format_spec_rejects_unknown_format(fmt):
     with pytest.raises(ytdlp.DownloadError) as excinfo:
-        ytdlp.format_spec("4k")
+        ytdlp.format_spec(fmt)
 
     assert excinfo.value.code == "invalid_format"
 
 
-def test_intent_encoding_round_trips():
-    assert ytdlp.encode_intent("720p", True) == "720p+subs"
-    assert ytdlp.parse_intent("720p+subs") == ("720p", True)
-    assert ytdlp.parse_intent("mp3") == ("mp3", False)
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "best",
+        "2160p",
+        "1440p",
+        "1080p",
+        "720p",
+        "540p",
+        "480p",
+        "360p",
+        "240p",
+        "144p",
+        "audio",
+        "mp3",
+    ],
+)
+def test_intent_encoding_round_trips_for_every_format(fmt):
+    assert ytdlp.encode_intent(fmt, False) == fmt
+    assert ytdlp.parse_intent(fmt) == (fmt, False)
+    assert ytdlp.encode_intent(fmt, True) == f"{fmt}+subs"
+    assert ytdlp.parse_intent(f"{fmt}+subs") == (fmt, True)
+
+
+def test_intent_parse_falls_back_to_best_for_unknown_selectors():
     assert ytdlp.parse_intent("nonsense") == ("best", False)
+    assert ytdlp.parse_intent("4k") == ("best", False)
+    assert ytdlp.parse_intent("nonsense+subs") == ("best", True)
+
+
+def test_intent_encode_rejects_unknown_format():
+    with pytest.raises(ytdlp.DownloadError) as excinfo:
+        ytdlp.encode_intent("4k", False)
+
+    assert excinfo.value.code == "invalid_format"
 
 
 def _download_factory(progress: bool = False, cancelled: bool = False):
@@ -381,11 +421,58 @@ def test_download_video_mp3_uses_audio_extraction(tmp_path, settings, monkeypatc
     opts = FakeYDL.instances[0]
     assert opts["format"] == "bestaudio/best"
     assert opts["postprocessors"][0]["key"] == "FFmpegExtractAudio"
-    assert opts["postprocessors"][0]["preferredquality"] == "192"
+    assert opts["postprocessors"][0]["preferredquality"] == "320"
     assert opts["postprocessor_args"] == {
         "ffmpeg": ["-metadata", "album=My album"]
     }
     assert "merge_output_format" not in opts
+
+
+def test_download_video_audio_keeps_native_stream(tmp_path, settings, monkeypatch):
+    _install_ydl(monkeypatch, _download_factory())
+
+    ytdlp.download_video(
+        "https://example.test/v",
+        "audio",
+        False,
+        tmp_path / "work",
+        lambda payload: None,
+        lambda: False,
+        settings,
+    )
+
+    opts = FakeYDL.instances[0]
+    assert opts["format"] == "bestaudio/best"
+    # No audio extraction and no forced container: keep the source stream.
+    assert "postprocessors" not in opts
+    assert "merge_output_format" not in opts
+
+
+@pytest.mark.parametrize("fmt", ["audio", "mp3"])
+def test_audio_profiles_ignore_subtitle_intent(
+    fmt, tmp_path, settings, monkeypatch
+):
+    _install_ydl(monkeypatch, _download_factory())
+
+    ytdlp.download_video(
+        "https://example.test/v",
+        fmt,
+        True,
+        tmp_path / "work",
+        lambda payload: None,
+        lambda: False,
+        settings,
+    )
+
+    opts = FakeYDL.instances[0]
+    postprocessor_keys = [
+        postprocessor["key"] for postprocessor in opts.get("postprocessors", [])
+    ]
+    assert "FFmpegEmbedSubtitle" not in postprocessor_keys
+    assert "writesubtitles" not in opts
+    assert "writeautomaticsub" not in opts
+    assert "embedsubtitles" not in opts
+    assert "subtitleslangs" not in opts
 
 
 def test_download_video_embeds_subtitles(tmp_path, settings, monkeypatch):
