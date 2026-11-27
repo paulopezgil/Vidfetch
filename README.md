@@ -324,6 +324,17 @@ DOWNLOAD_DIR volume
   offline with the save control. Saved media is permanent; there is no
   un-download action.
 
+### Playlists vs albums
+
+- **Llistes** contains only the user's own curated playlists and curated
+  playlists shared with them.
+- A downloaded YouTube/source playlist is represented by its tracks: they appear
+  in **Cançons/Vídeos** by media kind and are grouped under **Artistes i
+  àlbums** using the playlist title as the album and each video's channel as the
+  artist.
+- The `/imported/:id` detail route remains available for old bookmarks/direct
+  links, but imported playlists are not listed in Llistes.
+
 ---
 
 ## Offline mode

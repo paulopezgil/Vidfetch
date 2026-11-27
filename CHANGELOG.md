@@ -6,7 +6,19 @@ Semantic Versioning and are cut from `main`.
 
 ## [Unreleased]
 
-Changes accumulated on `dev` after `v2.5.2`.
+Changes accumulated on `dev` after `v2.5.3`.
+
+### Changed
+
+- **Llistes is now only user-created/shared playlists.** Imported YouTube/source
+  playlists are no longer listed as playlist cards there. Their successful
+  tracks continue to appear in Songs/Videos and are grouped under Artists/Albums
+  by the playlist title; the `/imported/:id` detail route stays available for
+  old direct links.
+
+## [v2.5.3] — 2026-11-27
+
+Patch release restoring legacy playlist tracks and fixing mixed-media pagination.
 
 ### Fixed
 
