@@ -65,7 +65,7 @@ async function cacheStylesheet(
 ): Promise<string[]> {
   let response: Response | null = null;
   try {
-    const cached = await cache.match(href);
+    const cached = await cache.match(href, { ignoreVary: true });
     if (cached && cached.type !== "opaque") response = cached;
   } catch {
     // Fall through to the network.
@@ -96,7 +96,7 @@ async function cacheStylesheet(
 /** Cache one font file unless it is already present. */
 async function cacheFont(cache: Cache, href: string): Promise<void> {
   try {
-    if (await cache.match(href)) return;
+    if (await cache.match(href, { ignoreVary: true })) return;
     const response = await fetch(href, {
       mode: "cors",
       credentials: "omit",
