@@ -4,6 +4,15 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [v2.6.1] — 2026-11-27
+
+Patch release removing the redundant Llistes header description.
+
+### Changed
+
+- Removed the paragraph under the **Llistes** heading that explained curated
+  versus downloaded playlists; the section headings remain self-explanatory.
+
 ## [v2.6.0] — 2026-11-27
 
 Minor release unifying the library and adding the Ajuda page.
