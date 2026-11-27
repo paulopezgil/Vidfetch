@@ -142,10 +142,6 @@ export default function Playlists() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 sm:px-6 lg:px-8">
-      <div>
-        <h2 className="text-title-large text-on-surface">Llistes</h2>
-      </div>
-
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
       <section aria-labelledby="curated-heading" className="space-y-3">
@@ -155,11 +151,8 @@ export default function Playlists() {
               id="curated-heading"
               className="text-title-medium text-on-surface"
             >
-              Les teves llistes
+              Les meves llistes
             </h2>
-            <p className="text-body-small text-on-surface-variant">
-              Les teves seleccions de cançons ordenades.
-            </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
             <Icon name="add" className="text-[18px]" />
@@ -199,10 +192,6 @@ export default function Playlists() {
               >
                 Compartides amb mi
               </h2>
-              <p className="text-body-small text-on-surface-variant">
-                Llistes que altres usuaris han compartit amb tu. Són de només
-                lectura.
-              </p>
             </div>
             <span className="text-label-medium text-on-surface-variant">
               {shared.length}
