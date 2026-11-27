@@ -155,24 +155,38 @@ TRACKS_WHERE_BY_IDS = (
 )
 
 # The client derives a media kind from ``output_ext`` (leading dot stripped,
-# lowercased). Mirror that rule in SQL so a page never mixes media kinds that
-# the Songs/Videos views filter out client-side. Only the extension sets below
-# are spliced into the statement; a caller-supplied kind is just a dictionary
-# key and is never interpolated.
+# lowercased). Native audio profiles keep the source container (for example
+# ``.webm``), so the representative job's stored intent decides those. Mirror
+# both rules in SQL so a page never mixes media kinds that the Songs/Videos
+# views filter out client-side. Only the extension/intent sets below are
+# spliced into the statement; a caller-supplied kind is just a dictionary key
+# and is never interpolated.
 TRACK_EXTENSION = (
     "regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '')"
 )
 AUDIO_EXTENSIONS = ("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus")
 IMAGE_EXTENSIONS = ("jpg", "jpeg", "png", "webp", "gif", "avif", "bmp")
+# Stored intents are ``<format>`` or ``<format>+subs``; older jobs stored the
+# raw yt-dlp selector, which names the audio stream explicitly.
+AUDIO_INTENTS = ("audio", "mp3")
 
 
-def _sql_extension_array(extensions: Iterable[str]) -> str:
-    return "array[" + ", ".join(f"'{value}'" for value in extensions) + "]"
+def _sql_array(values: Iterable[str]) -> str:
+    return "array[" + ", ".join(f"'{value}'" for value in values) + "]"
 
 
-_AUDIO_EXTENSIONS_SQL = _sql_extension_array(AUDIO_EXTENSIONS)
-_IMAGE_EXTENSIONS_SQL = _sql_extension_array(IMAGE_EXTENSIONS)
-_AUDIO_PREDICATE = f"{TRACK_EXTENSION} = any({_AUDIO_EXTENSIONS_SQL})"
+_AUDIO_EXTENSIONS_SQL = _sql_array(AUDIO_EXTENSIONS)
+_IMAGE_EXTENSIONS_SQL = _sql_array(IMAGE_EXTENSIONS)
+_AUDIO_INTENTS_SQL = _sql_array(AUDIO_INTENTS)
+_JOB_FORMAT_INTENT = (
+    "regexp_replace(lower(coalesce(j.format_selector, '')), '\\+subs$', '')"
+)
+_AUDIO_BY_EXTENSION = f"{TRACK_EXTENSION} = any({_AUDIO_EXTENSIONS_SQL})"
+_AUDIO_BY_INTENT = (
+    f"{_JOB_FORMAT_INTENT} = any({_AUDIO_INTENTS_SQL}) "
+    "or lower(coalesce(j.format_selector, '')) like '%bestaudio%'"
+)
+_AUDIO_PREDICATE = f"({_AUDIO_BY_EXTENSION} or ({_AUDIO_BY_INTENT}))"
 _IMAGE_PREDICATE = f"{TRACK_EXTENSION} = any({_IMAGE_EXTENSIONS_SQL})"
 
 # Video is the complement: anything that is neither audio nor image, which

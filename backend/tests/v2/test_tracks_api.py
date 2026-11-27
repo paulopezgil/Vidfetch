@@ -624,12 +624,17 @@ def test_list_tracks_defaults_to_newest_downloaded(tmp_path):
             "= any(array['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus'])",
         ),
         (
+            "audio",
+            "= any(array['audio', 'mp3']) "
+            "or lower(coalesce(j.format_selector, '')) like '%bestaudio%'",
+        ),
+        (
             "image",
             "= any(array['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp'])",
         ),
         (
             "video",
-            "not (regexp_replace(lower(coalesce(a.output_ext, '')), "
+            "not ((regexp_replace(lower(coalesce(a.output_ext, '')), "
             "'^\\.', '') = any(array['mp3'",
         ),
     ],
