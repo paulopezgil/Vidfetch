@@ -138,6 +138,7 @@ async def make_ready_asset(
     duration_seconds: int | None = 30,
     payload: bytes = b"0123456789",
     thumbnail: bool = False,
+    output_ext: str = "mp4",
 ) -> dict[str, Any]:
     """Claim, write a real file, and finalize a shared ready asset."""
     canonical = canonical_id or f"youtube:{uuid.uuid4().hex}"
@@ -155,7 +156,7 @@ async def make_ready_asset(
         lease_seconds=60,
     )
     asset = claim.asset
-    relative = f"assets/{asset['id']}/media.mp4"
+    relative = f"assets/{asset['id']}/media.{output_ext or 'bin'}"
     path = storage.validate_relative_path(relative)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
@@ -170,7 +171,7 @@ async def make_ready_asset(
         asset["id"],
         file_path=relative,
         file_size_bytes=len(payload),
-        output_ext="mp4",
+        output_ext=output_ext,
         thumbnail_path=thumbnail_path,
     )
     assert ready is not None

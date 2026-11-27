@@ -16,7 +16,7 @@ import asyncio
 import base64
 import binascii
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Literal, Mapping
 from uuid import UUID, uuid4
 
 from ..core.db import Database
@@ -154,6 +154,48 @@ TRACKS_WHERE_BY_IDS = (
     "and ut.id = any($2::uuid[])"
 )
 
+# The client derives a media kind from ``output_ext`` (leading dot stripped,
+# lowercased). Mirror that rule in SQL so a page never mixes media kinds that
+# the Songs/Videos views filter out client-side. Only the extension sets below
+# are spliced into the statement; a caller-supplied kind is just a dictionary
+# key and is never interpolated.
+TRACK_EXTENSION = (
+    "regexp_replace(lower(coalesce(a.output_ext, '')), '^\\.', '')"
+)
+AUDIO_EXTENSIONS = ("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus")
+IMAGE_EXTENSIONS = ("jpg", "jpeg", "png", "webp", "gif", "avif", "bmp")
+
+
+def _sql_extension_array(extensions: Iterable[str]) -> str:
+    return "array[" + ", ".join(f"'{value}'" for value in extensions) + "]"
+
+
+_AUDIO_EXTENSIONS_SQL = _sql_extension_array(AUDIO_EXTENSIONS)
+_IMAGE_EXTENSIONS_SQL = _sql_extension_array(IMAGE_EXTENSIONS)
+_AUDIO_PREDICATE = f"{TRACK_EXTENSION} = any({_AUDIO_EXTENSIONS_SQL})"
+_IMAGE_PREDICATE = f"{TRACK_EXTENSION} = any({_IMAGE_EXTENSIONS_SQL})"
+
+# Video is the complement: anything that is neither audio nor image, which
+# includes NULL and unrecognised extensions, matching the frontend fallback.
+TRACK_KIND_PREDICATES: dict[str, str] = {
+    "audio": _AUDIO_PREDICATE,
+    "image": _IMAGE_PREDICATE,
+    "video": f"not ({_AUDIO_PREDICATE} or {_IMAGE_PREDICATE})",
+}
+
+TrackKind = Literal["audio", "video", "image"]
+
+
+def _track_kind_filter(kind: str | None) -> str:
+    """Return a SQL ``and`` clause for ``kind``, or ``""`` for no filter."""
+    if kind is None:
+        return ""
+    predicate = TRACK_KIND_PREDICATES.get(kind)
+    if predicate is None:
+        raise ValueError("Invalid track kind.")
+    return f" and ({predicate})"
+
+
 # Whitelisted orderings. The title sort reuses the resolved-title expression
 # from ``TRACKS_COLUMNS`` so it orders by exactly what the client displays, and
 # falls back to the id for a deterministic tie-break (and therefore stable
@@ -203,6 +245,7 @@ async def list_tracks(
     offset: int = 0,
     q: str | None = None,
     sort: str = "downloaded",
+    kind: TrackKind | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return one page of the caller's visible tracks.
 
@@ -210,25 +253,29 @@ async def list_tracks(
     Whitespace-only input is treated as no filter. ``sort`` is one of
     :data:`TRACK_SORTS`: newest download first (the default) or resolved title
     ascending. Both orderings tie-break on the track id, so paging is stable.
+    ``kind`` restricts the page to audio, video, or image tracks using the same
+    output-extension rules as the client; ``None`` keeps every kind.
     """
     order_by = TRACK_SORTS.get(str(sort))
     if order_by is None:
         raise ValueError("Invalid track sort.")
+    kind_filter = _track_kind_filter(kind)
     owner = _as_uuid(user_id)
     limit, offset = _clamp(limit, offset)
     search = _normalize_search(q)
 
     tracks_from = _tracks_from(db.schema_sql)
+    tracks_where = f"{TRACKS_WHERE}{kind_filter}"
 
     total_row = await db.fetchrow(
-        f"select count(*) as total {tracks_from} {TRACKS_WHERE}",
+        f"select count(*) as total {tracks_from} {tracks_where}",
         owner,
         search,
     )
     total = int(total_row["total"]) if total_row is not None else 0
 
     rows = await db.fetch(
-        f"select {TRACKS_COLUMNS} {tracks_from} {TRACKS_WHERE} "
+        f"select {TRACKS_COLUMNS} {tracks_from} {tracks_where} "
         f"order by {order_by} limit $3 offset $4",
         owner,
         search,

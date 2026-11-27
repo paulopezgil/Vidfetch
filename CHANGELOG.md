@@ -4,6 +4,22 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [Unreleased]
+
+Changes accumulated on `dev` after `v2.5.2`.
+
+### Fixed
+
+- **Older playlists never reached Songs.** Ready playlist items from before the
+  per-item job pipeline had no linked `download_jobs` row, so no `user_tracks`
+  row existed. A new migration backfills one terminal `playlist_item` job per
+  ready item that lacks one, links it to the item, and lets the existing trigger
+  create the missing track with the playlist title and item channel.
+- **Songs/Videos hid tracks behind mixed pages.** `/api/tracks` now accepts
+  `kind=audio|video|image` and filters in SQL. Songs and Videos request their own
+  media kind, so a page full of videos can no longer make the Songs tab look
+  empty (or skew its totals/pagination).
+
 ## [v2.5.2] — 2026-11-27
 
 Patch release for offline list artwork and cached playlist details.

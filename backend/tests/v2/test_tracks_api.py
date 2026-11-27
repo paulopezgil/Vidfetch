@@ -616,6 +616,65 @@ def test_list_tracks_defaults_to_newest_downloaded(tmp_path):
     assert "order by ut.downloaded_at desc, ut.id desc" in db.calls[2][1]
 
 
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        (
+            "audio",
+            "= any(array['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus'])",
+        ),
+        (
+            "image",
+            "= any(array['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp'])",
+        ),
+        (
+            "video",
+            "not (regexp_replace(lower(coalesce(a.output_ext, '')), "
+            "'^\\.', '') = any(array['mp3'",
+        ),
+    ],
+)
+def test_list_tracks_forwards_the_media_kind_filter(tmp_path, kind, expected):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile, {"total": 0})
+    db.queue_fetch([])
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks",
+            params={"kind": kind, "limit": 3, "offset": 6},
+            headers=_headers(profile),
+        )
+
+    assert response.status_code == 200
+    count_query, page_query = db.calls[1][1], db.calls[2][1]
+    assert expected in count_query
+    assert expected in page_query
+    # The kind predicate is static SQL; the positional arguments are unchanged.
+    assert db.calls[1][2] == (profile["id"], "")
+    assert db.calls[2][2] == (profile["id"], "", 3, 6)
+    assert "limit $3 offset $4" in page_query
+
+
+def test_list_tracks_rejects_an_unknown_media_kind(tmp_path):
+    settings = make_settings(tmp_path)
+    profile = _approved()
+    db = FakeDatabase()
+    db.queue_fetchrow(profile)
+
+    with app_client(settings, db) as (app, client):
+        response = client.get(
+            "/api/tracks", params={"kind": "music"}, headers=_headers(profile)
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_request"
+    # The invalid value never reaches the tracks query.
+    assert all("user_tracks" not in call[1] for call in db.calls)
+
+
 def test_list_tracks_rejects_an_unknown_sort_with_the_validation_envelope(tmp_path):
     settings = make_settings(tmp_path)
     profile = _approved()
