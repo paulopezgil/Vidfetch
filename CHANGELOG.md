@@ -6,7 +6,19 @@ Semantic Versioning and are cut from `main`.
 
 ## [Unreleased]
 
-Changes accumulated on `dev` after `v2.4.3`.
+Changes accumulated on `dev` after `v2.5.0`.
+
+### Added
+
+- **Self-service password change.** Settings now has a **Seguretat** section
+  where a signed-in user can replace a temporary/admin-reset password with
+  their own. It validates the current password, the new password and the
+  confirmation, keeps the current session, and revokes the user's other
+  sessions through the existing `/api/auth/password` endpoint.
+
+## [v2.5.0] — 2026-11-27
+
+Minor release adding the administrator password-reset workflow.
 
 ### Added
 
