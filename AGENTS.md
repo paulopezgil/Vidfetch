@@ -5,7 +5,7 @@ scope and worktree details live in `.opencode/agents/*.md`.
 
 ## Current state
 
-- `main` — stable production releases only. Current release: `v2.5.1`.
+- `main` — stable production releases only. Current release: `v2.5.2`.
 - `dev` — active development and integration for the next release.
 - The v2 rewrite is released; there is no long-lived `v2` branch anymore.
 - v2 stack: React + FastAPI + **PostgreSQL** + **local email/password sessions**
