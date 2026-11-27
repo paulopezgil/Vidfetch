@@ -6,7 +6,31 @@ Semantic Versioning and are cut from `main`.
 
 ## [Unreleased]
 
-Changes accumulated on `dev` after `v2.5.3`.
+Changes accumulated on `dev` after `v2.5.4`.
+
+### Added
+
+- **Biblioteca tab.** Songs, videos, albums and artists now live behind one
+  top-level destination with a four-way switch. The old `/songs`, `/videos`,
+  `/artists` and `/tracks` URLs redirect to the matching Biblioteca section.
+- **Ajuda tab.** The former Informació page is now **Ajuda**, with a two-way
+  switch between **Instal·lació** and **Com descarregar**. The installation
+  guide keeps its Android/iPhone/Escriptori platform switch; the download guide
+  explains formats, where results appear, failures, and offline saving.
+
+### Changed
+
+- Main navigation is now **Inici, Biblioteca, Llistes, Configuració, Ajuda**
+  (plus Admin). Informació and Configuració were removed from the profile menu.
+- **Llistes is now only user-created/shared playlists.** Imported YouTube/source
+  playlists are no longer listed as playlist cards there. Their successful
+  tracks continue to appear in Biblioteca and are grouped under Àlbums/Artistes
+  by the playlist title; the `/imported/:id` detail route stays available for
+  old direct links.
+
+## [v2.5.4] — 2026-11-27
+
+Patch release making Llistes curated-only and clarifying where downloaded playlists live.
 
 ### Changed
 

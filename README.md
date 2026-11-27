@@ -278,7 +278,7 @@ DOWNLOAD_DIR volume
 
 | Layer | Responsibility |
 | --- | --- |
-| **Frontend** | Login/register, route guards, Home, Songs, Videos, Playlists, Artists & Albums, Settings, player, admin panel |
+| **Frontend** | Login/register, route guards, Inici, Biblioteca (Cançons/Vídeos/Àlbums/Artistes), Llistes, Configuració, Ajuda, player, admin panel |
 | **Offline layer** | IndexedDB metadata cache, queued mutations, Cache Storage media, service-worker shell |
 | **Backend API** | Session auth, approval/role guards, jobs, tracks, curated playlists, media tokens, admin |
 | **Worker** | Claims durable jobs, runs `yt-dlp`/FFmpeg, updates progress, repairs/fills the shared cache |
@@ -324,14 +324,26 @@ DOWNLOAD_DIR volume
   offline with the save control. Saved media is permanent; there is no
   un-download action.
 
+### Navigation, Biblioteca and Help
+
+- Main destinations are **Inici**, **Biblioteca**, **Llistes**, **Configuració**
+  and **Ajuda** (plus **Admin** for administrators).
+- **Biblioteca** is one destination with a four-way switch:
+  **Cançons**, **Vídeos**, **Àlbums** and **Artistes**.
+- **Ajuda** is the help page. It switches between **Instal·lació** (with its own
+  Android/iPhone/Escriptori guide) and **Com descarregar** (URL, format,
+  playlist results, failures and offline saving).
+- Old `/songs`, `/videos`, `/artists` and `/tracks` links redirect to the
+  matching Biblioteca section.
+
 ### Playlists vs albums
 
 - **Llistes** contains only the user's own curated playlists and curated
   playlists shared with them.
 - A downloaded YouTube/source playlist is represented by its tracks: they appear
-  in **Cançons/Vídeos** by media kind and are grouped under **Artistes i
-  àlbums** using the playlist title as the album and each video's channel as the
-  artist.
+  in **Biblioteca → Cançons/Vídeos** by media kind and are grouped under
+  **Biblioteca → Àlbums/Artistes** using the playlist title as the album and each
+  video's channel as the artist.
 - The `/imported/:id` detail route remains available for old bookmarks/direct
   links, but imported playlists are not listed in Llistes.
 
@@ -571,8 +583,8 @@ frontend/
     auth/              local session provider and route guards
     components/        M3 components, player bar, dialogs
     offline/           IndexedDB, media cache, sync queue
-    pages/             Login, Pending, Home, Songs, Videos, Playlists,
-                       Artists/Albums, Settings, Admin
+    pages/             Login, Pending, Home, Library (Songs/Videos/Albums/Artists),
+                       Playlists, Settings, Help, Admin
     player/            persistent media player and queue
     theme/             light/dark/system preference
     lib/               API client, session token storage, helpers
