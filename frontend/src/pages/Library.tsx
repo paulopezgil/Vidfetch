@@ -128,6 +128,7 @@ export default function Library({ kind }: { kind: LibraryKind }) {
         offset,
         q: query || undefined,
         sort,
+        kind,
       });
       setItems(trackPage.items);
       setTotal(trackPage.total);
@@ -141,7 +142,7 @@ export default function Library({ kind }: { kind: LibraryKind }) {
     } finally {
       setLoading(false);
     }
-  }, [noun, offset, query, sort]);
+  }, [kind, noun, offset, query, sort]);
 
   useEffect(() => {
     void refresh();
@@ -198,18 +199,17 @@ export default function Library({ kind }: { kind: LibraryKind }) {
     [refresh, toast, updateTrack],
   );
 
-  // Playlist downloads produce normal per-user tracks too, so they belong to
-  // the song/video sections like any other download. The destination selects
-  // the media kind, and images never belong to either list.
+  // The API already restricts the page and its total to this media kind, so
+  // only the user-visible title order is applied here. Filtering again could
+  // hide items the server counted and break the page totals.
   const visibleTracks = useMemo(() => {
-    const matching = items.filter((item) => mediaTypeFor(item) === kind);
     if (sort === "title") {
-      return [...matching].sort((a, b) =>
+      return [...items].sort((a, b) =>
         a.title.localeCompare(b.title, "ca", { sensitivity: "base" }),
       );
     }
-    return matching;
-  }, [items, kind, sort]);
+    return items;
+  }, [items, sort]);
 
   // Newest-first keeps the familiar Avui/Ahir/date sections. A–Z is one flat
   // list without day headings.
