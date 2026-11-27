@@ -4,9 +4,9 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
-## [Unreleased]
+## [v2.4.3] — 2026-11-27
 
-Changes accumulated on `dev` after `v2.4.2`.
+Patch release for the airplane-mode offline recovery and safe PWA updates.
 
 ### Fixed
 
