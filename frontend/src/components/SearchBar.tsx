@@ -14,6 +14,8 @@ interface SearchBarProps {
   error?: boolean;
   describedBy?: string;
   className?: string;
+  /** Focus the field as soon as it mounts, e.g. a disclosed search overlay. */
+  autoFocus?: boolean;
 }
 
 /** Material 3 search bar with a trailing submit action. */
@@ -29,6 +31,7 @@ export default function SearchBar({
   error = false,
   describedBy,
   className = "",
+  autoFocus = false,
 }: SearchBarProps) {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -44,6 +47,7 @@ export default function SearchBar({
       <Icon name="search" className="text-[24px] shrink-0 text-on-surface-variant" />
       <input
         type="text"
+        autoFocus={autoFocus}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

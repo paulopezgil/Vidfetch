@@ -13,6 +13,11 @@ interface SegmentedButtonProps {
   onChange: (value: string) => void;
   label?: string;
   className?: string;
+  /**
+   * Icon-only below `sm`, with the label still exposed as the accessible name.
+   * Keeps a long section switch on one line next to a trailing action.
+   */
+  compact?: boolean;
 }
 
 /** Material 3 single-select segmented button. */
@@ -22,6 +27,7 @@ export default function SegmentedButton({
   onChange,
   label,
   className = "",
+  compact = false,
 }: SegmentedButtonProps) {
   return (
     <div
@@ -37,6 +43,8 @@ export default function SegmentedButton({
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={compact ? option.label : undefined}
+            title={compact ? option.label : undefined}
             disabled={option.disabled}
             onClick={() => onChange(option.value)}
             className={`inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2.5 text-label-large transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-secondary disabled:pointer-events-none disabled:opacity-[0.38] sm:flex-none sm:gap-2 sm:px-4 ${
@@ -47,7 +55,11 @@ export default function SegmentedButton({
                 : "text-on-surface hover:bg-on-surface/8"
             }`}
           >
-            {selected ? (
+            {compact ? (
+              option.icon ? (
+                <Icon name={option.icon} className="text-[18px]" />
+              ) : null
+            ) : selected ? (
               <Icon name="check" className="text-[18px]" />
             ) : option.icon ? (
               <Icon
@@ -55,7 +67,15 @@ export default function SegmentedButton({
                 className="hidden text-[18px] sm:inline"
               />
             ) : null}
-            <span className="whitespace-nowrap">{option.label}</span>
+            <span
+              className={
+                compact
+                  ? "sr-only whitespace-nowrap sm:not-sr-only"
+                  : "whitespace-nowrap"
+              }
+            >
+              {option.label}
+            </span>
           </button>
         );
       })}

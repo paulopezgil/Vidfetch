@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { Track } from "../types/v2";
 import { formatBytes, formatDate } from "../lib";
 import {
@@ -24,7 +25,6 @@ import Menu from "../components/Menu";
 import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import AddToPlaylistDialog from "../components/AddToPlaylistDialog";
 import TrackEditDialog from "../components/TrackEditDialog";
-import SearchBar from "../components/SearchBar";
 import Button from "../components/Button";
 import StatusChip from "../components/StatusChip";
 import OfflineButton from "../components/OfflineButton";
@@ -83,9 +83,9 @@ export default function Library({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>(initialSort);
-  const [searchInput, setSearchInput] = useState("");
-  /** Trimmed query that actually reaches `GET /api/tracks`. */
-  const [query, setQuery] = useState("");
+  /** Trimmed query shared through the URL (`?q=`), set by the library hub. */
+  const [searchParams] = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     label: string;
@@ -98,19 +98,12 @@ export default function Library({
   const nounSingular = kind === "audio" ? "cançó" : "vídeo";
   const nounTitle = kind === "audio" ? "cançons" : "vídeos";
 
-  const submitSearch = useCallback((value: string) => {
-    const next = value.trim();
-    setQuery((current) => (current === next ? current : next));
+  // A new search always starts from the first page. Adjusting the state during
+  // render avoids one fetch with the new query and the previous offset.
+  const previousQueryRef = useRef(query);
+  if (previousQueryRef.current !== query) {
+    previousQueryRef.current = query;
     setOffset(0);
-  }, []);
-
-  function handleSearchChange(value: string) {
-    setSearchInput(value);
-    // Clearing the field drops the filter immediately, without a submit.
-    if (value.trim() === "" && query !== "") {
-      setQuery("");
-      setOffset(0);
-    }
   }
 
   const changeSort = useCallback(
@@ -238,16 +231,7 @@ export default function Library({
     <div className={containerClass}>
       {error ? <ErrorBanner message={error} onRetry={refresh} /> : null}
 
-      <div className="flex items-center gap-2">
-        <SearchBar
-          className="min-w-0 flex-1"
-          value={searchInput}
-          onChange={handleSearchChange}
-          onSubmit={() => submitSearch(searchInput)}
-          label={`Cerca ${noun}`}
-          placeholder="Cerca per títol, artista o àlbum"
-          loading={loading}
-        />
+      <div className="flex items-center justify-end gap-2">
         <Menu
           label={`Ordena per: ${sortLabel}`}
           icon="sort"

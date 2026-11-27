@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { Track } from "../types/v2";
 import { formatDuration } from "../lib";
 import {
@@ -38,7 +39,7 @@ interface Group {
 const TRACK_LIMIT = 200;
 
 const tabOptions = [
-  { value: "artists", label: "Artistes", icon: "graphic_eq" },
+  { value: "artists", label: "Artistes", icon: "person" },
   { value: "albums", label: "Àlbums", icon: "album" },
 ];
 
@@ -93,6 +94,19 @@ export default function ArtistsAlbums({
     tracks: Track[];
   } | null>(null);
   const toast = useToast();
+  const [searchParams] = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
+  const normalizedQuery = query.toLocaleLowerCase("ca");
+
+  // The hub owns the shared search; group only the tracks that match it.
+  const filteredTracks = useMemo(() => {
+    if (!normalizedQuery) return tracks;
+    return tracks.filter((track) =>
+      [track.title, track.artist, track.album].some((value) =>
+        (value ?? "").toLocaleLowerCase("ca").includes(normalizedQuery),
+      ),
+    );
+  }, [normalizedQuery, tracks]);
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
@@ -120,13 +134,18 @@ export default function ArtistsAlbums({
     setSelected(null);
   }, [initialTab]);
 
+  // A new query starts from the overview instead of a stale drill-down.
+  useEffect(() => {
+    setSelected(null);
+  }, [normalizedQuery]);
+
   const artists = useMemo(
-    () => groupTracks(tracks, (track) => track.artist, UNKNOWN_ARTIST),
-    [tracks],
+    () => groupTracks(filteredTracks, (track) => track.artist, UNKNOWN_ARTIST),
+    [filteredTracks],
   );
   const albums = useMemo(
-    () => groupTracks(tracks, (track) => track.album, UNKNOWN_ALBUM),
-    [tracks],
+    () => groupTracks(filteredTracks, (track) => track.album, UNKNOWN_ALBUM),
+    [filteredTracks],
   );
 
   const groups = tab === "artists" ? artists : albums;
@@ -186,7 +205,15 @@ export default function ArtistsAlbums({
         />
       ) : null}
 
-      {tracks.length > 0 ? (
+      {!error && tracks.length > 0 && filteredTracks.length === 0 ? (
+        <EmptyState
+          icon="search_off"
+          title="Cap resultat per a la cerca"
+          description={`No hi ha cap cançó que coincideixi amb «${query}». Prova un altre terme o neteja la cerca.`}
+        />
+      ) : null}
+
+      {tracks.length > 0 && filteredTracks.length > 0 ? (
         <>
           {!embedded ? (
             <div className="px-1">
