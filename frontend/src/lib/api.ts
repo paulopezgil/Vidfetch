@@ -689,6 +689,8 @@ export interface TrackQuery {
   q?: string;
   /** Server-side order: newest download first, or title A–Z. */
   sort?: "downloaded" | "title";
+  /** Restrict the page to one media kind. */
+  kind?: "audio" | "video" | "image";
 }
 
 /** `GET /api/tracks` — the caller's ready tracks, newest first by default. */
@@ -699,6 +701,7 @@ export function listTracks(params: TrackQuery = {}): Promise<TrackList> {
   const q = params.q?.trim();
   if (q) query.set("q", q);
   if (params.sort) query.set("sort", params.sort);
+  if (params.kind) query.set("kind", params.kind);
   const suffix = query.toString();
   return apiFetch<TrackList>(
     `/tracks${suffix ? `?${suffix}` : ""}`,
