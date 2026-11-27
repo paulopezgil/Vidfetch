@@ -211,6 +211,34 @@ async def list_items(
     return [dict(row) for row in rows]
 
 
+def _qualify_columns(columns: str, alias: str) -> str:
+    """Prefix a comma-separated column list with ``alias``."""
+    return ", ".join(
+        f"{alias}.{name.strip()}" for name in columns.split(",")
+    )
+
+
+async def list_items_with_thumbnail_paths(
+    db: Database, playlist_id: str | UUID
+) -> list[dict[str, Any]]:
+    """Return a playlist's items in source order plus linked asset thumbnails.
+
+    Each row carries the normal item columns and ``asset_thumbnail_path``: the
+    storage-relative thumbnail of the linked shared asset, or ``None`` when the
+    item has no asset or the asset has no thumbnail. That path is internal and
+    must never be returned to clients; routers sign a thumbnail URL instead.
+    """
+    item_columns = _qualify_columns(PLAYLIST_ITEM_COLUMNS, "pi")
+    rows = await db.fetch(
+        f"select {item_columns}, a.thumbnail_path as asset_thumbnail_path "
+        f"from {db.schema_sql}.playlist_items pi "
+        f"left join {db.schema_sql}.media_assets a on a.id = pi.asset_id "
+        f"where pi.playlist_id = $1 order by pi.position asc, pi.id asc",
+        _as_uuid(playlist_id),
+    )
+    return [dict(row) for row in rows]
+
+
 def _dedupe_entries(
     entries: Iterable[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:

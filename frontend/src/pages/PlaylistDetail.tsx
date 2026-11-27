@@ -32,6 +32,7 @@ import NowPlayingIndicator from "../components/NowPlayingIndicator";
 import { useToast } from "../components/Toast";
 import { useDownloads } from "../downloads/DownloadsProvider";
 import { useMediaToken } from "../lib/useMediaToken";
+import { isOffline } from "../offline/status";
 import { usePlayer } from "../player/PlayerProvider";
 import { setActivePlaylistTitle } from "../navigation";
 
@@ -119,7 +120,11 @@ export default function PlaylistDetail() {
 
   const refresh = useCallback(async () => {
     try {
-      setDetail(await getPlaylist(id));
+      const next = await getPlaylist(id);
+      setDetail({
+        ...next,
+        items: Array.isArray(next.items) ? next.items : [],
+      });
       setError(null);
     } catch (e) {
       setError(
@@ -164,10 +169,16 @@ export default function PlaylistDetail() {
     [activeJobs],
   );
 
+  // An older cached payload may not carry an `items` array at all.
+  const items = useMemo(
+    () => (detail && Array.isArray(detail.items) ? detail.items : []),
+    [detail],
+  );
+
   // Every ready item is playable through the shared player, in playlist order.
   const playableQueue = useMemo(() => {
     if (!detail) return [];
-    return detail.items
+    return items
       .filter((item) => item.status === "ready" && item.asset_id)
       .map((item) =>
         playlistItemToTrack(
@@ -177,7 +188,7 @@ export default function PlaylistDetail() {
           detail.title,
         ),
       );
-  }, [detail]);
+  }, [detail, items]);
 
   const playlistJobActive = detail
     ? activeJobs.some(
@@ -185,11 +196,12 @@ export default function PlaylistDetail() {
           job.source_url === detail.source_url || job.playlist_id === detail.id,
       )
     : false;
-  const itemJobActive =
-    detail?.items.some((item) => activeSourceUrls.has(item.source_url)) ??
-    false;
-  const downloadingItems =
-    detail?.items.some((item) => item.status === "downloading") ?? false;
+  const itemJobActive = items.some((item) =>
+    activeSourceUrls.has(item.source_url),
+  );
+  const downloadingItems = items.some(
+    (item) => item.status === "downloading",
+  );
   const shouldPoll =
     playlistJobActive ||
     itemJobActive ||
@@ -269,6 +281,7 @@ export default function PlaylistDetail() {
   }
 
   if (error || !detail) {
+    const offline = Boolean(error) && isOffline();
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
         <Link
@@ -278,15 +291,22 @@ export default function PlaylistDetail() {
           <Icon name="arrow_back" className="text-[20px]" /> Llistes
         </Link>
         <EmptyState
-          icon="playlist_remove"
-          title="No s’ha trobat la llista de reproducció"
-          description={error ?? "Aquesta llista de reproducció no existeix."}
+          icon={offline ? "cloud_off" : "playlist_remove"}
+          title={
+            offline
+              ? "Aquesta llista no està disponible sense connexió"
+              : "No s’ha trobat la llista de reproducció"
+          }
+          description={
+            offline
+              ? "Obre aquesta llista una vegada amb connexió perquè les seves dades es desin al dispositiu."
+              : error ?? "Aquesta llista de reproducció no existeix."
+          }
         />
       </div>
     );
   }
 
-  const items = detail.items;
   // Failed items have no usable media and their error details are never shown
   // here; they are surfaced generically on Home instead.
   const visibleItems = items.filter((item) => item.status !== "failed");
@@ -516,7 +536,7 @@ function ItemRow({
   const [downloadingFile, setDownloadingFile] = useState(false);
   const ready = item.status === "ready" && Boolean(item.asset_id);
   const mediaType = mediaTypeForSelector(formatSelector);
-  const thumbSrc = token?.thumbnail_url ?? item.thumbnail_url ?? null;
+  const thumbSrc = item.thumbnail_url ?? token?.thumbnail_url ?? null;
   const track = useMemo(
     () => playlistItemToTrack(item, formatSelector, channel, playlistTitle),
     [item, formatSelector, channel, playlistTitle],

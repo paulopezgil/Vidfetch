@@ -395,6 +395,7 @@ class PlaylistItemOut(_ORMModel):
     job_id: UUID | None = None
     status: PlaylistItemStatus = "pending"
     error: str = ""
+    thumbnail_url: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

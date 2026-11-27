@@ -425,7 +425,12 @@ function FileRow({
   return (
     <div className="flex flex-wrap items-center gap-3 p-4">
       <Thumbnail
-        src={item.cover_url ?? token?.thumbnail_url ?? null}
+        src={
+          item.cover_url ??
+          item.thumbnail_url ??
+          token?.thumbnail_url ??
+          null
+        }
         icon={icon}
         className="aspect-video w-20"
       />
