@@ -4,6 +4,25 @@ All notable changes to Vidfetch are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); releases follow
 Semantic Versioning and are cut from `main`.
 
+## [v2.6.2] — 2026-11-27
+
+Patch release polishing Biblioteca search, Llistes, and the mobile top bar.
+
+### Changed
+
+- **Biblioteca search.** The in-page search bar is replaced by a magnifying
+  glass aligned to the far right of the section row. It opens an overlay over
+  the tabs, writes the query to `?q=`, and filters all four sections (songs,
+  videos, albums, artists).
+- **Responsive Biblioteca tabs.** On small screens the section switch is
+  icon-only with accessible labels; the Artistes icon is now a person.
+- **Llistes header.** The redundant page-level "Llistes" title and the two
+  explanatory paragraphs are removed. The page starts directly with
+  **Les meves llistes**, followed by shared playlists.
+- **Mobile top bar.** The app header now includes
+  `env(safe-area-inset-top)` padding and uses `min-h-16`, keeping the semantic
+  header/title/avatar structure and the existing surface typography tokens.
+
 ## [v2.6.1] — 2026-11-27
 
 Patch release removing the redundant Llistes header description.

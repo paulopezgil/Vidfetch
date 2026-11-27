@@ -6,4 +6,4 @@ build-time value.
 """
 from __future__ import annotations
 
-APP_VERSION = "2.6.1"
+APP_VERSION = "2.6.2"
